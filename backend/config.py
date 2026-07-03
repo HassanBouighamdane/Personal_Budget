@@ -14,11 +14,11 @@ except ImportError:
 BASE_DIR = Path(__file__).parent
 FRONT_DIR = BASE_DIR.parent / "frontend"
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://budget:budget@localhost:5432/budget")
+DATABASE_URL = os.environ.get("DATABASE_URL")
 PORT = int(os.environ.get("PORT", 8500))                       # Render fournit PORT automatiquement
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() == "true"   # true en production HTTPS
-ADMIN_UTILISATEUR = os.environ.get("ADMIN_UTILISATEUR", "admin")
-ADMIN_MOT_DE_PASSE = os.environ.get("ADMIN_MOT_DE_PASSE", "admin")
+ADMIN_UTILISATEUR = os.environ.get("ADMIN_UTILISATEUR")
+ADMIN_MOT_DE_PASSE = os.environ.get("ADMIN_MOT_DE_PASSE")
 DUREE_SESSION_JOURS = 1
 
 CATEGORIES_DEFAUT = [
@@ -30,4 +30,4 @@ CATEGORIES_DEFAUT = [
     ("Imprévus & Divers", 1000),
 ]
 SOURCES_DEFAUT = [("Salaire",), ("Prime",), ("Freelance",), ("Remboursement",)]
-PAIEMENTS_DEFAUT = [("Espèces",), ("Carte",), ("Virement",), ("Mobile",)]
+PAIEMENTS_DEFAUT = [("Espèces",), ("Carte",), ("Virement",)]
