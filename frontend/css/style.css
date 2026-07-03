@@ -533,6 +533,41 @@ canvas.haut { max-height: 320px; }
   to   { opacity: 1; transform: translate(-50%, 0); }
 }
 
+/* ---------- Écran de connexion ---------- */
+.login-ecran {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 15;
+}
+.login-card {
+  width: min(380px, 100%);
+  padding: 32px 28px;
+  text-align: left;
+}
+.login-titre {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 26px;
+  font-weight: 700;
+  text-align: center;
+  letter-spacing: -.02em;
+}
+.login-titre span {
+  background: linear-gradient(120deg, var(--accent), var(--accent-fonce));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.login-sous-titre {
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  margin: 6px 0 10px;
+}
+
 /* ---------- Divers ---------- */
 .vide {
   color: var(--muted);

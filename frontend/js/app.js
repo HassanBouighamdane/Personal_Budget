@@ -45,11 +45,64 @@ function toast(msg, ok = true) {
 
 async function api(path, opts) {
   const r = await fetch(API_URL + path, opts);
+  if (r.status === 401) {
+    afficherLogin(true);
+    throw new Error('Non authentifié');
+  }
   if (!r.ok) {
-    toast('Erreur : ' + (await r.text()).slice(0, 80), false);
+    let msg = 'Erreur';
+    try { msg = (await r.json()).detail || msg; } catch (e) { }
+    toast(msg, false);
     throw new Error('API ' + r.status);
   }
   return r.json();
+}
+
+/* ---------------- Authentification ---------------- */
+function afficherLogin(afficher) {
+  $('ecran-login').style.display = afficher ? '' : 'none';
+  $('entete').style.display = afficher ? 'none' : '';
+  $('contenu').style.display = afficher ? 'none' : '';
+  $('nav-tabs').style.display = afficher ? 'none' : '';
+  if (afficher) setTimeout(() => $('l-user').focus(), 100);
+}
+
+async function connexion() {
+  const utilisateur = $('l-user').value.trim();
+  const mot_de_passe = $('l-mdp').value;
+  if (!utilisateur || !mot_de_passe) return toast('Utilisateur et mot de passe requis', false);
+  try {
+    await api('/api/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ utilisateur, mot_de_passe })
+    });
+  } catch (e) { return; }   // le message d'erreur est déjà affiché
+  $('l-mdp').value = '';
+  demarrerApp();
+}
+
+async function deconnexion() {
+  await api('/api/logout', { method: 'POST' });
+  toast('À bientôt 👋');
+  afficherLogin(true);
+}
+
+async function changerMdp() {
+  const actuel = $('p-mdp-actuel').value, nouveau = $('p-mdp-nouveau').value;
+  if (nouveau.length < 6) return toast('6 caractères minimum', false);
+  await api('/api/mot_de_passe', {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actuel, nouveau })
+  });
+  $('p-mdp-actuel').value = ''; $('p-mdp-nouveau').value = '';
+  toast('Mot de passe changé — reconnecte-toi ✓');
+  setTimeout(() => afficherLogin(true), 1200);
+}
+
+function demarrerApp() {
+  afficherLogin(false);
+  montrer('saisie');
+  chargerCats().then(chargerTransactions);
 }
 
 function montrer(t) {
@@ -178,23 +231,43 @@ async function chargerTransactions() {
 /* ---------------- Dashboard : navigation ---------------- */
 let vueDash = 'mois';
 let anneeCour = new Date().getFullYear();
+let jourCour = null;       // initialisé au premier affichage
+let semaineCour = null;    // n'importe quel jour de la semaine affichée
+const JOURS_FR = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche'];
+
+// Décale une date AAAA-MM-JJ de n jours (calcul local, sans UTC)
+function decalerDate(dateStr, n) {
+  const [a, m, j] = dateStr.split('-').map(Number);
+  const d = new Date(a, m - 1, j + n);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function dateFr(dateStr, avecAnnee = true) {
+  const [a, m, j] = dateStr.split('-').map(Number);
+  return j + ' ' + MOIS_FR[m - 1].toLowerCase() + (avecAnnee ? ' ' + a : '');
+}
 
 function changerVue(v) {
   vueDash = v;
-  $('v-mois').classList.toggle('active', v === 'mois');
-  $('v-annee').classList.toggle('active', v === 'annee');
-  $('vue-mois').style.display = v === 'mois' ? '' : 'none';
-  $('vue-annee').style.display = v === 'annee' ? '' : 'none';
+  for (const x of ['jour', 'semaine', 'mois', 'annee']) {
+    $('v-' + x).classList.toggle('active', x === v);
+    $('vue-' + x).style.display = x === v ? '' : 'none';
+  }
   chargerDashboard();
 }
 
 function navDash(delta) {
   if (vueDash === 'annee') { anneeCour += delta; chargerDashAnnee(); }
-  else changerMois(delta);
+  else if (vueDash === 'mois') changerMois(delta);
+  else if (vueDash === 'semaine') { semaineCour = decalerDate(semaineCour, delta * 7); chargerDashSemaine(); }
+  else { jourCour = decalerDate(jourCour, delta); chargerDashJour(); }
 }
 
 function chargerDashboard() {
+  if (!jourCour) jourCour = auj();
+  if (!semaineCour) semaineCour = auj();
   if (vueDash === 'annee') chargerDashAnnee();
+  else if (vueDash === 'semaine') chargerDashSemaine();
+  else if (vueDash === 'jour') chargerDashJour();
   else chargerDash();
 }
 
@@ -296,6 +369,102 @@ async function chargerDash() {
         <td>${t.description || ''}</td><td class="num dep-amt">${fmt(t.montant)}</td></tr>`).join('') +
       '</tbody></table>'
     : '<div class="vide">Aucune dépense ce mois</div>';
+}
+
+/* ---------------- Vue journalière ---------------- */
+async function chargerDashJour() {
+  const r = await api('/api/resume_jour?date=' + jourCour);
+  const [a, m, j] = jourCour.split('-').map(Number);
+  const nomJour = JOURS_FR[(new Date(a, m - 1, j).getDay() + 6) % 7];
+  $('mois-titre').textContent = nomJour + ' ' + dateFr(jourCour);
+
+  const solde = r.total_revenus - r.total_depenses;
+  const budgetC = r.total_depenses <= r.budget_jour ? 'var(--green)' : 'var(--red)';
+
+  $('j-kpis').innerHTML = `
+    <div class="kpi"><div class="l">Dépenses du jour</div>
+      <div class="v" style="color:var(--accent)">${fmt(r.total_depenses)}${badge(r.total_depenses, r.depenses_veille)}</div>
+      <div class="h">veille : ${fmt(r.depenses_veille)}</div></div>
+    <div class="kpi"><div class="l">Revenus du jour</div>
+      <div class="v" style="color:var(--blue)">${fmt(r.total_revenus)}</div></div>
+    <div class="kpi"><div class="l">Budget journalier</div>
+      <div class="v" style="color:${budgetC}">${fmt(r.budget_jour)}</div>
+      <div class="h">${r.total_depenses <= r.budget_jour ? 'dans le budget ✓' : 'dépassé de ' + fmt(r.total_depenses - r.budget_jour)}</div></div>
+    <div class="kpi"><div class="l">Moyenne / jour du mois</div>
+      <div class="v">${fmt(r.moyenne_jour_mois)}</div></div>
+    <div class="kpi"><div class="l">Transactions</div>
+      <div class="v">${r.nb_transactions}</div></div>`;
+
+  dessiner('c-j-donut', {
+    type: 'doughnut',
+    data: {
+      labels: r.donut.map(x => x.cat),
+      datasets: [{ data: r.donut.map(x => x.montant), backgroundColor: PALETTE, borderWidth: 0 }]
+    },
+    options: { plugins: { legend: { position: 'right', labels: { boxWidth: 11, font: { size: 11 } } } } }
+  });
+
+  const lignes = [
+    ...r.depenses.map(x => ({ lbl: x.categorie + (x.description ? ' — ' + x.description : ''), m: x.montant, cls: 'dep-amt', sg: '−', extra: x.paiement })),
+    ...r.revenus.map(x => ({ lbl: x.source || 'Revenu', m: x.montant, cls: 'rev-amt', sg: '+', extra: '' }))
+  ];
+  $('j-trans').innerHTML = lignes.length
+    ? '<table><tbody>' + lignes.map(l =>
+        `<tr><td>${l.lbl}</td><td style="color:var(--muted);font-size:11px">${l.extra}</td>
+         <td class="num ${l.cls}">${l.sg} ${fmt(l.m)}</td></tr>`).join('') + '</tbody></table>'
+    : '<div class="vide">Aucune transaction ce jour</div>';
+}
+
+/* ---------------- Vue hebdomadaire ---------------- */
+async function chargerDashSemaine() {
+  const r = await api('/api/resume_semaine?date=' + semaineCour);
+  $('mois-titre').textContent = 'Semaine du ' + dateFr(r.lundi, false) + ' au ' + dateFr(r.dimanche);
+
+  const epC = r.epargne >= 0 ? 'var(--green)' : 'var(--red)';
+  const resteC = r.reste_budget_hebdo >= 0 ? 'var(--green)' : 'var(--red)';
+
+  $('s-kpis').innerHTML = `
+    <div class="kpi"><div class="l">Dépenses</div>
+      <div class="v" style="color:var(--accent)">${fmt(r.total_depenses)}${badge(r.total_depenses, r.depenses_semaine_precedente)}</div>
+      <div class="h">semaine préc. : ${fmt(r.depenses_semaine_precedente)}</div></div>
+    <div class="kpi"><div class="l">Revenus</div>
+      <div class="v" style="color:var(--blue)">${fmt(r.total_revenus)}${badge(r.total_revenus, r.revenus_semaine_precedente, true)}</div></div>
+    <div class="kpi"><div class="l">Solde de la semaine</div>
+      <div class="v" style="color:${epC}">${fmt(r.epargne)}</div></div>
+    <div class="kpi"><div class="l">Reste budget hebdo</div>
+      <div class="v" style="color:${resteC}">${fmt(r.reste_budget_hebdo)}</div>
+      <div class="h">sur ${fmt(r.budget_hebdo)}</div></div>`;
+
+  dessiner('c-s-jours', {
+    type: 'bar',
+    data: {
+      labels: r.par_jour.map((x, i) => JOURS_FR[i].slice(0, 3) + ' ' + x.date.slice(8)),
+      datasets: [
+        { label: 'Dépenses', data: r.par_jour.map(x => x.dep), backgroundColor: '#f2a63c', borderRadius: 5 },
+        { label: 'Revenus', data: r.par_jour.map(x => x.rev), backgroundColor: '#55c3ee', borderRadius: 5 }
+      ]
+    },
+    options: {
+      plugins: { legend: { labels: { boxWidth: 11 } } },
+      scales: { y: { ticks: { callback: v => v.toLocaleString('fr-FR') } } }
+    }
+  });
+
+  dessiner('c-s-donut', {
+    type: 'doughnut',
+    data: {
+      labels: r.donut.map(x => x.cat),
+      datasets: [{ data: r.donut.map(x => x.montant), backgroundColor: PALETTE, borderWidth: 0 }]
+    },
+    options: { plugins: { legend: { position: 'right', labels: { boxWidth: 11, font: { size: 11 } } } } }
+  });
+
+  $('s-top').innerHTML = r.top.length
+    ? '<table><tbody>' + r.top.map(t =>
+        `<tr><td style="color:var(--muted);white-space:nowrap">${t.date.slice(8)}/${t.date.slice(5, 7)}</td>
+         <td>${t.categorie}${t.description ? ' — ' + t.description : ''}</td>
+         <td class="num dep-amt">${fmt(t.montant)}</td></tr>`).join('') + '</tbody></table>'
+    : '<div class="vide">Aucune dépense cette semaine</div>';
 }
 
 function dessiner(id, cfg) {
@@ -525,10 +694,15 @@ function basculerTheme() {
 }
 
 /* ---------------- Init ---------------- */
-(function init() {
+(async function init() {
   appliquerTheme(localStorage.getItem('theme') || 'dark');
   $('d-date').value = auj();
   $('r-date').value = auj();
   $('jour').textContent = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-  chargerCats().then(chargerTransactions);
+  try {
+    await api('/api/me');    // session valide ?
+    demarrerApp();
+  } catch (e) {
+    afficherLogin(true);     // sinon, écran de connexion
+  }
 })();

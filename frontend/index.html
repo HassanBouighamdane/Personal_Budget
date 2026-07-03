@@ -13,15 +13,30 @@
 <body>
 <div class="toast" id="toast"></div>
 
-<header>
+<!-- ===================== ÉCRAN DE CONNEXION ===================== -->
+<div id="ecran-login" class="login-ecran" style="display:none">
+  <div class="card login-card">
+    <h1 class="login-titre">💰 Mon <span>Budget</span></h1>
+    <p class="login-sous-titre">Connecte-toi pour accéder à ton budget</p>
+    <label>Utilisateur</label>
+    <input type="text" id="l-user" autocomplete="username">
+    <label>Mot de passe</label>
+    <input type="password" id="l-mdp" autocomplete="current-password"
+           onkeydown="if(event.key==='Enter')connexion()">
+    <button class="btn btn-dep" onclick="connexion()">Se connecter</button>
+  </div>
+</div>
+
+<header id="entete" style="display:none">
   <h1>💰 Mon <span>Budget</span></h1>
   <div class="header-droite">
     <div id="jour" class="jour"></div>
     <button id="btn-theme" class="theme-btn" onclick="basculerTheme()" title="Mode jour / nuit">☀️</button>
+    <button class="theme-btn" onclick="deconnexion()" title="Se déconnecter">⏻</button>
   </div>
 </header>
 
-<main>
+<main id="contenu" style="display:none">
   <!-- ===================== SAISIE ===================== -->
   <section id="tab-saisie">
     <div class="grid2">
@@ -64,8 +79,29 @@
       <div class="titre" id="mois-titre"></div>
       <button onclick="navDash(1)">›</button>
       <div class="vue-toggle">
+        <button id="v-jour" onclick="changerVue('jour')">Jour</button>
+        <button id="v-semaine" onclick="changerVue('semaine')">Semaine</button>
         <button id="v-mois" class="active" onclick="changerVue('mois')">Mois</button>
         <button id="v-annee" onclick="changerVue('annee')">Année</button>
+      </div>
+    </div>
+
+    <!-- ---------- Vue journalière ---------- -->
+    <div id="vue-jour" style="display:none">
+      <div class="kpis" id="j-kpis"></div>
+      <div class="grid2">
+        <div class="card"><h2>Répartition du jour</h2><canvas id="c-j-donut"></canvas></div>
+        <div class="card"><h2>Transactions du jour</h2><div id="j-trans"></div></div>
+      </div>
+    </div>
+
+    <!-- ---------- Vue hebdomadaire ---------- -->
+    <div id="vue-semaine" style="display:none">
+      <div class="kpis" id="s-kpis"></div>
+      <div class="card"><h2>Dépenses et revenus par jour</h2><canvas id="c-s-jours" class="haut"></canvas></div>
+      <div class="grid2">
+        <div class="card"><h2>Répartition de la semaine</h2><canvas id="c-s-donut"></canvas></div>
+        <div class="card"><h2>Top dépenses de la semaine</h2><div id="s-top"></div></div>
       </div>
     </div>
 
@@ -134,10 +170,18 @@
         </div>
       </div>
     </div>
+    <div class="card">
+      <h2>🔐 Changer le mot de passe</h2>
+      <label>Mot de passe actuel</label>
+      <input type="password" id="p-mdp-actuel" autocomplete="current-password">
+      <label>Nouveau mot de passe (6 caractères min.)</label>
+      <input type="password" id="p-mdp-nouveau" autocomplete="new-password">
+      <button class="btn btn-dep" onclick="changerMdp()">Mettre à jour</button>
+    </div>
   </section>
 </main>
 
-<nav class="tabs">
+<nav class="tabs" id="nav-tabs" style="display:none">
   <button id="b-saisie" class="active" onclick="montrer('saisie')">📝 Saisie</button>
   <button id="b-dash" onclick="montrer('dash')">📊 Dashboard</button>
   <button id="b-params" onclick="montrer('params')">⚙️ Paramètres</button>
