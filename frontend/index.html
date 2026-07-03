@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mon Budget</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+  <script src="js/chart.umd.min.js"></script>
+</head>
+<body>
+<div class="toast" id="toast"></div>
+
+<header>
+  <h1>💰 Mon <span>Budget</span></h1>
+  <div class="header-droite">
+    <div id="jour" class="jour"></div>
+    <button id="btn-theme" class="theme-btn" onclick="basculerTheme()" title="Mode jour / nuit">☀️</button>
+  </div>
+</header>
+
+<main>
+  <!-- ===================== SAISIE ===================== -->
+  <section id="tab-saisie">
+    <div class="grid2">
+      <div class="card">
+        <h2>➖ Nouvelle dépense</h2>
+        <label>Date</label>
+        <input type="date" id="d-date">
+        <label>Catégorie</label>
+        <select id="d-cat"></select>
+        <label>Montant (DH)</label>
+        <input type="text" id="d-montant" inputmode="decimal" placeholder="0,00">
+        <label>Description (optionnel)</label>
+        <input type="text" id="d-desc" placeholder="ex : courses Marjane">
+        <label>Paiement</label>
+        <div class="chips" id="d-pays"></div>
+        <button class="btn btn-dep" onclick="ajouterDepense()">Ajouter la dépense</button>
+      </div>
+      <div class="card">
+        <h2>➕ Nouveau revenu</h2>
+        <label>Date</label>
+        <input type="date" id="r-date">
+        <label>Source</label>
+        <select id="r-source" onchange="basculerSourceAutre()"></select>
+        <input type="text" id="r-source-autre" placeholder="Précise la source..." style="display:none; margin-top:8px">
+        <label>Montant (DH)</label>
+        <input type="text" id="r-montant" inputmode="decimal" placeholder="0,00">
+        <button class="btn btn-rev" onclick="ajouterRevenu()">Ajouter le revenu</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>🧾 Transactions du mois</h2>
+      <div id="liste-trans"></div>
+    </div>
+  </section>
+
+  <!-- ===================== DASHBOARD ===================== -->
+  <section id="tab-dash" style="display:none">
+    <div class="mois-nav">
+      <button onclick="navDash(-1)">‹</button>
+      <div class="titre" id="mois-titre"></div>
+      <button onclick="navDash(1)">›</button>
+      <div class="vue-toggle">
+        <button id="v-mois" class="active" onclick="changerVue('mois')">Mois</button>
+        <button id="v-annee" onclick="changerVue('annee')">Année</button>
+      </div>
+    </div>
+
+    <!-- ---------- Vue mensuelle ---------- -->
+    <div id="vue-mois">
+      <div class="kpis" id="kpis"></div>
+      <div class="grid2">
+        <div class="card"><h2>Budget vs Réel</h2><div id="bars"></div></div>
+        <div class="card"><h2>Répartition</h2><canvas id="c-donut"></canvas></div>
+      </div>
+      <div class="grid2">
+        <div class="card"><h2>Dépenses cumulées</h2><canvas id="c-cumul"></canvas></div>
+        <div class="card"><h2>Évolution 6 mois</h2><canvas id="c-evo"></canvas></div>
+      </div>
+      <div class="card"><h2>Top dépenses du mois</h2><div id="top"></div></div>
+    </div>
+
+    <!-- ---------- Vue annuelle ---------- -->
+    <div id="vue-annee" style="display:none">
+      <div class="kpis" id="an-kpis"></div>
+      <div class="card"><h2>Revenus, dépenses et épargne par mois</h2><canvas id="c-an-mois" class="haut"></canvas></div>
+      <div class="grid2">
+        <div class="card"><h2>Dépenses par catégorie (année)</h2><canvas id="c-an-cats"></canvas></div>
+        <div class="card"><h2>Épargne cumulée</h2><canvas id="c-an-cumul"></canvas></div>
+      </div>
+      <div class="card"><h2>Grille thermique — catégories × mois</h2><div id="an-grille" class="grille"></div></div>
+    </div>
+  </section>
+
+  <!-- ===================== PARAMÈTRES ===================== -->
+  <section id="tab-params" style="display:none">
+    <div class="card">
+      <h2>🎯 Objectif d'épargne mensuel</h2>
+      <div class="cat-row">
+        <input type="number" id="p-objectif" min="0">
+        <button class="btn-sm" onclick="sauverObjectif()">Enregistrer</button>
+      </div>
+    </div>
+    <div class="card">
+      <h2>📂 Catégories et budgets mensuels (DH)</h2>
+      <div id="p-cats"></div>
+      <h2 class="mt">Ajouter une catégorie</h2>
+      <div class="cat-row">
+        <input type="text" id="p-new-nom" placeholder="Nom">
+        <input type="number" id="p-new-budget" placeholder="Budget" min="0">
+        <button class="btn-sm" onclick="ajouterCategorie()">＋</button>
+      </div>
+    </div>
+    <div class="grid2">
+      <div class="card">
+        <h2>💼 Sources de revenus</h2>
+        <div id="p-sources"></div>
+        <h2 class="mt">Ajouter une source</h2>
+        <div class="cat-row">
+          <input type="text" id="p-new-source" placeholder="ex : Loyer perçu">
+          <button class="btn-sm" onclick="ajouterSource()">＋</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>💳 Types de paiement</h2>
+        <div id="p-paies"></div>
+        <h2 class="mt">Ajouter un type</h2>
+        <div class="cat-row">
+          <input type="text" id="p-new-paie" placeholder="ex : Chèque">
+          <button class="btn-sm" onclick="ajouterPaiement()">＋</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<nav class="tabs">
+  <button id="b-saisie" class="active" onclick="montrer('saisie')">📝 Saisie</button>
+  <button id="b-dash" onclick="montrer('dash')">📊 Dashboard</button>
+  <button id="b-params" onclick="montrer('params')">⚙️ Paramètres</button>
+</nav>
+
+<script src="js/app.js"></script>
+</body>
+</html>
