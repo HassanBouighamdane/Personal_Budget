@@ -26,12 +26,12 @@ DB_PATH = BASE_DIR / "budget.db"
 FRONT_DIR = BASE_DIR.parent / "frontend"
 
 CATEGORIES_DEFAUT = [
-    ("Alimentation & Courses", 2500), ("Restaurants & Cafés", 800),
-    ("Transport & Carburant", 1200), ("Loyer / Crédit logement", 4000),
-    ("Factures & Abonnements", 900), ("Santé & Pharmacie", 500),
-    ("Vêtements & Soins", 500), ("Loisirs & Sorties", 600),
-    ("Famille & Cadeaux", 700), ("Éducation & Formation", 400),
-    ("Imprévus & Divers", 500),
+    ("Alimentation & Courses", 1500), ("Cafés", 200),
+    ("Transport & Carburant", 400), ("Loyer", 300),
+    ("Factures & Abonnements", 700), ("Santé & Pharmacie", 100),
+    ("Vêtements & Soins", 200), ("Loisirs & Sorties", 500),
+    ("Famille & Cadeaux", 1500), ("Éducation & Formation", 200),
+    ("Imprévus & Divers", 1000),
 ]
 PAIEMENTS = ["Espèces", "Carte", "Virement", "Mobile"]
 
