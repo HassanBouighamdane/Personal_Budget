@@ -35,6 +35,8 @@ CATEGORIES_DEFAUT = [
 ]
 PAIEMENTS = ["Espèces", "Carte", "Virement", "Mobile"]
 
+
+
 # ------------------------------------------------------------------ DB
 @contextmanager
 def db():
