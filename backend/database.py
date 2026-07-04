@@ -79,7 +79,7 @@ def init_db():
                 cur.executemany("INSERT INTO sources_revenus(nom) VALUES(%s)", SOURCES_DEFAUT)
             if c.execute("SELECT COUNT(*) n FROM paiements").fetchone()["n"] == 0:
                 cur.executemany("INSERT INTO paiements(nom) VALUES(%s)", PAIEMENTS_DEFAUT)
-        c.execute("INSERT INTO params(cle,valeur) VALUES('objectif_epargne',2000) ON CONFLICT DO NOTHING")
+        c.execute("INSERT INTO params(cle,valeur) VALUES('objectif_epargne',5000) ON CONFLICT DO NOTHING")
         if c.execute("SELECT COUNT(*) n FROM utilisateurs").fetchone()["n"] == 0:
             c.execute("INSERT INTO utilisateurs(nom,mdp_hash) VALUES(%s,%s)",
                       (ADMIN_UTILISATEUR, hacher_mdp(ADMIN_MOT_DE_PASSE)))
