@@ -6,11 +6,12 @@ Architecture modulaire :
     config.py            variables d'environnement, constantes
     database.py          connexion PostgreSQL, initialisation du schéma
     securite.py          hachage des mots de passe, sessions
-    schemas.py           modèles Pydantic
-    routes/auth.py       login, logout, mot de passe
+    schemas.py            modèles Pydantic
+    routes/auth.py        login, logout, mot de passe
     routes/configuration.py   catégories, sources, paiements, objectif
     routes/transactions.py    dépenses, revenus
     routes/rapports.py        résumés jour / semaine / mois / année
+    routes/bourse.py          achats, ventes, commissions, TPCVM, positions, gains
 
 Installation :  pip install -r requirements.txt
 Lancement    :  python app.py
@@ -28,11 +29,11 @@ from fastapi.staticfiles import StaticFiles
 
 from config import FRONT_DIR, DATABASE_URL, PORT
 from database import init_db
-from routes import auth, configuration, transactions, rapports
+from routes import auth, configuration, transactions, rapports, bourse
 
 init_db()
 
-app = FastAPI(title="Mon Budget — API", version="2.1")
+app = FastAPI(title="Mon Budget — API", version="2.2")
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,6 +46,7 @@ app.include_router(auth.router)
 app.include_router(configuration.router)
 app.include_router(transactions.router)
 app.include_router(rapports.router)
+app.include_router(bourse.router)
 
 # Frontend statique — monté APRÈS les routes /api pour garder leur priorité
 if FRONT_DIR.exists():
@@ -53,7 +55,7 @@ if FRONT_DIR.exists():
 if __name__ == "__main__":
     import uvicorn
     print("=" * 56)
-    print("  💰 Mon Budget v2.1 — architecture modulaire")
+    print("  💰 Mon Budget v2.2 — module Bourse")
     print(f"     Interface : http://localhost:{PORT}")
     print(f"     API docs  : http://localhost:{PORT}/docs")
     print(f"     Base      : {DATABASE_URL.split('@')[-1]}")

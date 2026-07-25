@@ -135,6 +135,97 @@
     </div>
   </section>
 
+  <!-- ===================== BOURSE ===================== -->
+  <section id="tab-bourse" style="display:none">
+    <div class="mois-nav">
+      <div class="titre">📈 Bourse</div>
+      <div class="vue-toggle">
+        <button id="vb-transactions" class="active" onclick="changerVueBourse('transactions')">Transactions</button>
+        <button id="vb-positions" onclick="changerVueBourse('positions')">Positions</button>
+        <button id="vb-gains" onclick="changerVueBourse('gains')">Gains</button>
+        <button id="vb-dashboard" onclick="changerVueBourse('dashboard')">Dashboard</button>
+        <button id="vb-parametres" onclick="changerVueBourse('parametres')">Paramètres</button>
+      </div>
+    </div>
+
+    <!-- ---------- Transactions ---------- -->
+    <div id="vue-bourse-transactions">
+      <div class="grid2">
+        <div class="card">
+          <h2>➕ Achat / Vente</h2>
+          <label>Date</label>
+          <input type="date" id="b-date">
+          <label>Titre</label>
+          <input type="text" id="b-titre" placeholder="ex : ATW">
+          <label>Type</label>
+          <select id="b-type">
+            <option value="Achat">Achat</option>
+            <option value="Vente">Vente</option>
+          </select>
+          <label>Quantité</label>
+          <input type="number" id="b-qte" min="0" step="1">
+          <label>Cours unitaire (DH)</label>
+          <input type="text" id="b-prix" inputmode="decimal" placeholder="0,00">
+          <label>Autres frais (DH)</label>
+          <input type="text" id="b-frais" inputmode="decimal" placeholder="0,00">
+          <button class="btn btn-dep" onclick="ajouterTransactionBourse()">Ajouter la transaction</button>
+        </div>
+        <div class="card">
+          <h2>ℹ️ Taux appliqués</h2>
+          <p style="color:var(--muted); font-size:13px; line-height:1.6">
+            La commission, la TVA et le TPCVM sont définis dans l'onglet
+            <b>Paramètres</b> et appliqués automatiquement à chaque nouvelle
+            transaction. Le PRU (prix de revient unitaire) est recalculé en
+            coût moyen pondéré à chaque opération.
+          </p>
+        </div>
+      </div>
+      <div class="card">
+        <h2>🧾 Journal des transactions</h2>
+        <div id="b-liste-trans"></div>
+      </div>
+    </div>
+
+    <!-- ---------- Positions ---------- -->
+    <div id="vue-bourse-positions" style="display:none">
+      <div class="card">
+        <h2>📊 Portefeuille actuel</h2>
+        <div id="b-liste-positions"></div>
+      </div>
+    </div>
+
+    <!-- ---------- Gains ---------- -->
+    <div id="vue-bourse-gains" style="display:none">
+      <div class="card">
+        <h2>💵 Gains réalisés &amp; TPCVM</h2>
+        <div id="b-liste-gains"></div>
+      </div>
+    </div>
+
+    <!-- ---------- Dashboard ---------- -->
+    <div id="vue-bourse-dashboard" style="display:none">
+      <div class="kpis" id="b-kpis"></div>
+    </div>
+
+    <!-- ---------- Paramètres ---------- -->
+    <div id="vue-bourse-parametres" style="display:none">
+      <div class="card">
+        <h2>⚙️ Paramètres Bourse</h2>
+        <label>Commission courtage (%)</label>
+        <input type="text" id="bp-commission" inputmode="decimal">
+        <label>TVA sur commission (%)</label>
+        <input type="text" id="bp-tva" inputmode="decimal">
+        <label>Taux TPCVM (%)</label>
+        <input type="text" id="bp-tpcvm" inputmode="decimal">
+        <button class="btn-sm" onclick="sauverParametresBourse()">Enregistrer</button>
+        <p style="color:var(--muted); font-size:12px; margin-top:10px">
+          Valeurs indicatives : commission ≈ 0,6 %, TVA 10 %, TPCVM actions cotées 15 %.
+          À vérifier auprès de ton intermédiaire financier.
+        </p>
+      </div>
+    </div>
+  </section>
+
   <!-- ===================== PARAMÈTRES ===================== -->
   <section id="tab-params" style="display:none">
     <div class="card">
@@ -188,9 +279,11 @@
 <nav class="tabs" id="nav-tabs" style="display:none">
   <button id="b-saisie" class="active" onclick="montrer('saisie')">📝 Saisie</button>
   <button id="b-dash" onclick="montrer('dash')">📊 Dashboard</button>
+  <button id="b-bourse" onclick="montrer('bourse')">📈 Bourse</button>
   <button id="b-params" onclick="montrer('params')">⚙️ Paramètres</button>
 </nav>
 
 <script src="js/app.js"></script>
+<script src="js/bourse.js"></script>
 </body>
 </html>

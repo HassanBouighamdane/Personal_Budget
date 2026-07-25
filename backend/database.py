@@ -71,6 +71,40 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_depenses_date ON depenses(date);
         CREATE INDEX IF NOT EXISTS idx_revenus_date ON revenus(date);
+
+        CREATE TABLE IF NOT EXISTS bourse_parametres (
+            id              SERIAL PRIMARY KEY,
+            taux_commission NUMERIC(6,4) NOT NULL DEFAULT 0.0060,   -- 0.60 %
+            taux_tva        NUMERIC(6,4) NOT NULL DEFAULT 0.1000,   -- 10 %
+            taux_tpcvm      NUMERIC(6,4) NOT NULL DEFAULT 0.1500    -- 15 %
+        );
+        
+        CREATE TABLE IF NOT EXISTS bourse_transactions (
+            id              SERIAL PRIMARY KEY,
+            date_operation  DATE NOT NULL,
+            titre           VARCHAR(60) NOT NULL,
+            isin            VARCHAR(20),
+            type_operation  VARCHAR(10) NOT NULL CHECK (type_operation IN ('Achat', 'Vente')),
+            quantite        NUMERIC(14,4) NOT NULL CHECK (quantite > 0),
+            cours_unitaire  NUMERIC(14,4) NOT NULL CHECK (cours_unitaire >= 0),
+            taux_commission NUMERIC(6,4)  NOT NULL,   -- copié depuis les paramètres au moment de la saisie (traçabilité)
+            taux_tva        NUMERIC(6,4)  NOT NULL,
+            autres_frais    NUMERIC(14,4) NOT NULL DEFAULT 0,
+            cree_le         TIMESTAMP NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_bourse_tx_titre ON bourse_transactions (titre);
+        CREATE INDEX IF NOT EXISTS idx_bourse_tx_date  ON bourse_transactions (date_operation);
+        
+        CREATE TABLE IF NOT EXISTS bourse_prix (
+            titre        VARCHAR(60) PRIMARY KEY,
+            cours_actuel NUMERIC(14,4) NOT NULL DEFAULT 0,
+            maj_le       TIMESTAMP NOT NULL DEFAULT now()
+        );
+
+        INSERT INTO bourse_parametres (taux_commission, taux_tva, taux_tpcvm)
+        SELECT 0.0060, 0.1000, 0.1500
+        WHERE NOT EXISTS (SELECT 1 FROM bourse_parametres);
+        
         """)
         with c.cursor() as cur:
             if c.execute("SELECT COUNT(*) n FROM categories").fetchone()["n"] == 0:

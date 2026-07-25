@@ -111,6 +111,7 @@ function montrer(t) {
     $('b-' + x).classList.toggle('active', x === t);
   }
   if (t === 'dash') chargerDashboard();
+  if (t==='bourse') chargerBourse();
   if (t === 'params') chargerParams();
   if (t === 'saisie') chargerTransactions();
 }
