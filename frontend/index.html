@@ -155,8 +155,16 @@
           <h2>➕ Achat / Vente</h2>
           <label>Date</label>
           <input type="date" id="b-date">
+          <label>Type d'instrument</label>
+          <select id="b-instrument" onchange="basculerChampsInstrument()">
+            <option value="Action">Action</option>
+            <option value="Obligation">Obligation</option>
+            <option value="OPCVM">OPCVM</option>
+            <option value="IPO">IPO / Souscription</option>
+          </select>
           <label>Titre</label>
-          <input type="text" id="b-titre" placeholder="ex : ATW">
+          <input type="text" id="b-titre" list="b-titres-liste" placeholder="ex : ATW ou tape le nom de la société" autocomplete="off">
+          <datalist id="b-titres-liste"></datalist>
           <label>Type</label>
           <select id="b-type">
             <option value="Achat">Achat</option>
@@ -164,19 +172,33 @@
           </select>
           <label>Quantité</label>
           <input type="number" id="b-qte" min="0" step="1">
-          <label>Cours unitaire (DH)</label>
+          <label id="b-prix-label">Cours unitaire (DH)</label>
           <input type="text" id="b-prix" inputmode="decimal" placeholder="0,00">
+          <div id="b-champ-opcvm" style="display:none">
+            <label>Droits d'entrée/sortie (%) — laisser vide pour utiliser le taux par défaut du fonds</label>
+            <input type="text" id="b-taux-opcvm" inputmode="decimal" placeholder="ex : 2,00">
+          </div>
+          <div id="b-champ-ipo" style="display:none">
+            <label>Structure de frais IPO</label>
+            <select id="b-structure-ipo">
+              <option value="action">Comme une Action (courtage + R/L + impôt de bourse)</option>
+              <option value="souscription">Souscription forfaitaire (taux + minimum)</option>
+            </select>
+          </div>
           <label>Autres frais (DH)</label>
           <input type="text" id="b-frais" inputmode="decimal" placeholder="0,00">
           <button class="btn btn-dep" onclick="ajouterTransactionBourse()">Ajouter la transaction</button>
         </div>
         <div class="card">
-          <h2>ℹ️ Taux appliqués</h2>
+          <h2>ℹ️ Frais appliqués par type d'instrument</h2>
           <p style="color:var(--muted); font-size:13px; line-height:1.6">
-            La commission, la TVA et le TPCVM sont définis dans l'onglet
-            <b>Paramètres</b> et appliqués automatiquement à chaque nouvelle
-            transaction. Le PRU (prix de revient unitaire) est recalculé en
-            coût moyen pondéré à chaque opération.
+            <b>Action</b> : courtage + règlement/livraison + impôt de bourse + TVA (sur le courtage)<br>
+            <b>Obligation</b> : commission fixe + impôt de bourse réduit, pas de TVA<br>
+            <b>OPCVM</b> : droits d'entrée (achat) ou de sortie (vente), propres à chaque fonds<br>
+            <b>IPO</b> : commission de souscription proportionnelle, avec un minimum<br><br>
+            Tous les taux par défaut sont définis dans l'onglet <b>Paramètres</b> et
+            peuvent être ajustés. Le PRU (prix de revient unitaire) est recalculé en
+            coût moyen pondéré à chaque opération, tous instruments confondus par titre.
           </p>
         </div>
       </div>
@@ -209,18 +231,64 @@
 
     <!-- ---------- Paramètres ---------- -->
     <div id="vue-bourse-parametres" style="display:none">
+      <div class="grid2">
+        <div class="card">
+          <h2>📈 Actions cotées</h2>
+          <label>Commission de courtage (%)</label>
+          <input type="text" id="bp-courtage" inputmode="decimal">
+          <label>Règlement / livraison (%)</label>
+          <input type="text" id="bp-reglement" inputmode="decimal">
+          <label>Impôt de bourse (%)</label>
+          <input type="text" id="bp-impot-action" inputmode="decimal">
+          <label>TVA sur commission (%)</label>
+          <input type="text" id="bp-tva" inputmode="decimal">
+        </div>
+        <div class="card">
+          <h2>📜 Obligations cotées</h2>
+          <label>Commission fixe (DH)</label>
+          <input type="text" id="bp-commission-obligation" inputmode="decimal">
+          <label>Impôt de bourse (%)</label>
+          <input type="text" id="bp-impot-obligation" inputmode="decimal">
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="card">
+          <h2>💼 OPCVM</h2>
+          <label>Droits d'entrée par défaut (%)</label>
+          <input type="text" id="bp-opcvm-entree" inputmode="decimal">
+          <label>Droits de sortie par défaut (%)</label>
+          <input type="text" id="bp-opcvm-sortie" inputmode="decimal">
+          <p style="color:var(--muted); font-size:12px">Ces taux varient beaucoup par fonds — ajuste-les au cas par cas à la saisie si besoin.</p>
+        </div>
+        <div class="card">
+          <h2>🆕 IPO / Souscriptions</h2>
+          <label>Taux de souscription (%)</label>
+          <input type="text" id="bp-ipo-taux" inputmode="decimal">
+          <label>Minimum par opération (DH)</label>
+          <input type="text" id="bp-ipo-min" inputmode="decimal">
+        </div>
+      </div>
+      <div class="grid2">
+        <div class="card">
+          <h2>🗄️ Droits de garde</h2>
+          <label>Taux annuel (%)</label>
+          <input type="text" id="bp-garde-taux" inputmode="decimal">
+          <label>Minimum trimestriel (DH)</label>
+          <input type="text" id="bp-garde-min" inputmode="decimal">
+          <p style="color:var(--muted); font-size:12px">Frais périodiques sur l'encours, calculés à part — pas liés à une transaction.</p>
+        </div>
+        <div class="card">
+          <h2>🏛️ Fiscalité</h2>
+          <label>Taux TPCVM (%)</label>
+          <input type="text" id="bp-tpcvm" inputmode="decimal">
+        </div>
+      </div>
       <div class="card">
-        <h2>⚙️ Paramètres Bourse</h2>
-        <label>Commission courtage (%)</label>
-        <input type="text" id="bp-commission" inputmode="decimal">
-        <label>TVA sur commission (%)</label>
-        <input type="text" id="bp-tva" inputmode="decimal">
-        <label>Taux TPCVM (%)</label>
-        <input type="text" id="bp-tpcvm" inputmode="decimal">
-        <button class="btn-sm" onclick="sauverParametresBourse()">Enregistrer</button>
+        <button class="btn btn-dep" onclick="sauverParametresBourse()">Enregistrer tous les paramètres</button>
         <p style="color:var(--muted); font-size:12px; margin-top:10px">
-          Valeurs indicatives : commission ≈ 0,6 %, TVA 10 %, TPCVM actions cotées 15 %.
-          À vérifier auprès de ton intermédiaire financier.
+          Valeurs indicatives (grille Attijariwafa bank, 01/08/2024) : courtage 0,60 % · règlement/livraison
+          0,20 % · impôt de bourse action 0,10 % · TVA 10 % · obligation 110 DH + 0,005 % · droit de garde
+          0,15 %/an (min 13,77 DH/trimestre) · TPCVM 15 %. À vérifier auprès de ton intermédiaire financier.
         </p>
       </div>
     </div>

@@ -106,7 +106,7 @@ function demarrerApp() {
 }
 
 function montrer(t) {
-  for (const x of ['saisie', 'dash', 'params']) {
+  for (const x of ['saisie', 'dash', 'bourse', 'params']) {
     $('tab-' + x).style.display = x === t ? '' : 'none';
     $('b-' + x).classList.toggle('active', x === t);
   }
