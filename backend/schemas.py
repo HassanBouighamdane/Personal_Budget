@@ -36,44 +36,87 @@ class NomIn(BaseModel):
     nom: str = Field(min_length=1)
 
 class ParametresBourse(BaseModel):
-    taux_commission: float = Field(ge=0, le=1)
+    # Actions cotées (commission de courtage + règlement/livraison + impôt de bourse + TVA sur courtage uniquement)
+    taux_courtage_action: float = Field(ge=0, le=1)
+    taux_reglement_livraison: float = Field(ge=0, le=1)
+    taux_impot_bourse_action: float = Field(ge=0, le=1)
     taux_tva: float = Field(ge=0, le=1)
+    # Obligations cotées (commission fixe + impôt de bourse réduit, pas de courtage ni de TVA)
+    commission_fixe_obligation: float = Field(ge=0)
+    taux_impot_bourse_obligation: float = Field(ge=0, le=1)
+    # Droits de garde — frais trimestriels sur encours, indépendants des transactions
+    taux_droit_garde_annuel: float = Field(ge=0, le=1)
+    droit_garde_min_trimestriel: float = Field(ge=0)
+    # IPO / souscriptions (introduction en bourse, augmentation de capital)
+    taux_souscription_ipo: float = Field(ge=0, le=1)
+    min_souscription_ipo: float = Field(ge=0)
+    # OPCVM — taux par défaut ; varient fortement par fonds, à ajuster à la saisie si besoin
+    droits_entree_opcvm_defaut: float = Field(ge=0, le=1)
+    droits_sortie_opcvm_defaut: float = Field(ge=0, le=1)
+    # Fiscalité
     taux_tpcvm: float = Field(ge=0, le=1)
- 
- 
+
+
+TypeInstrument = Literal["Action", "Obligation", "OPCVM", "IPO"]
+StructureIPO = Literal["souscription", "action"]
+
+
 class TransactionBourseCreate(BaseModel):
     date_operation: date
     titre: str
     isin: Optional[str] = None
+    type_instrument: TypeInstrument = "Action"
     type_operation: Literal["Achat", "Vente"]
     quantite: float = Field(gt=0)
     cours_unitaire: float = Field(ge=0)
     autres_frais: float = Field(default=0, ge=0)
-    # taux_commission / taux_tva optionnels : si absents, on prend les paramètres courants
-    taux_commission: Optional[float] = None
-    taux_tva: Optional[float] = None
- 
-#Schéma de la partie Bourse pour l'API (sortie)
+    # IPO uniquement : quelle structure de frais appliquer
+    structure_ipo: StructureIPO = "souscription"
+    # Surcharges optionnelles : si absentes, les taux courants des Paramètres sont utilisés
+    taux_courtage: Optional[float] = None             # Action, ou IPO si structure_ipo="action"
+    taux_reglement_livraison: Optional[float] = None  # Action, ou IPO si structure_ipo="action"
+    taux_impot_bourse: Optional[float] = None         # Action, Obligation, ou IPO si structure_ipo="action"
+    taux_tva: Optional[float] = None                  # Action, ou IPO si structure_ipo="action"
+    commission_fixe: Optional[float] = None           # Obligation
+    taux_droits_opcvm: Optional[float] = None         # OPCVM (entrée ou sortie selon type_operation)
+    taux_souscription: Optional[float] = None         # IPO si structure_ipo="souscription"
+    min_souscription: Optional[float] = None          # IPO si structure_ipo="souscription"
+
+
+# Schéma de la partie Bourse pour l'API (sortie)
 class TransactionBourseOut(BaseModel):
     id: int
     date_operation: date
     titre: str
     isin: Optional[str]
+    type_instrument: str
+    structure_ipo: Optional[str] = None
     type_operation: str
     quantite: float
     cours_unitaire: float
-    taux_commission: float
-    taux_tva: float
-    autres_frais: float
     montant_brut: float
-    commission: float
-    tva_commission: float
+    detail_frais: dict          # ex Action: {"courtage":.., "reglement_livraison":.., "impot_bourse":.., "tva":..}
+    autres_frais: float
     total_frais: float
     montant_net: float
- 
- 
+
+
 class PrixMaj(BaseModel):
     cours_actuel: float = Field(ge=0)
+
+
+class DroitsGarde(BaseModel):
+    base_calcul: float
+    taux_annuel: float
+    montant_trimestriel_estime: float
+    minimum_trimestriel: float
+    montant_trimestriel_du: float
+
+
+class TitreBourse(BaseModel):
+    code: str
+    nom: str
+    secteur: str
  
  
 class PositionBourse(BaseModel):
@@ -93,6 +136,7 @@ class GainRealise(BaseModel):
     id: int
     date_operation: date
     titre: str
+    type_instrument: str
     quantite: float
     cours_vente: float
     pru: float
@@ -114,5 +158,5 @@ class DashboardBourse(BaseModel):
     commissions_totales: float
     tva_totale: float
     frais_totaux: float
+    droits_garde_trimestriel_estime: float
     resultat_net_global: float
- 
