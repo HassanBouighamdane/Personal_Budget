@@ -92,7 +92,7 @@ async function chargerTransactionsBourse() {
     $('b-liste-trans').innerHTML = '<div class="vide">Aucune transaction — ajoute ton premier achat ci-dessus 👆</div>';
     return;
   }
-  $('b-liste-trans').innerHTML = '<table><thead><tr>' +
+  $('b-liste-trans').innerHTML = '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table><thead><tr>' +
     '<th>Date</th><th>Titre</th><th>Instrument</th><th>Type</th><th class="num">Qté</th>' +
     '<th class="num">Cours</th><th class="num">Frais</th><th class="num">Net</th><th></th>' +
     '</tr></thead><tbody>' + liste.map(t => `
@@ -106,7 +106,7 @@ async function chargerTransactionsBourse() {
       <td class="num" title="${resumeFrais(t)}">${fmt(totalFraisDetail(t) + t.autres_frais)}</td>
       <td class="num" style="color:${t.type_operation === 'Achat' ? 'var(--accent)' : 'var(--blue)'}">${t.type_operation === 'Achat' ? '−' : '+'} ${fmt(t.montant_net)}</td>
       <td style="width:30px"><button class="del" onclick="supprTransactionBourse(${t.id})">✕</button></td>
-    </tr>`).join('') + '</tbody></table>';
+    </tr>`).join('') + '</tbody></table></div>';
 }
 
 /* ---------------- Positions ---------------- */
@@ -127,7 +127,7 @@ async function chargerPositionsBourse() {
     $('b-liste-positions').innerHTML = '<div class="vide">Aucune position ouverte pour le moment.</div>';
     return;
   }
-  $('b-liste-positions').innerHTML = '<table><thead><tr>' +
+  $('b-liste-positions').innerHTML = '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table><thead><tr>' +
     '<th>Titre</th><th class="num">Qté détenue</th><th class="num">PRU</th><th class="num">Cours actuel</th>' +
     '<th class="num">Valeur marché</th><th class="num">+/- value latente</th><th class="num">Perf.</th>' +
     '</tr></thead><tbody>' + liste.map(p => `
@@ -140,7 +140,7 @@ async function chargerPositionsBourse() {
       <td class="num">${fmt(p.valeur_marche)}</td>
       <td class="num" style="color:${p.plus_value_latente >= 0 ? 'var(--green)' : 'var(--red)'}">${fmt(p.plus_value_latente)}</td>
       <td class="num" style="color:${p.performance_latente >= 0 ? 'var(--green)' : 'var(--red)'}">${(p.performance_latente*100).toFixed(2)} %</td>
-    </tr>`).join('') + '</tbody></table>';
+    </tr>`).join('') + '</tbody></table></div>';
 }
 
 /* ---------------- Gains réalisés ---------------- */
@@ -150,7 +150,7 @@ async function chargerGainsBourse() {
     $('b-liste-gains').innerHTML = '<div class="vide">Aucune vente enregistrée pour le moment.</div>';
     return;
   }
-  $('b-liste-gains').innerHTML = '<table><thead><tr>' +
+  $('b-liste-gains').innerHTML = '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table><thead><tr>' +
     '<th>Date</th><th>Titre</th><th>Instrument</th><th class="num">Qté</th>' +
     '<th class="num">Gain brut</th><th class="num">TPCVM</th><th class="num">Gain net</th>' +
     '</tr></thead><tbody>' + liste.map(g => `
@@ -162,7 +162,7 @@ async function chargerGainsBourse() {
       <td class="num">${fmt(g.gain_brut)}</td>
       <td class="num">${fmt(g.tpcvm)}</td>
       <td class="num" style="color:${g.gain_net >= 0 ? 'var(--green)' : 'var(--red)'}">${fmt(g.gain_net)}</td>
-    </tr>`).join('') + '</tbody></table>';
+    </tr>`).join('') + '</tbody></table></div>';
 }
 
 /* ---------------- Dashboard ---------------- */
