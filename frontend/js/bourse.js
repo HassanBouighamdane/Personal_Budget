@@ -1,19 +1,18 @@
 /* ==========================================================================
-   Module Bourse v2 — réutilise $(), fmt(), lireMontant(id), toast(), api()
-   déjà définis dans app.js (chargé avant ce fichier).
+   Module Bourse — réutilise $(), fmt(), lireMontant(id), toast(), api(), auj(),
+   MOIS_FR déjà définis dans app.js (chargé avant ce fichier).
+
+   Simplifié : aucun frais n'est calculé automatiquement sur les transactions
+   ni sur les dividendes — l'utilisateur saisit directement le prix net et le
+   montant net reçu. Les frais de courtage se saisissent manuellement (par
+   transaction, ou via le journal séparé des frais de compte).
    ========================================================================== */
 
 let vueBourse = 'transactions';
 
-const LABELS_FRAIS = {
-  courtage: 'Courtage', reglement_livraison: 'Règlement/livraison', impot_bourse: 'Impôt de bourse',
-  tva: 'TVA', commission_fixe: 'Commission fixe', droits_entree: "Droits d'entrée",
-  droits_sortie: 'Droits de sortie', commission_souscription: 'Commission de souscription',
-};
-
 function changerVueBourse(v) {
   vueBourse = v;
-  for (const x of ['transactions', 'positions', 'gains', 'dashboard', 'parametres']) {
+  for (const x of ['transactions', 'positions', 'gains', 'dividendes', 'frais', 'dashboard', 'parametres']) {
     $('vb-' + x).classList.toggle('active', x === v);
     $('vue-bourse-' + x).style.display = x === v ? '' : 'none';
   }
@@ -24,16 +23,16 @@ function chargerVueBourseActive() {
   if (vueBourse === 'transactions') chargerTransactionsBourse();
   else if (vueBourse === 'positions') chargerPositionsBourse();
   else if (vueBourse === 'gains') chargerGainsBourse();
+  else if (vueBourse === 'dividendes') chargerDividendesBourse();
+  else if (vueBourse === 'frais') chargerFraisBourse();
   else if (vueBourse === 'dashboard') chargerDashboardBourse();
   else if (vueBourse === 'parametres') chargerParametresBourse();
 }
 
-/* ---------------- Formulaire : bascule des champs selon l'instrument ---------------- */
+/* ---------------- Formulaire : libellé du prix selon l'instrument (cosmétique uniquement) ---------------- */
 function basculerChampsInstrument() {
   const instrument = $('b-instrument').value;
-  $('b-champ-opcvm').style.display = instrument === 'OPCVM' ? '' : 'none';
-  $('b-champ-ipo').style.display = instrument === 'IPO' ? '' : 'none';
-  $('b-prix-label').textContent = instrument === 'OPCVM' ? 'Valeur liquidative (DH)' : 'Cours unitaire (DH)';
+  $('b-prix-label').textContent = instrument === 'OPCVM' ? 'Valeur liquidative nette (DH)' : 'Prix unitaire net (DH)';
 }
 
 /* ---------------- Transactions ---------------- */
@@ -46,26 +45,18 @@ async function ajouterTransactionBourse() {
 
   if (!titre) return toast('Indique le titre', false);
   if (!qte || qte <= 0) return toast('Quantité invalide', false);
-  if (isNaN(prix) || prix <= 0) return toast('Cours invalide', false);
+  if (isNaN(prix) || prix <= 0) return toast('Prix invalide', false);
 
   const corps = {
     date_operation: $('b-date').value,
     titre, type_instrument: instrument, type_operation: $('b-type').value,
     quantite: qte, cours_unitaire: prix, autres_frais: isNaN(frais) ? 0 : frais,
   };
-  if (instrument === 'IPO') {
-    corps.structure_ipo = $('b-structure-ipo').value;
-  }
-  if (instrument === 'OPCVM' && $('b-taux-opcvm').value) {
-    const t = lireMontant('b-taux-opcvm');
-    if (!isNaN(t)) corps.taux_droits_opcvm = t / 100;
-  }
 
   await api('/api/bourse/transactions', {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps),
   });
-  $('b-titre').value = ''; $('b-qte').value = ''; $('b-prix').value = '';
-  $('b-frais').value = ''; $('b-taux-opcvm').value = '';
+  $('b-titre').value = ''; $('b-qte').value = ''; $('b-prix').value = ''; $('b-frais').value = '';
   toast('Transaction ajoutée ✓');
   chargerTransactionsBourse();
 }
@@ -77,15 +68,6 @@ async function supprTransactionBourse(id) {
   chargerTransactionsBourse();
 }
 
-function totalFraisDetail(t) {
-  return Object.values(t.detail_frais || {}).reduce((a, b) => a + b, 0);
-}
-
-function resumeFrais(t) {
-  return Object.entries(t.detail_frais || {})
-    .map(([k, v]) => `${LABELS_FRAIS[k] || k} : ${fmt(v)}`).join(' · ');
-}
-
 async function chargerTransactionsBourse() {
   const liste = await api('/api/bourse/transactions');
   if (!liste.length) {
@@ -94,16 +76,16 @@ async function chargerTransactionsBourse() {
   }
   $('b-liste-trans').innerHTML = '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table><thead><tr>' +
     '<th>Date</th><th>Titre</th><th>Instrument</th><th>Type</th><th class="num">Qté</th>' +
-    '<th class="num">Cours</th><th class="num">Frais</th><th class="num">Net</th><th></th>' +
+    '<th class="num">Prix</th><th class="num">Frais</th><th class="num">Net</th><th></th>' +
     '</tr></thead><tbody>' + liste.map(t => `
     <tr>
       <td style="color:var(--muted);white-space:nowrap">${t.date_operation.slice(8)}/${t.date_operation.slice(5,7)}</td>
       <td>${t.titre}</td>
-      <td style="color:var(--muted);font-size:11px">${t.type_instrument}${t.type_instrument === 'IPO' ? (t.structure_ipo === 'action' ? ' (Action)' : ' (Souscription)') : ''}</td>
+      <td style="color:var(--muted);font-size:11px">${t.type_instrument}</td>
       <td style="color:${t.type_operation === 'Achat' ? 'var(--blue)' : 'var(--accent)'}">${t.type_operation}</td>
       <td class="num">${t.quantite}</td>
       <td class="num">${fmt(t.cours_unitaire)}</td>
-      <td class="num" title="${resumeFrais(t)}">${fmt(totalFraisDetail(t) + t.autres_frais)}</td>
+      <td class="num">${fmt(t.autres_frais)}</td>
       <td class="num" style="color:${t.type_operation === 'Achat' ? 'var(--accent)' : 'var(--blue)'}">${t.type_operation === 'Achat' ? '−' : '+'} ${fmt(t.montant_net)}</td>
       <td style="width:30px"><button class="del" onclick="supprTransactionBourse(${t.id})">✕</button></td>
     </tr>`).join('') + '</tbody></table></div>';
@@ -165,24 +147,148 @@ async function chargerGainsBourse() {
     </tr>`).join('') + '</tbody></table></div>';
 }
 
+/* ---------------- Dividendes ---------------- */
+async function ajouterDividendeBourse() {
+  const titre = $('bd-titre').value.trim().toUpperCase();
+  const montant = lireMontant('bd-montant');
+
+  if (!titre) return toast('Indique le titre', false);
+  if (isNaN(montant) || montant <= 0) return toast('Montant invalide', false);
+
+  await api('/api/bourse/dividendes', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ date_operation: $('bd-date').value, titre, montant }),
+  });
+  $('bd-titre').value = ''; $('bd-montant').value = '';
+  toast('Dividende ajouté ✓');
+  chargerDividendesBourse();
+}
+
+async function supprDividendeBourse(id) {
+  if (!confirm('Supprimer ce dividende ?')) return;
+  await api(`/api/bourse/dividendes/${id}`, { method: 'DELETE' });
+  toast('Supprimé');
+  chargerDividendesBourse();
+}
+
+async function chargerDividendesBourse() {
+  const liste = await api('/api/bourse/dividendes');
+  if (!liste.length) {
+    $('b-liste-dividendes').innerHTML = '<div class="vide">Aucun dividende — ajoute le premier ci-dessus 👆</div>';
+    return;
+  }
+  $('b-liste-dividendes').innerHTML = '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table><thead><tr>' +
+    '<th>Date</th><th>Titre</th><th class="num">Montant net</th><th></th>' +
+    '</tr></thead><tbody>' + liste.map(d => `
+    <tr>
+      <td style="color:var(--muted);white-space:nowrap">${d.date_operation.slice(8)}/${d.date_operation.slice(5,7)}</td>
+      <td>${d.titre}</td>
+      <td class="num rev-amt">${fmt(d.montant)}</td>
+      <td style="width:30px"><button class="del" onclick="supprDividendeBourse(${d.id})">✕</button></td>
+    </tr>`).join('') + '</tbody></table></div>';
+}
+
+/* ---------------- Frais de compte ---------------- */
+async function ajouterFraisBourse() {
+  const libelle = $('bf-libelle').value.trim();
+  const montant = lireMontant('bf-montant');
+  if (isNaN(montant) || montant <= 0) return toast('Montant invalide', false);
+
+  await api('/api/bourse/frais', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ date_operation: $('bf-date').value, libelle, montant }),
+  });
+  $('bf-libelle').value = ''; $('bf-montant').value = '';
+  toast('Frais ajouté ✓');
+  chargerFraisBourse();
+}
+
+async function supprFraisBourse(id) {
+  if (!confirm('Supprimer ce frais ?')) return;
+  await api(`/api/bourse/frais/${id}`, { method: 'DELETE' });
+  toast('Supprimé');
+  chargerFraisBourse();
+}
+
+async function chargerFraisBourse() {
+  const liste = await api('/api/bourse/frais');
+  if (!liste.length) {
+    $('b-liste-frais').innerHTML = '<div class="vide">Aucun frais enregistré — ajoute le premier ci-dessus 👆</div>';
+    return;
+  }
+  $('b-liste-frais').innerHTML = '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table><thead><tr>' +
+    '<th>Date</th><th>Libellé</th><th class="num">Montant</th><th></th>' +
+    '</tr></thead><tbody>' + liste.map(f => `
+    <tr>
+      <td style="color:var(--muted);white-space:nowrap">${f.date_operation.slice(8)}/${f.date_operation.slice(5,7)}</td>
+      <td>${f.libelle || ''}</td>
+      <td class="num dep-amt">${fmt(f.montant)}</td>
+      <td style="width:30px"><button class="del" onclick="supprFraisBourse(${f.id})">✕</button></td>
+    </tr>`).join('') + '</tbody></table></div>';
+}
+
+/* ---------------- Dashboard : navigation Global / Mois / Année ---------------- */
+let vueDashBourse = 'global';   // par défaut : tout l'historique, comme au tout début
+let moisCourBourse = auj().slice(0, 7);
+let anneeCourBourse = new Date().getFullYear();
+
+function changerVueDashBourse(v) {
+  vueDashBourse = v;
+  for (const x of ['global', 'mois', 'annee']) $('bv-' + x).classList.toggle('active', x === v);
+  $('b-periode-prev').style.visibility = v === 'global' ? 'hidden' : '';
+  $('b-periode-next').style.visibility = v === 'global' ? 'hidden' : '';
+  chargerDashboardBourse();
+}
+
+function navDashBourse(delta) {
+  if (vueDashBourse === 'global') return;
+  if (vueDashBourse === 'annee') {
+    anneeCourBourse += delta;
+  } else {
+    let [a, m] = moisCourBourse.split('-').map(Number);
+    m += delta;
+    if (m === 0) { m = 12; a--; }
+    if (m === 13) { m = 1; a++; }
+    moisCourBourse = a + '-' + String(m).padStart(2, '0');
+  }
+  chargerDashboardBourse();
+}
+
+function libellePeriodeBourse() {
+  if (vueDashBourse === 'global') return 'Tout l’historique';
+  return vueDashBourse === 'annee'
+    ? 'Année ' + anneeCourBourse
+    : MOIS_FR[+moisCourBourse.slice(5) - 1] + ' ' + moisCourBourse.slice(0, 4);
+}
+
 /* ---------------- Dashboard ---------------- */
 async function chargerDashboardBourse() {
-  const d = await api('/api/bourse/dashboard');
+  const q = vueDashBourse === 'global' ? '' : vueDashBourse === 'annee' ? 'annee=' + anneeCourBourse : 'mois=' + moisCourBourse;
+  const d = await api('/api/bourse/dashboard' + (q ? '?' + q : ''));
+
+  $('b-periode-titre').textContent = libellePeriodeBourse();
+  $('b-kpis-periode-titre').textContent = '💰 Résultat — ' + libellePeriodeBourse();
+
   const cLatente = d.plus_value_latente >= 0 ? 'var(--green)' : 'var(--red)';
   const cRealise = d.gains_nets_realises >= 0 ? 'var(--green)' : 'var(--red)';
-  const cGlobal = d.resultat_net_global >= 0 ? 'var(--green)' : 'var(--red)';
-  $('b-kpis').innerHTML = `
+  const cPeriode = d.resultat_net_periode >= 0 ? 'var(--green)' : 'var(--red)';
+
+  $('b-kpis-actuel').innerHTML = `
     <div class="kpi"><div class="l">Valeur de marché</div><div class="v" style="color:var(--blue)">${fmt(d.valeur_marche)}</div>
       <div class="h">coût d'acquisition : ${fmt(d.cout_acquisition)}</div></div>
     <div class="kpi"><div class="l">Plus/moins-value latente</div><div class="v" style="color:${cLatente}">${fmt(d.plus_value_latente)}</div>
       <div class="h">${(d.performance_latente*100).toFixed(2)} %</div></div>
+    <div class="kpi"><div class="l">Droits de garde (trimestre en cours)</div><div class="v" style="color:var(--accent)">${fmt(d.droits_garde_trimestriel_estime)}</div>
+      <div class="h">estimation indicative sur l'encours actuel</div></div>`;
+
+  $('b-kpis-periode').innerHTML = `
     <div class="kpi"><div class="l">Gains nets réalisés</div><div class="v" style="color:${cRealise}">${fmt(d.gains_nets_realises)}</div>
       <div class="h">TPCVM : ${fmt(d.tpcvm_total)}</div></div>
-    <div class="kpi"><div class="l">Frais de transaction totaux</div><div class="v" style="color:var(--accent)">${fmt(d.frais_totaux)}</div>
-      <div class="h">dont commissions : ${fmt(d.commissions_totales)} · TVA : ${fmt(d.tva_totale)}</div></div>
-    <div class="kpi"><div class="l">Droits de garde (trimestre en cours)</div><div class="v" style="color:var(--accent)">${fmt(d.droits_garde_trimestriel_estime)}</div>
-      <div class="h">estimation sur encours actuel</div></div>
-    <div class="kpi"><div class="l">Résultat net global</div><div class="v" style="color:${cGlobal}">${fmt(d.resultat_net_global)}</div></div>`;
+    <div class="kpi"><div class="l">Dividendes nets</div><div class="v" style="color:var(--green)">${fmt(d.dividendes_nets)}</div></div>
+    <div class="kpi"><div class="l">Frais de transactions</div><div class="v" style="color:var(--accent)">${fmt(d.frais_transactions_totaux)}</div></div>
+    <div class="kpi"><div class="l">Frais de compte</div><div class="v" style="color:var(--accent)">${fmt(d.frais_compte_totaux)}</div></div>
+    <div class="kpi"><div class="l">Résultat net de la période</div><div class="v" style="color:${cPeriode}">${fmt(d.resultat_net_periode)}</div>
+      <div class="h">gains réalisés + dividendes − frais</div></div>`;
 }
 
 /* ---------------- Paramètres ---------------- */
@@ -190,44 +296,25 @@ function pct(v) { return (v * 100).toFixed(3).replace(/\.?0+$/, '').replace('.',
 
 async function chargerParametresBourse() {
   const p = await api('/api/bourse/parametres');
-  $('bp-courtage').value = pct(p.taux_courtage_action);
-  $('bp-reglement').value = pct(p.taux_reglement_livraison);
-  $('bp-impot-action').value = pct(p.taux_impot_bourse_action);
-  $('bp-tva').value = pct(p.taux_tva);
-  $('bp-commission-obligation').value = String(p.commission_fixe_obligation).replace('.', ',');
-  $('bp-impot-obligation').value = pct(p.taux_impot_bourse_obligation);
-  $('bp-opcvm-entree').value = pct(p.droits_entree_opcvm_defaut);
-  $('bp-opcvm-sortie').value = pct(p.droits_sortie_opcvm_defaut);
-  $('bp-ipo-taux').value = pct(p.taux_souscription_ipo);
-  $('bp-ipo-min').value = String(p.min_souscription_ipo).replace('.', ',');
   $('bp-garde-taux').value = pct(p.taux_droit_garde_annuel);
   $('bp-garde-min').value = String(p.droit_garde_min_trimestriel).replace('.', ',');
   $('bp-tpcvm').value = pct(p.taux_tpcvm);
 }
 
 async function sauverParametresBourse() {
-  const champs = {
-    taux_courtage_action: 'bp-courtage', taux_reglement_livraison: 'bp-reglement',
-    taux_impot_bourse_action: 'bp-impot-action', taux_tva: 'bp-tva',
-    droits_entree_opcvm_defaut: 'bp-opcvm-entree', droits_sortie_opcvm_defaut: 'bp-opcvm-sortie',
-    taux_souscription_ipo: 'bp-ipo-taux', taux_droit_garde_annuel: 'bp-garde-taux',
-    taux_impot_bourse_obligation: 'bp-impot-obligation', taux_tpcvm: 'bp-tpcvm',
-  };
-  const corps = {};
-  for (const [cle, id] of Object.entries(champs)) {
-    const v = lireMontant(id);
-    if (isNaN(v) || v < 0) return toast('Taux invalide : ' + id, false);
-    corps[cle] = v / 100;
-  }
-  corps.commission_fixe_obligation = lireMontant('bp-commission-obligation');
-  corps.min_souscription_ipo = lireMontant('bp-ipo-min');
-  corps.droit_garde_min_trimestriel = lireMontant('bp-garde-min');
-  if ([corps.commission_fixe_obligation, corps.min_souscription_ipo, corps.droit_garde_min_trimestriel].some(v => isNaN(v) || v < 0)) {
-    return toast('Montant invalide', false);
-  }
+  const tauxGarde = lireMontant('bp-garde-taux');
+  const tauxTpcvm = lireMontant('bp-tpcvm');
+  const minGarde = lireMontant('bp-garde-min');
+  if ([tauxGarde, tauxTpcvm].some(v => isNaN(v) || v < 0)) return toast('Taux invalide', false);
+  if (isNaN(minGarde) || minGarde < 0) return toast('Montant invalide', false);
 
   await api('/api/bourse/parametres', {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corps),
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      taux_droit_garde_annuel: tauxGarde / 100,
+      droit_garde_min_trimestriel: minGarde,
+      taux_tpcvm: tauxTpcvm / 100,
+    }),
   });
   toast('Paramètres enregistrés ✓');
 }
@@ -236,6 +323,29 @@ async function sauverParametresBourse() {
 async function chargerTitresBourse() {
   const liste = await api('/api/bourse/titres');
   $('b-titres-liste').innerHTML = liste.map(t => `<option value="${t.code}">${t.code} — ${t.nom}</option>`).join('');
+}
+
+/* ---------------- Résumé silencieux pour le Dashboard principal ---------------- */
+// Ne montre pas de toast d'erreur : un souci ici ne doit jamais casser le dashboard budget.
+async function resumeBourseSilencieux(requete) {
+  try {
+    const r = await fetch(API_URL + '/api/bourse/dashboard?' + requete);
+    if (!r.ok) return null;
+    return await r.json();
+  } catch (e) { return null; }
+}
+
+function kpisBourseHTML(bourse, libellePeriode) {
+  if (!bourse) return '';
+  const cLatente = bourse.plus_value_latente >= 0 ? 'var(--green)' : 'var(--red)';
+  const cPeriode = bourse.resultat_net_periode >= 0 ? 'var(--green)' : 'var(--red)';
+  return `
+    <div class="kpi"><div class="l">Portefeuille Bourse</div>
+      <div class="v" style="color:var(--blue)">${fmt(bourse.valeur_marche)}</div>
+      <div class="h" style="color:${cLatente}">${bourse.plus_value_latente >= 0 ? '+' : ''}${fmt(bourse.plus_value_latente)} (${(bourse.performance_latente*100).toFixed(2)} %)</div></div>
+    <div class="kpi"><div class="l">Résultat Bourse${libellePeriode ? ' ' + libellePeriode : ''}</div>
+      <div class="v" style="color:${cPeriode}">${fmt(bourse.resultat_net_periode)}</div>
+      <div class="h">gains réalisés + dividendes − frais</div></div>`;
 }
 
 /* ---------------- Point d'entrée de l'onglet ---------------- */

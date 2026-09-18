@@ -183,7 +183,8 @@ def init_db():
             droits_entree_opcvm_defaut    NUMERIC(6,4)  NOT NULL DEFAULT 0,
             droits_sortie_opcvm_defaut    NUMERIC(6,4)  NOT NULL DEFAULT 0,
             -- Fiscalité
-            taux_tpcvm                    NUMERIC(6,4)  NOT NULL DEFAULT 0.1500    -- 15 %
+            taux_tpcvm                    NUMERIC(6,4)  NOT NULL DEFAULT 0.1500,   -- 15 %, sur les plus-values de cession
+            taux_retenue_source_dividendes NUMERIC(6,4) NOT NULL DEFAULT 0.1500   -- 15 %, RAS/TPA sur les dividendes perçus
         );
 
         CREATE TABLE IF NOT EXISTS bourse_transactions (
@@ -225,14 +226,59 @@ def init_db():
             actif   INTEGER NOT NULL DEFAULT 1
         );
 
+        -- Dividendes : montant NET déjà reçu, saisi directement (aucun calcul de
+        -- retenue à la source — l'utilisateur fait ce calcul lui-même en amont).
+        CREATE TABLE IF NOT EXISTS bourse_dividendes (
+            id             SERIAL PRIMARY KEY,
+            date_operation DATE NOT NULL,
+            titre          VARCHAR(60) NOT NULL,
+            montant        NUMERIC(14,4) NOT NULL CHECK (montant >= 0),
+            cree_le        TIMESTAMP NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_bourse_div_titre ON bourse_dividendes (titre);
+        CREATE INDEX IF NOT EXISTS idx_bourse_div_date  ON bourse_dividendes (date_operation);
+
+        -- Frais de compte / courtage récurrents ou ponctuels, indépendants d'une
+        -- transaction précise (ex : abonnement mensuel Wafabourse, frais de tenue de compte).
+        CREATE TABLE IF NOT EXISTS bourse_frais (
+            id             SERIAL PRIMARY KEY,
+            date_operation DATE NOT NULL,
+            libelle        VARCHAR(200) NOT NULL DEFAULT '',
+            montant        NUMERIC(14,4) NOT NULL CHECK (montant >= 0),
+            cree_le        TIMESTAMP NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_bourse_frais_date ON bourse_frais (date_operation);
+
         """)
 
-        # Ajout additif (n'affecte aucune donnée existante) : permet de choisir, pour
-        # chaque transaction IPO, entre la structure "Action" (courtage+R/L+impôt bourse)
-        # et la structure "Souscription" forfaitaire.
+        # ------------------------------------------------------------------
+        # Migration additive : simplification du module Bourse — les frais
+        # (courtage, TVA, impôt de bourse...) et la retenue sur dividendes ne
+        # sont plus calculés automatiquement ; l'utilisateur saisit directement
+        # le prix net (achat/vente) et le montant net des dividendes. Les
+        # anciennes colonnes de taux figés restent en base (non détruites) mais
+        # ne sont plus lues par l'application.
+        # ------------------------------------------------------------------
+        # Colonne requise par la migration ci-dessous, quelle que soit l'ancienneté
+        # de l'installation (peut être absente si bourse_parametres existait déjà
+        # avant l'ajout du module Dividendes).
         c.execute("""
-        ALTER TABLE bourse_transactions ADD COLUMN IF NOT EXISTS structure_ipo VARCHAR(15);
+        ALTER TABLE bourse_parametres ADD COLUMN IF NOT EXISTS taux_retenue_source_dividendes NUMERIC(6,4) NOT NULL DEFAULT 0.15;
         """)
+
+        ancienne_colonne = c.execute("""
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name = 'bourse_dividendes' AND column_name = 'montant_brut'
+        """).fetchone()
+        if ancienne_colonne:
+            c.execute("ALTER TABLE bourse_dividendes ADD COLUMN IF NOT EXISTS montant NUMERIC(14,4)")
+            c.execute("""
+                UPDATE bourse_dividendes d SET montant = d.montant_brut * (1 - COALESCE(d.taux_retenue_source, p.taux_retenue_source_dividendes))
+                FROM bourse_parametres p WHERE d.montant IS NULL
+            """)
+            c.execute("ALTER TABLE bourse_dividendes ALTER COLUMN montant SET NOT NULL")
+            c.execute("ALTER TABLE bourse_dividendes DROP COLUMN montant_brut")
+            c.execute("ALTER TABLE bourse_dividendes DROP COLUMN IF EXISTS taux_retenue_source")
 
         with c.cursor() as cur:
             if c.execute("SELECT COUNT(*) n FROM categories").fetchone()["n"] == 0:

@@ -36,32 +36,19 @@ class NomIn(BaseModel):
     nom: str = Field(min_length=1)
 
 class ParametresBourse(BaseModel):
-    # Actions cotées (commission de courtage + règlement/livraison + impôt de bourse + TVA sur courtage uniquement)
-    taux_courtage_action: float = Field(ge=0, le=1)
-    taux_reglement_livraison: float = Field(ge=0, le=1)
-    taux_impot_bourse_action: float = Field(ge=0, le=1)
-    taux_tva: float = Field(ge=0, le=1)
-    # Obligations cotées (commission fixe + impôt de bourse réduit, pas de courtage ni de TVA)
-    commission_fixe_obligation: float = Field(ge=0)
-    taux_impot_bourse_obligation: float = Field(ge=0, le=1)
     # Droits de garde — frais trimestriels sur encours, indépendants des transactions
     taux_droit_garde_annuel: float = Field(ge=0, le=1)
     droit_garde_min_trimestriel: float = Field(ge=0)
-    # IPO / souscriptions (introduction en bourse, augmentation de capital)
-    taux_souscription_ipo: float = Field(ge=0, le=1)
-    min_souscription_ipo: float = Field(ge=0)
-    # OPCVM — taux par défaut ; varient fortement par fonds, à ajuster à la saisie si besoin
-    droits_entree_opcvm_defaut: float = Field(ge=0, le=1)
-    droits_sortie_opcvm_defaut: float = Field(ge=0, le=1)
-    # Fiscalité
+    # Fiscalité — taxe sur les profits de cession de valeurs mobilières
     taux_tpcvm: float = Field(ge=0, le=1)
 
 
 TypeInstrument = Literal["Action", "Obligation", "OPCVM", "IPO"]
-StructureIPO = Literal["souscription", "action"]
 
 
 class TransactionBourseCreate(BaseModel):
+    """Achat/vente : prix déjà net (aucun frais n'est calculé automatiquement,
+    saisis directement le prix auquel l'opération a réellement eu lieu)."""
     date_operation: date
     titre: str
     isin: Optional[str] = None
@@ -69,18 +56,7 @@ class TransactionBourseCreate(BaseModel):
     type_operation: Literal["Achat", "Vente"]
     quantite: float = Field(gt=0)
     cours_unitaire: float = Field(ge=0)
-    autres_frais: float = Field(default=0, ge=0)
-    # IPO uniquement : quelle structure de frais appliquer
-    structure_ipo: StructureIPO = "souscription"
-    # Surcharges optionnelles : si absentes, les taux courants des Paramètres sont utilisés
-    taux_courtage: Optional[float] = None             # Action, ou IPO si structure_ipo="action"
-    taux_reglement_livraison: Optional[float] = None  # Action, ou IPO si structure_ipo="action"
-    taux_impot_bourse: Optional[float] = None         # Action, Obligation, ou IPO si structure_ipo="action"
-    taux_tva: Optional[float] = None                  # Action, ou IPO si structure_ipo="action"
-    commission_fixe: Optional[float] = None           # Obligation
-    taux_droits_opcvm: Optional[float] = None         # OPCVM (entrée ou sortie selon type_operation)
-    taux_souscription: Optional[float] = None         # IPO si structure_ipo="souscription"
-    min_souscription: Optional[float] = None          # IPO si structure_ipo="souscription"
+    autres_frais: float = Field(default=0, ge=0)   # frais ponctuel éventuel, saisi manuellement
 
 
 # Schéma de la partie Bourse pour l'API (sortie)
@@ -90,12 +66,10 @@ class TransactionBourseOut(BaseModel):
     titre: str
     isin: Optional[str]
     type_instrument: str
-    structure_ipo: Optional[str] = None
     type_operation: str
     quantite: float
     cours_unitaire: float
     montant_brut: float
-    detail_frais: dict          # ex Action: {"courtage":.., "reglement_livraison":.., "impot_bourse":.., "tva":..}
     autres_frais: float
     total_frais: float
     montant_net: float
@@ -148,15 +122,48 @@ class GainRealise(BaseModel):
  
  
 class DashboardBourse(BaseModel):
+    # Portefeuille actuel — indépendant de la période sélectionnée (pas d'historique de cours)
     cout_acquisition: float
     valeur_marche: float
     plus_value_latente: float
     performance_latente: float
+    # Flux de la période sélectionnée (mois/année choisis, ou tout l'historique si aucun filtre)
     gains_bruts_realises: float
     tpcvm_total: float
     gains_nets_realises: float
-    commissions_totales: float
-    tva_totale: float
-    frais_totaux: float
+    dividendes_nets: float
+    frais_transactions_totaux: float
+    frais_compte_totaux: float
+    resultat_net_periode: float
+    # Indicatif, toujours calculé sur l'encours actuel
     droits_garde_trimestriel_estime: float
-    resultat_net_global: float
+
+
+# ---------------------------------------------------------------- Dividendes
+class DividendeCreate(BaseModel):
+    """Montant NET déjà reçu (après retenue à la source) — saisi directement, aucun calcul."""
+    date_operation: date
+    titre: str
+    montant: float = Field(gt=0)
+
+
+class DividendeOut(BaseModel):
+    id: int
+    date_operation: date
+    titre: str
+    montant: float
+
+
+# ---------------------------------------------------------------- Frais de compte
+class FraisBourseCreate(BaseModel):
+    """Frais récurrents ou ponctuels indépendants d'une transaction (ex : abonnement courtier)."""
+    date_operation: date
+    libelle: str = ""
+    montant: float = Field(gt=0)
+
+
+class FraisBourseOut(BaseModel):
+    id: int
+    date_operation: date
+    libelle: str
+    montant: float

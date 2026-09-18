@@ -292,7 +292,10 @@ function badge(actuel, precedent, inverse = false) {
 
 /* ---------------- Vue mensuelle ---------------- */
 async function chargerDash() {
-  const r = await api('/api/resume?mois=' + moisCour);
+  const [r, bourse] = await Promise.all([
+    api('/api/resume?mois=' + moisCour),
+    resumeBourseSilencieux('mois=' + moisCour),
+  ]);
   $('mois-titre').textContent = MOIS_FR[+moisCour.slice(5) - 1] + ' ' + moisCour.slice(0, 4);
 
   const epC = r.epargne >= r.objectif_epargne ? 'var(--green)' : (r.epargne >= 0 ? '#e8b93c' : 'var(--red)');
@@ -314,7 +317,8 @@ async function chargerDash() {
       <div class="v" style="color:${epC}">${fmt(r.epargne)}</div>
       <div class="h">Objectif : ${fmt(r.objectif_epargne)}</div></div>
     <div class="kpi"><div class="l">Taux d'épargne</div>
-      <div class="v" style="color:${epC}">${r.taux_epargne}%</div></div>`;
+      <div class="v" style="color:${epC}">${r.taux_epargne}%</div></div>
+    ${kpisBourseHTML(bourse, 'du mois')}`;
 
   $('bars').innerHTML = r.budget_vs_reel.map(b => {
     const c = b.pct <= 80 ? 'var(--green)' : (b.pct <= 100 ? '#e8b93c' : 'var(--red)');
@@ -476,7 +480,10 @@ function dessiner(id, cfg) {
 
 /* ---------------- Vue annuelle ---------------- */
 async function chargerDashAnnee() {
-  const r = await api('/api/resume_annuel?annee=' + anneeCour);
+  const [r, bourse] = await Promise.all([
+    api('/api/resume_annuel?annee=' + anneeCour),
+    resumeBourseSilencieux('annee=' + anneeCour),
+  ]);
   $('mois-titre').textContent = 'Année ' + anneeCour;
 
   const epC = r.epargne >= 0 ? 'var(--green)' : 'var(--red)';
@@ -499,7 +506,8 @@ async function chargerDashAnnee() {
       <div class="h">épargne : ${fmt(r.meilleur_mois.ep)}</div></div>` : ''}
     ${r.pire_mois ? `<div class="kpi"><div class="l">Mois le plus difficile</div>
       <div class="v" style="color:var(--red)">${nomMois(r.pire_mois.m)}</div>
-      <div class="h">épargne : ${fmt(r.pire_mois.ep)}</div></div>` : ''}`;
+      <div class="h">épargne : ${fmt(r.pire_mois.ep)}</div></div>` : ''}
+    ${kpisBourseHTML(bourse, anneeCour)}`;
 
   const labels = MOIS_FR.map(m => m.slice(0, 4));
 

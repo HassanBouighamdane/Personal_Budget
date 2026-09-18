@@ -143,6 +143,8 @@
         <button id="vb-transactions" class="active" onclick="changerVueBourse('transactions')">Transactions</button>
         <button id="vb-positions" onclick="changerVueBourse('positions')">Positions</button>
         <button id="vb-gains" onclick="changerVueBourse('gains')">Gains</button>
+        <button id="vb-dividendes" onclick="changerVueBourse('dividendes')">Dividendes</button>
+        <button id="vb-frais" onclick="changerVueBourse('frais')">Frais</button>
         <button id="vb-dashboard" onclick="changerVueBourse('dashboard')">Dashboard</button>
         <button id="vb-parametres" onclick="changerVueBourse('parametres')">Paramètres</button>
       </div>
@@ -172,33 +174,23 @@
           </select>
           <label>Quantité</label>
           <input type="number" id="b-qte" min="0" step="1">
-          <label id="b-prix-label">Cours unitaire (DH)</label>
+          <label id="b-prix-label">Prix unitaire net (DH)</label>
           <input type="text" id="b-prix" inputmode="decimal" placeholder="0,00">
-          <div id="b-champ-opcvm" style="display:none">
-            <label>Droits d'entrée/sortie (%) — laisser vide pour utiliser le taux par défaut du fonds</label>
-            <input type="text" id="b-taux-opcvm" inputmode="decimal" placeholder="ex : 2,00">
-          </div>
-          <div id="b-champ-ipo" style="display:none">
-            <label>Structure de frais IPO</label>
-            <select id="b-structure-ipo">
-              <option value="action">Comme une Action (courtage + R/L + impôt de bourse)</option>
-              <option value="souscription">Souscription forfaitaire (taux + minimum)</option>
-            </select>
-          </div>
-          <label>Autres frais (DH)</label>
+          <label>Frais de transaction (DH) — optionnel, si non compris dans le prix</label>
           <input type="text" id="b-frais" inputmode="decimal" placeholder="0,00">
           <button class="btn btn-dep" onclick="ajouterTransactionBourse()">Ajouter la transaction</button>
         </div>
         <div class="card">
-          <h2>ℹ️ Frais appliqués par type d'instrument</h2>
+          <h2>ℹ️ Saisie manuelle</h2>
           <p style="color:var(--muted); font-size:13px; line-height:1.6">
-            <b>Action</b> : courtage + règlement/livraison + impôt de bourse + TVA (sur le courtage)<br>
-            <b>Obligation</b> : commission fixe + impôt de bourse réduit, pas de TVA<br>
-            <b>OPCVM</b> : droits d'entrée (achat) ou de sortie (vente), propres à chaque fonds<br>
-            <b>IPO</b> : commission de souscription proportionnelle, avec un minimum<br><br>
-            Tous les taux par défaut sont définis dans l'onglet <b>Paramètres</b> et
-            peuvent être ajustés. Le PRU (prix de revient unitaire) est recalculé en
-            coût moyen pondéré à chaque opération, tous instruments confondus par titre.
+            Aucun frais n'est calculé automatiquement : indique directement le prix
+            net auquel l'opération a réellement eu lieu (celui de ton relevé de
+            courtage). Le champ « Frais de transaction » est optionnel, pour une
+            commission ponctuelle non comprise dans ce prix.<br><br>
+            Pour les frais récurrents (abonnement courtier, tenue de compte...),
+            utilise plutôt l'onglet <b>Frais</b>.<br><br>
+            Le PRU (prix de revient unitaire) reste calculé automatiquement en
+            coût moyen pondéré, tous instruments confondus par titre.
           </p>
         </div>
       </div>
@@ -224,50 +216,83 @@
       </div>
     </div>
 
+    <!-- ---------- Dividendes ---------- -->
+    <div id="vue-bourse-dividendes" style="display:none">
+      <div class="grid2">
+        <div class="card">
+          <h2>💸 Dividende reçu</h2>
+          <label>Date</label>
+          <input type="date" id="bd-date">
+          <label>Titre</label>
+          <input type="text" id="bd-titre" list="b-titres-liste" placeholder="ex : ATW ou tape le nom de la société" autocomplete="off">
+          <label>Montant net reçu (DH)</label>
+          <input type="text" id="bd-montant" inputmode="decimal" placeholder="0,00">
+          <button class="btn btn-rev" onclick="ajouterDividendeBourse()">Ajouter le dividende</button>
+        </div>
+        <div class="card">
+          <h2>ℹ️ Saisie manuelle</h2>
+          <p style="color:var(--muted); font-size:13px; line-height:1.6">
+            Indique directement le montant NET déjà reçu (après retenue à la
+            source), tel qu'il apparaît sur ton relevé — aucun calcul de
+            fiscalité n'est appliqué ici.
+          </p>
+        </div>
+      </div>
+      <div class="card">
+        <h2>🧾 Journal des dividendes</h2>
+        <div id="b-liste-dividendes"></div>
+      </div>
+    </div>
+
+    <!-- ---------- Frais de compte ---------- -->
+    <div id="vue-bourse-frais" style="display:none">
+      <div class="grid2">
+        <div class="card">
+          <h2>🧾 Frais de compte</h2>
+          <label>Date</label>
+          <input type="date" id="bf-date">
+          <label>Libellé</label>
+          <input type="text" id="bf-libelle" placeholder="ex : Abonnement Wafabourse">
+          <label>Montant (DH)</label>
+          <input type="text" id="bf-montant" inputmode="decimal" placeholder="0,00">
+          <button class="btn btn-dep" onclick="ajouterFraisBourse()">Ajouter le frais</button>
+        </div>
+        <div class="card">
+          <h2>ℹ️ À quoi ça sert</h2>
+          <p style="color:var(--muted); font-size:13px; line-height:1.6">
+            Pour les frais indépendants d'une transaction précise : abonnement
+            mensuel de ta plateforme (ex : 19 DH/mois Wafabourse), frais de
+            tenue de compte, etc. Ils sont intégrés au résultat de la période
+            dans le Dashboard.
+          </p>
+        </div>
+      </div>
+      <div class="card">
+        <h2>🧾 Journal des frais</h2>
+        <div id="b-liste-frais"></div>
+      </div>
+    </div>
+
     <!-- ---------- Dashboard ---------- -->
     <div id="vue-bourse-dashboard" style="display:none">
-      <div class="kpis" id="b-kpis"></div>
+      <div class="mois-nav">
+        <button id="b-periode-prev" onclick="navDashBourse(-1)" style="visibility:hidden">‹</button>
+        <div class="titre" id="b-periode-titre"></div>
+        <button id="b-periode-next" onclick="navDashBourse(1)" style="visibility:hidden">›</button>
+        <div class="vue-toggle">
+          <button id="bv-global" class="active" onclick="changerVueDashBourse('global')">Global</button>
+          <button id="bv-mois" onclick="changerVueDashBourse('mois')">Mois</button>
+          <button id="bv-annee" onclick="changerVueDashBourse('annee')">Année</button>
+        </div>
+      </div>
+      <h2 class="mt">📊 Portefeuille actuel</h2>
+      <div class="kpis" id="b-kpis-actuel"></div>
+      <h2 class="mt" id="b-kpis-periode-titre">💰 Résultat de la période</h2>
+      <div class="kpis" id="b-kpis-periode"></div>
     </div>
 
     <!-- ---------- Paramètres ---------- -->
     <div id="vue-bourse-parametres" style="display:none">
-      <div class="grid2">
-        <div class="card">
-          <h2>📈 Actions cotées</h2>
-          <label>Commission de courtage (%)</label>
-          <input type="text" id="bp-courtage" inputmode="decimal">
-          <label>Règlement / livraison (%)</label>
-          <input type="text" id="bp-reglement" inputmode="decimal">
-          <label>Impôt de bourse (%)</label>
-          <input type="text" id="bp-impot-action" inputmode="decimal">
-          <label>TVA sur commission (%)</label>
-          <input type="text" id="bp-tva" inputmode="decimal">
-        </div>
-        <div class="card">
-          <h2>📜 Obligations cotées</h2>
-          <label>Commission fixe (DH)</label>
-          <input type="text" id="bp-commission-obligation" inputmode="decimal">
-          <label>Impôt de bourse (%)</label>
-          <input type="text" id="bp-impot-obligation" inputmode="decimal">
-        </div>
-      </div>
-      <div class="grid2">
-        <div class="card">
-          <h2>💼 OPCVM</h2>
-          <label>Droits d'entrée par défaut (%)</label>
-          <input type="text" id="bp-opcvm-entree" inputmode="decimal">
-          <label>Droits de sortie par défaut (%)</label>
-          <input type="text" id="bp-opcvm-sortie" inputmode="decimal">
-          <p style="color:var(--muted); font-size:12px">Ces taux varient beaucoup par fonds — ajuste-les au cas par cas à la saisie si besoin.</p>
-        </div>
-        <div class="card">
-          <h2>🆕 IPO / Souscriptions</h2>
-          <label>Taux de souscription (%)</label>
-          <input type="text" id="bp-ipo-taux" inputmode="decimal">
-          <label>Minimum par opération (DH)</label>
-          <input type="text" id="bp-ipo-min" inputmode="decimal">
-        </div>
-      </div>
       <div class="grid2">
         <div class="card">
           <h2>🗄️ Droits de garde</h2>
@@ -275,20 +300,22 @@
           <input type="text" id="bp-garde-taux" inputmode="decimal">
           <label>Minimum trimestriel (DH)</label>
           <input type="text" id="bp-garde-min" inputmode="decimal">
-          <p style="color:var(--muted); font-size:12px">Frais périodiques sur l'encours, calculés à part — pas liés à une transaction.</p>
+          <p style="color:var(--muted); font-size:12px">Frais périodiques indicatifs sur l'encours actuel — pas liés à une transaction.</p>
         </div>
         <div class="card">
           <h2>🏛️ Fiscalité</h2>
-          <label>Taux TPCVM (%)</label>
+          <label>Taux TPCVM — plus-values de cession (%)</label>
           <input type="text" id="bp-tpcvm" inputmode="decimal">
+          <p style="color:var(--muted); font-size:12px">Appliqué automatiquement sur le gain réalisé à chaque vente (PRU en coût moyen pondéré).</p>
         </div>
       </div>
       <div class="card">
-        <button class="btn btn-dep" onclick="sauverParametresBourse()">Enregistrer tous les paramètres</button>
+        <button class="btn btn-dep" onclick="sauverParametresBourse()">Enregistrer les paramètres</button>
         <p style="color:var(--muted); font-size:12px; margin-top:10px">
-          Valeurs indicatives (grille Attijariwafa bank, 01/08/2024) : courtage 0,60 % · règlement/livraison
-          0,20 % · impôt de bourse action 0,10 % · TVA 10 % · obligation 110 DH + 0,005 % · droit de garde
-          0,15 %/an (min 13,77 DH/trimestre) · TPCVM 15 %. À vérifier auprès de ton intermédiaire financier.
+          Les prix de transaction, montants de dividendes et frais de compte sont
+          désormais saisis directement (aucun frais de courtage n'est calculé
+          automatiquement). Valeurs indicatives par défaut : droit de garde 0,15 %/an
+          (min. 13,77 DH/trimestre) · TPCVM 15 %.
         </p>
       </div>
     </div>
@@ -351,7 +378,7 @@
   <button id="b-params" onclick="montrer('params')">⚙️ Paramètres</button>
 </nav>
 
-<script src="js/app.js"></script>
-<script src="js/bourse.js"></script>
+<script src="js/app.js?v=3"></script>
+<script src="js/bourse.js?v=3"></script>
 </body>
 </html>

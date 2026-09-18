@@ -1,20 +1,30 @@
 # -*- coding: utf-8 -*-
 """
-Module Bourse v2 — achats, ventes, commissions, TPCVM, positions, gains.
-Distingue 4 types d'instruments, chacun avec sa propre structure de frais
-(grille Attijariwafa bank en vigueur au 01/08/2024) :
+Module Bourse — achats, ventes, dividendes, frais de compte, positions, gains.
 
-    Action      commission de courtage + règlement/livraison + impôt de bourse + TVA (sur courtage uniquement)
-    Obligation  commission fixe + impôt de bourse réduit, pas de courtage ni de TVA
-    OPCVM       droits d'entrée (achat) ou de sortie (vente), taux propre à chaque fonds
-    IPO         commission de souscription proportionnelle avec un minimum (introduction en bourse,
-                augmentation de capital)
+Simplifié : aucun frais n'est calculé automatiquement sur les transactions ni
+sur les dividendes. L'utilisateur saisit directement le prix net (achat/vente)
+et le montant net des dividendes déjà reçus ; les frais de courtage éventuels
+se saisissent manuellement, soit ponctuellement sur une transaction (« Autres
+frais »), soit via le journal séparé des frais de compte (abonnement courtier,
+tenue de compte...).
 
-Les droits de garde (frais trimestriels sur encours, indépendants des transactions)
-sont exposés séparément via /droits_garde et intégrés au dashboard à titre indicatif.
+Restent calculés automatiquement (ce sont des calculs indépendants des frais
+de transaction, qu'on ne peut pas simplement « lire » sur un relevé) :
+    - le PRU (coût moyen pondéré) et les plus/moins-values latentes ;
+    - le gain/perte réalisé à la vente et la TPCVM (taxe sur les profits de
+      cession de valeurs mobilières) ;
+    - les droits de garde (estimation indicative sur l'encours actuel).
+
+Le dashboard accepte des filtres optionnels `mois` (AAAA-MM) ou `annee` pour
+les flux réalisés sur la période (gains, dividendes, frais). La valeur du
+portefeuille (coût d'acquisition, valeur de marché, plus-value latente) reste
+toujours celle d'aujourd'hui : l'application ne conserve pas d'historique de
+cours, donc une valorisation « à une date passée » n'est pas calculable.
 """
+from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -23,6 +33,7 @@ from securite import utilisateur_courant
 from schemas import (
     ParametresBourse, TransactionBourseCreate, TransactionBourseOut,
     PrixMaj, PositionBourse, GainRealise, DashboardBourse, DroitsGarde, TitreBourse,
+    DividendeCreate, DividendeOut, FraisBourseCreate, FraisBourseOut,
 )
 
 router = APIRouter(prefix="/api/bourse", tags=["bourse"],
@@ -45,71 +56,33 @@ def _parametres_dict(conn) -> dict:
     return dict(conn.execute("SELECT * FROM bourse_parametres LIMIT 1").fetchone())
 
 
-def _frais_type_action(brut: Decimal, t: dict, params: dict) -> tuple:
-    """Structure de frais 'Action' : courtage + règlement/livraison + impôt de bourse,
-    puis TVA appliquée sur la somme des trois (confirmé sur relevé réel de courtage :
-    chaque ligne TTC = ligne HT nominale × 1,10, taux HT = 0.60% / 0.20% / 0.10%)."""
-    taux_courtage = _d(t.get("taux_courtage")) if t.get("taux_courtage") is not None else _d(params["taux_courtage_action"])
-    taux_rl = _d(t.get("taux_reglement_livraison")) if t.get("taux_reglement_livraison") is not None else _d(params["taux_reglement_livraison"])
-    taux_impot = _d(t.get("taux_impot_bourse")) if t.get("taux_impot_bourse") is not None else _d(params["taux_impot_bourse_action"])
-    taux_tva = _d(t.get("taux_tva")) if t.get("taux_tva") is not None else _d(params["taux_tva"])
-    courtage = brut * taux_courtage
-    reglement_livraison = brut * taux_rl
-    impot_bourse = brut * taux_impot
-    sous_total_ht = courtage + reglement_livraison + impot_bourse
-    tva = sous_total_ht * taux_tva
-    detail = {"courtage": _r(courtage), "reglement_livraison": _r(reglement_livraison),
-               "impot_bourse": _r(impot_bourse), "tva": _r(tva)}
-    return detail, sous_total_ht + tva
+# ------------------------------------------------------------------ filtre mois/année (commun)
+def _valider_periode(mois: Optional[str], annee: Optional[int]):
+    if mois:
+        try:
+            datetime.strptime(mois, "%Y-%m")
+        except ValueError:
+            raise HTTPException(400, "Format de mois attendu : AAAA-MM")
 
 
-def _calc_transaction(t: dict, params: dict) -> dict:
-    """Recalcule le détail des frais et le montant net à partir d'une ligne DB (+ params courants
-    en repli pour les colonnes non renseignées sur d'anciennes lignes)."""
+def _dans_periode(d, mois: Optional[str], annee: Optional[int]) -> bool:
+    if not mois and not annee:
+        return True
+    s = d.isoformat()
+    if mois:
+        return s[:7] == mois
+    return s[:4] == str(annee)
+
+
+def _calc_transaction(t: dict) -> dict:
+    """Prix déjà net (aucun frais calculé automatiquement) : montant_net = brut ± autres_frais."""
     qte, cours = _d(t["quantite"]), _d(t["cours_unitaire"])
     autres = _d(t["autres_frais"])
     brut = qte * cours
-    instrument = t["type_instrument"]
-    detail = {}
-
-    if instrument == "Action":
-        detail, total_frais = _frais_type_action(brut, t, params)
-
-    elif instrument == "Obligation":
-        commission_fixe = _d(t.get("commission_fixe")) if t.get("commission_fixe") is not None else _d(params["commission_fixe_obligation"])
-        taux_impot = _d(t.get("taux_impot_bourse")) if t.get("taux_impot_bourse") is not None else _d(params["taux_impot_bourse_obligation"])
-        impot_bourse = brut * taux_impot
-        detail = {"commission_fixe": _r(commission_fixe), "impot_bourse": _r(impot_bourse)}
-        total_frais = commission_fixe + impot_bourse
-
-    elif instrument == "OPCVM":
-        defaut = params["droits_entree_opcvm_defaut"] if t["type_operation"] == "Achat" else params["droits_sortie_opcvm_defaut"]
-        taux_droits = _d(t.get("taux_droits_opcvm")) if t.get("taux_droits_opcvm") is not None else _d(defaut)
-        droits = brut * taux_droits
-        label = "droits_entree" if t["type_operation"] == "Achat" else "droits_sortie"
-        detail = {label: _r(droits)}
-        total_frais = droits
-
-    elif instrument == "IPO":
-        if (t.get("structure_ipo") or "souscription") == "action":
-            detail, total_frais = _frais_type_action(brut, t, params)
-        else:
-            taux_souscription = _d(t.get("taux_souscription")) if t.get("taux_souscription") is not None else _d(params["taux_souscription_ipo"])
-            minimum = _d(t.get("min_souscription")) if t.get("min_souscription") is not None else _d(params["min_souscription_ipo"])
-            commission = max(brut * taux_souscription, minimum)
-            detail = {"commission_souscription": _r(commission)}
-            total_frais = commission
-
-    else:
-        raise HTTPException(status_code=400, detail=f"Type d'instrument inconnu : {instrument}")
-
-    total_frais += autres
-    net = brut + total_frais if t["type_operation"] == "Achat" else brut - total_frais
-
+    net = brut + autres if t["type_operation"] == "Achat" else brut - autres
     return {
-        **t,
-        "montant_brut": _r(brut), "detail_frais": detail,
-        "total_frais": _r(total_frais), "montant_net": _r(net),
+        **t, "montant_brut": _r(brut), "autres_frais": _r(autres),
+        "total_frais": _r(autres), "montant_net": _r(net),
         "_net_decimal": net,   # gardé en interne pour les calculs de position/gains
     }
 
@@ -126,20 +99,9 @@ def maj_parametres(p: ParametresBourse):
     with db() as conn:
         conn.execute(
             """UPDATE bourse_parametres SET
-                   taux_courtage_action = %s, taux_reglement_livraison = %s,
-                   taux_impot_bourse_action = %s, taux_tva = %s,
-                   commission_fixe_obligation = %s, taux_impot_bourse_obligation = %s,
                    taux_droit_garde_annuel = %s, droit_garde_min_trimestriel = %s,
-                   taux_souscription_ipo = %s, min_souscription_ipo = %s,
-                   droits_entree_opcvm_defaut = %s, droits_sortie_opcvm_defaut = %s,
                    taux_tpcvm = %s""",
-            (p.taux_courtage_action, p.taux_reglement_livraison,
-             p.taux_impot_bourse_action, p.taux_tva,
-             p.commission_fixe_obligation, p.taux_impot_bourse_obligation,
-             p.taux_droit_garde_annuel, p.droit_garde_min_trimestriel,
-             p.taux_souscription_ipo, p.min_souscription_ipo,
-             p.droits_entree_opcvm_defaut, p.droits_sortie_opcvm_defaut,
-             p.taux_tpcvm),
+            (p.taux_droit_garde_annuel, p.droit_garde_min_trimestriel, p.taux_tpcvm),
         )
         return _parametres_dict(conn)
 
@@ -154,60 +116,32 @@ def lister_titres():
 
 
 # ---------------------------------------------------------------- transactions
-TX_COLONNES = """id, date_operation, titre, isin, type_instrument, structure_ipo, type_operation, quantite,
-                 cours_unitaire, taux_courtage, taux_reglement_livraison, taux_impot_bourse,
-                 taux_tva, commission_fixe, taux_droits_opcvm, taux_souscription,
-                 min_souscription, autres_frais"""
+TX_COLONNES = "id, date_operation, titre, isin, type_instrument, type_operation, quantite, cours_unitaire, autres_frais"
 
 
 @router.get("/transactions", response_model=List[TransactionBourseOut])
-def lister_transactions():
+def lister_transactions(mois: Optional[str] = None, annee: Optional[int] = None):
+    _valider_periode(mois, annee)
     with db() as conn:
-        params = _parametres_dict(conn)
         rows = conn.execute(
             f"SELECT {TX_COLONNES} FROM bourse_transactions ORDER BY date_operation DESC, id DESC"
         ).fetchall()
-    return [_calc_transaction(dict(r), params) for r in rows]
+    calc = [_calc_transaction(dict(r)) for r in rows]
+    return [t for t in calc if _dans_periode(t["date_operation"], mois, annee)]
 
 
 @router.post("/transactions", response_model=TransactionBourseOut, status_code=201)
 def creer_transaction(t: TransactionBourseCreate):
     with db() as conn:
-        p = _parametres_dict(conn)
-
-        taux_courtage = taux_reglement_livraison = taux_impot_bourse = taux_tva = None
-        commission_fixe = taux_droits_opcvm = taux_souscription = min_souscription = None
-
-        if t.type_instrument == "Action" or (t.type_instrument == "IPO" and t.structure_ipo == "action"):
-            taux_courtage = t.taux_courtage if t.taux_courtage is not None else float(p["taux_courtage_action"])
-            taux_reglement_livraison = t.taux_reglement_livraison if t.taux_reglement_livraison is not None else float(p["taux_reglement_livraison"])
-            taux_impot_bourse = t.taux_impot_bourse if t.taux_impot_bourse is not None else float(p["taux_impot_bourse_action"])
-            taux_tva = t.taux_tva if t.taux_tva is not None else float(p["taux_tva"])
-        elif t.type_instrument == "Obligation":
-            commission_fixe = t.commission_fixe if t.commission_fixe is not None else float(p["commission_fixe_obligation"])
-            taux_impot_bourse = t.taux_impot_bourse if t.taux_impot_bourse is not None else float(p["taux_impot_bourse_obligation"])
-        elif t.type_instrument == "OPCVM":
-            defaut = p["droits_entree_opcvm_defaut"] if t.type_operation == "Achat" else p["droits_sortie_opcvm_defaut"]
-            taux_droits_opcvm = t.taux_droits_opcvm if t.taux_droits_opcvm is not None else float(defaut)
-        elif t.type_instrument == "IPO":  # structure_ipo == "souscription"
-            taux_souscription = t.taux_souscription if t.taux_souscription is not None else float(p["taux_souscription_ipo"])
-            min_souscription = t.min_souscription if t.min_souscription is not None else float(p["min_souscription_ipo"])
-
         row = conn.execute(
             f"""INSERT INTO bourse_transactions
-                    (date_operation, titre, isin, type_instrument, structure_ipo, type_operation, quantite,
-                     cours_unitaire, taux_courtage, taux_reglement_livraison, taux_impot_bourse,
-                     taux_tva, commission_fixe, taux_droits_opcvm, taux_souscription,
-                     min_souscription, autres_frais)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    (date_operation, titre, isin, type_instrument, type_operation, quantite, cours_unitaire, autres_frais)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
                 RETURNING {TX_COLONNES}""",
             (t.date_operation, t.titre.strip().upper(), t.isin, t.type_instrument,
-             t.structure_ipo if t.type_instrument == "IPO" else None, t.type_operation,
-             t.quantite, t.cours_unitaire, taux_courtage, taux_reglement_livraison, taux_impot_bourse,
-             taux_tva, commission_fixe, taux_droits_opcvm, taux_souscription, min_souscription,
-             t.autres_frais),
+             t.type_operation, t.quantite, t.cours_unitaire, t.autres_frais),
         ).fetchone()
-    return _calc_transaction(dict(row), p)
+    return _calc_transaction(dict(row))
 
 
 @router.delete("/transactions/{transaction_id}", status_code=204)
@@ -231,9 +165,87 @@ def maj_prix(titre: str, p: PrixMaj):
     return {"titre": titre.strip().upper(), "cours_actuel": p.cours_actuel}
 
 
+# ---------------------------------------------------------------- dividendes
+DIV_COLONNES = "id, date_operation, titre, montant"
+
+
+def _dividendes() -> list:
+    with db() as conn:
+        rows = conn.execute(
+            f"SELECT {DIV_COLONNES} FROM bourse_dividendes ORDER BY date_operation DESC, id DESC"
+        ).fetchall()
+    return [{**dict(r), "montant": _r(r["montant"])} for r in rows]
+
+
+@router.get("/dividendes", response_model=List[DividendeOut])
+def lister_dividendes(mois: Optional[str] = None, annee: Optional[int] = None):
+    _valider_periode(mois, annee)
+    return [d for d in _dividendes() if _dans_periode(d["date_operation"], mois, annee)]
+
+
+@router.post("/dividendes", response_model=DividendeOut, status_code=201)
+def creer_dividende(d: DividendeCreate):
+    with db() as conn:
+        row = conn.execute(
+            f"""INSERT INTO bourse_dividendes (date_operation, titre, montant)
+                VALUES (%s,%s,%s)
+                RETURNING {DIV_COLONNES}""",
+            (d.date_operation, d.titre.strip().upper(), d.montant),
+        ).fetchone()
+    return {**dict(row), "montant": _r(row["montant"])}
+
+
+@router.delete("/dividendes/{dividende_id}", status_code=204)
+def supprimer_dividende(dividende_id: int):
+    with db() as conn:
+        res = conn.execute("DELETE FROM bourse_dividendes WHERE id = %s", (dividende_id,))
+        if res.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Dividende introuvable")
+
+
+# ---------------------------------------------------------------- frais de compte
+FRAIS_COLONNES = "id, date_operation, libelle, montant"
+
+
+def _frais_compte() -> list:
+    with db() as conn:
+        rows = conn.execute(
+            f"SELECT {FRAIS_COLONNES} FROM bourse_frais ORDER BY date_operation DESC, id DESC"
+        ).fetchall()
+    return [{**dict(r), "montant": _r(r["montant"])} for r in rows]
+
+
+@router.get("/frais", response_model=List[FraisBourseOut])
+def lister_frais(mois: Optional[str] = None, annee: Optional[int] = None):
+    _valider_periode(mois, annee)
+    return [f for f in _frais_compte() if _dans_periode(f["date_operation"], mois, annee)]
+
+
+@router.post("/frais", response_model=FraisBourseOut, status_code=201)
+def creer_frais(f: FraisBourseCreate):
+    with db() as conn:
+        row = conn.execute(
+            f"""INSERT INTO bourse_frais (date_operation, libelle, montant)
+                VALUES (%s,%s,%s)
+                RETURNING {FRAIS_COLONNES}""",
+            (f.date_operation, f.libelle.strip(), f.montant),
+        ).fetchone()
+    return {**dict(row), "montant": _r(row["montant"])}
+
+
+@router.delete("/frais/{frais_id}", status_code=204)
+def supprimer_frais(frais_id: int):
+    with db() as conn:
+        res = conn.execute("DELETE FROM bourse_frais WHERE id = %s", (frais_id,))
+        if res.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Frais introuvable")
+
+
 # ---------------------------------------------------------------- calcul positions / gains (logique commune)
 def _positions_et_gains():
-    """Coût moyen pondéré par titre (tous instruments confondus) + gain/perte et TPCVM par vente."""
+    """Coût moyen pondéré par titre (tous instruments confondus) + gain/perte et TPCVM par vente.
+    Toujours calculé sur l'historique complet des transactions (le PRU actuel dépend de tout
+    l'historique d'achat, quelle que soit la période affichée par ailleurs)."""
     with db() as conn:
         params = _parametres_dict(conn)
         txs = [dict(r) for r in conn.execute(
@@ -242,7 +254,7 @@ def _positions_et_gains():
         prix = {r["titre"]: _d(r["cours_actuel"]) for r in conn.execute("SELECT titre, cours_actuel FROM bourse_prix").fetchall()}
         tpcvm_rate = _d(params["taux_tpcvm"])
 
-    calc = [_calc_transaction(t, params) for t in txs]
+    calc = [_calc_transaction(t) for t in txs]
 
     par_titre = {}
     for t in calc:
@@ -297,8 +309,10 @@ def obtenir_positions():
 
 
 @router.get("/gains", response_model=List[GainRealise])
-def obtenir_gains():
+def obtenir_gains(mois: Optional[str] = None, annee: Optional[int] = None):
+    _valider_periode(mois, annee)
     _, gains, _, _ = _positions_et_gains()
+    gains = [g for g in gains if _dans_periode(g.date_operation, mois, annee)]
     return sorted(gains, key=lambda g: g.date_operation, reverse=True)
 
 
@@ -321,7 +335,12 @@ def obtenir_droits_garde():
 
 # ---------------------------------------------------------------- dashboard
 @router.get("/dashboard", response_model=DashboardBourse)
-def obtenir_dashboard():
+def obtenir_dashboard(mois: Optional[str] = None, annee: Optional[int] = None):
+    """`mois` (AAAA-MM) ou `annee` filtrent les flux réalisés (gains, dividendes, frais) sur
+    la période choisie. Sans filtre : tout l'historique. La valorisation du portefeuille
+    (coût d'acquisition, valeur de marché, plus-value latente) reste toujours celle
+    d'aujourd'hui, indépendamment du filtre — il n'y a pas d'historique de cours enregistré."""
+    _valider_periode(mois, annee)
     positions, gains, calc, params = _positions_et_gains()
 
     cout_acquisition = sum(_d(p.valeur_comptable) for p in positions)
@@ -329,24 +348,25 @@ def obtenir_dashboard():
     plus_value_latente = valeur_marche - cout_acquisition
     perf = (plus_value_latente / cout_acquisition) if cout_acquisition != 0 else Decimal(0)
 
-    gains_bruts = sum(_d(g.gain_brut) for g in gains)
-    tpcvm_total = sum(_d(g.tpcvm) for g in gains)
-    gains_nets = sum(_d(g.gain_net) for g in gains)
+    gains_periode = [g for g in gains if _dans_periode(g.date_operation, mois, annee)]
+    gains_bruts = sum(_d(g.gain_brut) for g in gains_periode)
+    tpcvm_total = sum(_d(g.tpcvm) for g in gains_periode)
+    gains_nets = sum(_d(g.gain_net) for g in gains_periode)
 
-    commissions = sum(sum(_d(v) for k, v in t["detail_frais"].items()
-                           if k in ("courtage", "commission_fixe", "commission_souscription")) for t in calc)
-    tva = sum(_d(t["detail_frais"].get("tva", 0)) for t in calc)
-    frais = sum(_d(t["total_frais"]) for t in calc)
+    dividendes_nets = sum(_d(x["montant"]) for x in _dividendes() if _dans_periode(x["date_operation"], mois, annee))
+
+    frais_transactions = sum(_d(t["total_frais"]) for t in calc if _dans_periode(t["date_operation"], mois, annee))
+    frais_compte = sum(_d(f["montant"]) for f in _frais_compte() if _dans_periode(f["date_operation"], mois, annee))
 
     droits_garde = _calcul_droits_garde(positions, params)
-    resultat_global = plus_value_latente + gains_nets - frais
+    resultat_periode = gains_nets + dividendes_nets - frais_transactions - frais_compte
 
     return DashboardBourse(
         cout_acquisition=_r(cout_acquisition), valeur_marche=_r(valeur_marche),
         plus_value_latente=_r(plus_value_latente), performance_latente=_r(perf),
         gains_bruts_realises=_r(gains_bruts), tpcvm_total=_r(tpcvm_total),
-        gains_nets_realises=_r(gains_nets), commissions_totales=_r(commissions),
-        tva_totale=_r(tva), frais_totaux=_r(frais),
+        gains_nets_realises=_r(gains_nets), dividendes_nets=_r(dividendes_nets),
+        frais_transactions_totaux=_r(frais_transactions), frais_compte_totaux=_r(frais_compte),
+        resultat_net_periode=_r(resultat_periode),
         droits_garde_trimestriel_estime=droits_garde.montant_trimestriel_du,
-        resultat_net_global=_r(resultat_global),
     )
