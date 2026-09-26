@@ -32,15 +32,15 @@
 
 [data-theme="light"] {
   --bg: #eef1f6;
-  --bg-glow-1: rgba(242, 166, 60, .09);
+  --bg-glow-1: rgba(235, 104, 52, .09);
   --bg-glow-2: rgba(52, 211, 153, .07);
   --card: #ffffff;
   --card-hover: #fdfcfa;
   --border: #dfe4ee;
   --text: #1b2437;
   --muted: #64708c;
-  --accent: #dd8a17;
-  --accent-fonce: #c2770a;
+  --accent: #eb6834;          /* orange validé (contraste 3.2:1 sur blanc, vs 2.7:1 avant) */
+  --accent-fonce: #c44613;
   --blue: #0e8bbd;
   --green: #0f9e6e;
   --red: #d64550;
@@ -50,7 +50,7 @@
   --ombre: 0 8px 24px rgba(27, 36, 55, .10);
   --ombre-douce: 0 2px 8px rgba(27, 36, 55, .06);
   --trame-opacite: .045;
-  --anneau: rgba(221, 138, 23, .3);
+  --anneau: rgba(235, 104, 52, .3);
 }
 
 /* ---------- Base ---------- */

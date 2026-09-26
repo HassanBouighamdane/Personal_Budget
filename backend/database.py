@@ -2,11 +2,19 @@
 """Accès à la base PostgreSQL : connexion et initialisation du schéma."""
 from contextlib import contextmanager
 
-import psycopg
 from psycopg.rows import dict_row
+from psycopg_pool import ConnectionPool
 
 from config import (DATABASE_URL, CATEGORIES_DEFAUT, SOURCES_DEFAUT,
                     PAIEMENTS_DEFAUT, ADMIN_UTILISATEUR, ADMIN_MOT_DE_PASSE)
+
+# Un seul pool pour toute l'application (au lieu d'ouvrir une connexion TCP par
+# requête) : chaque endpoint ouvre plusieurs `with db()` (jusqu'à 3-4 pour le
+# dashboard Bourse), ce qui multipliait inutilement les connexions.
+_pool = ConnectionPool(
+    conninfo=DATABASE_URL, min_size=1, max_size=10,
+    kwargs={"row_factory": dict_row}, open=True,
+)
 
 # Sociétés cotées à la Bourse de Casablanca (BVC) — (code, nom, secteur)
 # Source : african-markets.com/fr/bourse/bvc/listed-companies, relevé juillet 2026.
@@ -98,13 +106,13 @@ TITRES_BVC_DEFAUT = [
 
 @contextmanager
 def db():
-    """Connexion PostgreSQL avec commit automatique en sortie."""
-    conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
-    try:
+    """Connexion PostgreSQL (tirée du pool) avec commit automatique en sortie.
+    En cas d'exception, `pool.connection()` fait un rollback avant de remettre
+    la connexion dans le pool — indispensable ici puisque la connexion est
+    réutilisée par une future requête plutôt que fermée."""
+    with _pool.connection() as conn:
         yield conn
         conn.commit()
-    finally:
-        conn.close()
 
 def init_db():
     """Crée les tables si besoin, insère les valeurs par défaut et le compte admin."""
@@ -162,29 +170,15 @@ def init_db():
 
         -- ================================================================
         -- Bourse — schéma final (Action / Obligation / OPCVM / IPO)
+        -- Aucun frais n'est calculé automatiquement (prix net saisi directement) :
+        -- seule la TPCVM reste un calcul indépendant des frais de transaction
+        -- (cf. module routes/bourse.py). Les droits de garde se saisissent
+        -- manuellement dans le journal des frais de compte (bourse_frais).
         -- ================================================================
         CREATE TABLE IF NOT EXISTS bourse_parametres (
             id                            SERIAL PRIMARY KEY,
-            -- Actions cotées
-            taux_courtage_action          NUMERIC(6,4)  NOT NULL DEFAULT 0.0060,   -- 0.60 %
-            taux_reglement_livraison      NUMERIC(6,4)  NOT NULL DEFAULT 0.0020,   -- 0.20 %
-            taux_impot_bourse_action      NUMERIC(6,4)  NOT NULL DEFAULT 0.0010,   -- 0.10 %
-            taux_tva                      NUMERIC(6,4)  NOT NULL DEFAULT 0.1000,   -- 10 %, sur le courtage uniquement
-            -- Obligations cotées
-            commission_fixe_obligation    NUMERIC(10,2) NOT NULL DEFAULT 110,
-            taux_impot_bourse_obligation  NUMERIC(8,6)  NOT NULL DEFAULT 0.00005,  -- 0.005 %
-            -- Droits de garde (frais trimestriels sur encours, hors transactions)
-            taux_droit_garde_annuel       NUMERIC(6,4)  NOT NULL DEFAULT 0.0015,   -- 0.15 %
-            droit_garde_min_trimestriel   NUMERIC(10,2) NOT NULL DEFAULT 13.77,
-            -- IPO / souscriptions (introduction en bourse, augmentation de capital)
-            taux_souscription_ipo         NUMERIC(6,4)  NOT NULL DEFAULT 0.0020,
-            min_souscription_ipo          NUMERIC(10,2) NOT NULL DEFAULT 22,
-            -- OPCVM (taux par défaut ; varient fortement par fonds)
-            droits_entree_opcvm_defaut    NUMERIC(6,4)  NOT NULL DEFAULT 0,
-            droits_sortie_opcvm_defaut    NUMERIC(6,4)  NOT NULL DEFAULT 0,
             -- Fiscalité
-            taux_tpcvm                    NUMERIC(6,4)  NOT NULL DEFAULT 0.1500,   -- 15 %, sur les plus-values de cession
-            taux_retenue_source_dividendes NUMERIC(6,4) NOT NULL DEFAULT 0.1500   -- 15 %, RAS/TPA sur les dividendes perçus
+            taux_tpcvm                    NUMERIC(6,4)  NOT NULL DEFAULT 0.1500    -- 15 %, sur les plus-values de cession
         );
 
         CREATE TABLE IF NOT EXISTS bourse_transactions (
@@ -197,15 +191,6 @@ def init_db():
             type_operation            VARCHAR(10) NOT NULL CHECK (type_operation IN ('Achat', 'Vente')),
             quantite                  NUMERIC(14,4) NOT NULL CHECK (quantite > 0),
             cours_unitaire            NUMERIC(14,4) NOT NULL CHECK (cours_unitaire >= 0),
-            -- Taux figés à la saisie (traçabilité) — NULL si non applicable au type d'instrument
-            taux_courtage             NUMERIC(6,4),    -- Action
-            taux_reglement_livraison  NUMERIC(6,4),    -- Action
-            taux_impot_bourse         NUMERIC(8,6),    -- Action ou Obligation
-            taux_tva                  NUMERIC(6,4),    -- Action
-            commission_fixe           NUMERIC(10,2),   -- Obligation
-            taux_droits_opcvm         NUMERIC(6,4),    -- OPCVM
-            taux_souscription         NUMERIC(6,4),    -- IPO
-            min_souscription          NUMERIC(10,2),   -- IPO
             autres_frais              NUMERIC(14,4) NOT NULL DEFAULT 0,
             cree_le                   TIMESTAMP NOT NULL DEFAULT now()
         );
@@ -280,6 +265,42 @@ def init_db():
             c.execute("ALTER TABLE bourse_dividendes DROP COLUMN montant_brut")
             c.execute("ALTER TABLE bourse_dividendes DROP COLUMN IF EXISTS taux_retenue_source")
 
+        # Nettoyage : anciennes colonnes de taux figés, plus jamais lues depuis la
+        # simplification du module Bourse (aucun frais n'est calculé automatiquement).
+        # Idem pour les droits de garde : ne sont plus estimés automatiquement, à
+        # saisir manuellement dans le journal des frais de compte (bourse_frais).
+        # DROP COLUMN IF EXISTS est idempotent — sans effet dès le premier passage
+        # sur une base déjà nettoyée, et sans effet non plus sur une base neuve
+        # (le schéma ci-dessus ne crée plus ces colonnes).
+        c.execute("""
+            ALTER TABLE bourse_parametres
+                DROP COLUMN IF EXISTS taux_courtage_action,
+                DROP COLUMN IF EXISTS taux_reglement_livraison,
+                DROP COLUMN IF EXISTS taux_impot_bourse_action,
+                DROP COLUMN IF EXISTS taux_tva,
+                DROP COLUMN IF EXISTS commission_fixe_obligation,
+                DROP COLUMN IF EXISTS taux_impot_bourse_obligation,
+                DROP COLUMN IF EXISTS taux_souscription_ipo,
+                DROP COLUMN IF EXISTS min_souscription_ipo,
+                DROP COLUMN IF EXISTS droits_entree_opcvm_defaut,
+                DROP COLUMN IF EXISTS droits_sortie_opcvm_defaut,
+                DROP COLUMN IF EXISTS taux_retenue_source_dividendes,
+                DROP COLUMN IF EXISTS taux_droit_garde_annuel,
+                DROP COLUMN IF EXISTS droit_garde_min_trimestriel
+        """)
+        c.execute("""
+            ALTER TABLE bourse_transactions
+                DROP COLUMN IF EXISTS taux_courtage,
+                DROP COLUMN IF EXISTS taux_reglement_livraison,
+                DROP COLUMN IF EXISTS taux_impot_bourse,
+                DROP COLUMN IF EXISTS taux_tva,
+                DROP COLUMN IF EXISTS commission_fixe,
+                DROP COLUMN IF EXISTS taux_droits_opcvm,
+                DROP COLUMN IF EXISTS taux_souscription,
+                DROP COLUMN IF EXISTS min_souscription,
+                DROP COLUMN IF EXISTS structure_ipo
+        """)
+
         with c.cursor() as cur:
             if c.execute("SELECT COUNT(*) n FROM categories").fetchone()["n"] == 0:
                 cur.executemany("INSERT INTO categories(nom,budget) VALUES(%s,%s)", CATEGORIES_DEFAUT)
@@ -289,6 +310,12 @@ def init_db():
                 cur.executemany("INSERT INTO paiements(nom) VALUES(%s)", PAIEMENTS_DEFAUT)
         c.execute("INSERT INTO params(cle,valeur) VALUES('objectif_epargne',5000) ON CONFLICT DO NOTHING")
         if c.execute("SELECT COUNT(*) n FROM utilisateurs").fetchone()["n"] == 0:
+            if not ADMIN_UTILISATEUR or not ADMIN_MOT_DE_PASSE:
+                raise RuntimeError(
+                    "Aucun compte utilisateur en base et ADMIN_UTILISATEUR / ADMIN_MOT_DE_PASSE "
+                    "manquant(s) dans backend/.env : impossible de créer le compte administrateur "
+                    "au premier démarrage. Renseigne ces deux variables et relance."
+                )
             c.execute("INSERT INTO utilisateurs(nom,mdp_hash) VALUES(%s,%s)",
                       (ADMIN_UTILISATEUR, hacher_mdp(ADMIN_MOT_DE_PASSE)))
             if ADMIN_MOT_DE_PASSE == "admin":

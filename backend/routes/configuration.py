@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Routes de configuration : catégories, sources de revenus, types de paiement, objectif."""
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from database import db
 from securite import utilisateur_courant
@@ -31,14 +31,23 @@ def ajouter_categorie(cat: CategorieIn):
 @router.put("/categories/{cid}")
 def modifier_categorie(cid: int, cat: CategorieIn):
     with db() as c:
-        c.execute("UPDATE categories SET nom=%s, budget=%s WHERE id=%s",
-                  (cat.nom.strip(), cat.budget, cid))
+        ancien = c.execute("SELECT nom FROM categories WHERE id=%s", (cid,)).fetchone()
+        if not ancien:
+            raise HTTPException(404, "Catégorie introuvable")
+        nouveau_nom = cat.nom.strip()
+        c.execute("UPDATE categories SET nom=%s, budget=%s WHERE id=%s", (nouveau_nom, cat.budget, cid))
+        if nouveau_nom != ancien["nom"]:
+            # Sans cette mise à jour, les dépenses déjà saisies resteraient rattachées à
+            # l'ancien nom et apparaîtraient comme une catégorie « fantôme » (budget 0).
+            c.execute("UPDATE depenses SET categorie=%s WHERE categorie=%s", (nouveau_nom, ancien["nom"]))
     return {"ok": True}
 
 @router.delete("/categories/{cid}")
 def desactiver_categorie(cid: int):
     with db() as c:
-        c.execute("UPDATE categories SET actif=0 WHERE id=%s", (cid,))
+        res = c.execute("UPDATE categories SET actif=0 WHERE id=%s", (cid,))
+        if res.rowcount == 0:
+            raise HTTPException(404, "Catégorie introuvable")
     return {"ok": True}
 
 # ---- Objectif d'épargne ----
@@ -59,13 +68,21 @@ def ajouter_source(s: NomIn):
 @router.put("/sources/{sid}")
 def modifier_source(sid: int, s: NomIn):
     with db() as c:
-        c.execute("UPDATE sources_revenus SET nom=%s WHERE id=%s", (s.nom.strip(), sid))
+        ancien = c.execute("SELECT nom FROM sources_revenus WHERE id=%s", (sid,)).fetchone()
+        if not ancien:
+            raise HTTPException(404, "Source introuvable")
+        nouveau_nom = s.nom.strip()
+        c.execute("UPDATE sources_revenus SET nom=%s WHERE id=%s", (nouveau_nom, sid))
+        if nouveau_nom != ancien["nom"]:
+            c.execute("UPDATE revenus SET source=%s WHERE source=%s", (nouveau_nom, ancien["nom"]))
     return {"ok": True}
 
 @router.delete("/sources/{sid}")
 def desactiver_source(sid: int):
     with db() as c:
-        c.execute("UPDATE sources_revenus SET actif=0 WHERE id=%s", (sid,))
+        res = c.execute("UPDATE sources_revenus SET actif=0 WHERE id=%s", (sid,))
+        if res.rowcount == 0:
+            raise HTTPException(404, "Source introuvable")
     return {"ok": True}
 
 # ---- Types de paiement ----
@@ -79,11 +96,19 @@ def ajouter_paiement(p: NomIn):
 @router.put("/paiements/{pid}")
 def modifier_paiement(pid: int, p: NomIn):
     with db() as c:
-        c.execute("UPDATE paiements SET nom=%s WHERE id=%s", (p.nom.strip(), pid))
+        ancien = c.execute("SELECT nom FROM paiements WHERE id=%s", (pid,)).fetchone()
+        if not ancien:
+            raise HTTPException(404, "Type de paiement introuvable")
+        nouveau_nom = p.nom.strip()
+        c.execute("UPDATE paiements SET nom=%s WHERE id=%s", (nouveau_nom, pid))
+        if nouveau_nom != ancien["nom"]:
+            c.execute("UPDATE depenses SET paiement=%s WHERE paiement=%s", (nouveau_nom, ancien["nom"]))
     return {"ok": True}
 
 @router.delete("/paiements/{pid}")
 def desactiver_paiement(pid: int):
     with db() as c:
-        c.execute("UPDATE paiements SET actif=0 WHERE id=%s", (pid,))
+        res = c.execute("UPDATE paiements SET actif=0 WHERE id=%s", (pid,))
+        if res.rowcount == 0:
+            raise HTTPException(404, "Type de paiement introuvable")
     return {"ok": True}

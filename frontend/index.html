@@ -11,7 +11,7 @@
 <link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32.png">
 <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
 <meta name="theme-color" content="#0b1120">
-  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/style.css?v=2">
   <script src="js/chart.umd.min.js"></script>
 </head>
 <body>
@@ -202,6 +202,10 @@
 
     <!-- ---------- Positions ---------- -->
     <div id="vue-bourse-positions" style="display:none">
+      <div class="grid2">
+        <div class="card"><h2>Répartition par titre</h2><canvas id="c-b-titre"></canvas></div>
+        <div class="card"><h2>Répartition par secteur</h2><canvas id="c-b-secteur"></canvas></div>
+      </div>
       <div class="card">
         <h2>📊 Portefeuille actuel</h2>
         <div id="b-liste-positions"></div>
@@ -293,29 +297,19 @@
 
     <!-- ---------- Paramètres ---------- -->
     <div id="vue-bourse-parametres" style="display:none">
-      <div class="grid2">
-        <div class="card">
-          <h2>🗄️ Droits de garde</h2>
-          <label>Taux annuel (%)</label>
-          <input type="text" id="bp-garde-taux" inputmode="decimal">
-          <label>Minimum trimestriel (DH)</label>
-          <input type="text" id="bp-garde-min" inputmode="decimal">
-          <p style="color:var(--muted); font-size:12px">Frais périodiques indicatifs sur l'encours actuel — pas liés à une transaction.</p>
-        </div>
-        <div class="card">
-          <h2>🏛️ Fiscalité</h2>
-          <label>Taux TPCVM — plus-values de cession (%)</label>
-          <input type="text" id="bp-tpcvm" inputmode="decimal">
-          <p style="color:var(--muted); font-size:12px">Appliqué automatiquement sur le gain réalisé à chaque vente (PRU en coût moyen pondéré).</p>
-        </div>
+      <div class="card">
+        <h2>🏛️ Fiscalité</h2>
+        <label>Taux TPCVM — plus-values de cession (%)</label>
+        <input type="text" id="bp-tpcvm" inputmode="decimal">
+        <p style="color:var(--muted); font-size:12px">Appliqué automatiquement sur le gain réalisé à chaque vente (PRU en coût moyen pondéré). Calculé vente par vente : les pertes d'une vente ne compensent pas les gains d'une autre vente sur la même année — à vérifier auprès d'un professionnel si tu as plusieurs ventes dans l'année.</p>
       </div>
       <div class="card">
         <button class="btn btn-dep" onclick="sauverParametresBourse()">Enregistrer les paramètres</button>
         <p style="color:var(--muted); font-size:12px; margin-top:10px">
-          Les prix de transaction, montants de dividendes et frais de compte sont
-          désormais saisis directement (aucun frais de courtage n'est calculé
-          automatiquement). Valeurs indicatives par défaut : droit de garde 0,15 %/an
-          (min. 13,77 DH/trimestre) · TPCVM 15 %.
+          Les prix de transaction, montants de dividendes et frais de compte (y compris
+          les droits de garde, à saisir manuellement dans l'onglet Frais) sont désormais
+          saisis directement (aucun frais de courtage n'est calculé automatiquement).
+          Valeur indicative par défaut : TPCVM 15 %.
         </p>
       </div>
     </div>
@@ -378,7 +372,7 @@
   <button id="b-params" onclick="montrer('params')">⚙️ Paramètres</button>
 </nav>
 
-<script src="js/app.js?v=3"></script>
-<script src="js/bourse.js?v=3"></script>
+<script src="js/app.js?v=7"></script>
+<script src="js/bourse.js?v=7"></script>
 </body>
 </html>

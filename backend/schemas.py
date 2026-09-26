@@ -36,9 +36,6 @@ class NomIn(BaseModel):
     nom: str = Field(min_length=1)
 
 class ParametresBourse(BaseModel):
-    # Droits de garde — frais trimestriels sur encours, indépendants des transactions
-    taux_droit_garde_annuel: float = Field(ge=0, le=1)
-    droit_garde_min_trimestriel: float = Field(ge=0)
     # Fiscalité — taxe sur les profits de cession de valeurs mobilières
     taux_tpcvm: float = Field(ge=0, le=1)
 
@@ -79,14 +76,6 @@ class PrixMaj(BaseModel):
     cours_actuel: float = Field(ge=0)
 
 
-class DroitsGarde(BaseModel):
-    base_calcul: float
-    taux_annuel: float
-    montant_trimestriel_estime: float
-    minimum_trimestriel: float
-    montant_trimestriel_du: float
-
-
 class TitreBourse(BaseModel):
     code: str
     nom: str
@@ -95,6 +84,7 @@ class TitreBourse(BaseModel):
  
 class PositionBourse(BaseModel):
     titre: str
+    secteur: str
     quantite_achetee: float
     quantite_vendue: float
     quantite_detenue: float
@@ -135,8 +125,6 @@ class DashboardBourse(BaseModel):
     frais_transactions_totaux: float
     frais_compte_totaux: float
     resultat_net_periode: float
-    # Indicatif, toujours calculé sur l'encours actuel
-    droits_garde_trimestriel_estime: float
 
 
 # ---------------------------------------------------------------- Dividendes

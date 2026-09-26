@@ -1,6 +1,8 @@
 @echo off
 title Mon Budget
-cd /d "%~dp0backend"
+cd /d "%~dp0"
+set PYTHON=python
+if exist ".venv\Scripts\python.exe" set PYTHON=.venv\Scripts\python.exe
 start "" http://localhost:8500
-python app.py
+"%PYTHON%" backend\app.py
 pause

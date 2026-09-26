@@ -6,7 +6,71 @@
  */
 const API_URL = "";
 
-const PALETTE = ['#f2a63c','#55c3ee','#34d399','#a78bfa','#f4726d','#e8d44c','#2dd4bf','#e88f4c','#818cf8','#e879f9','#8d98b4'];
+/* Palette catégorielle validée (8 teintes, ordre fixe — voir CVD/contraste) :
+ * jamais de 9e teinte générée. Au-delà de 8, regrouperAutres() fond le
+ * surplus dans un total "Autres" gris neutre plutôt que de cycler la palette. */
+const PALETTE_CLAIR = ['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#4a3aa7','#e34948'];
+const PALETTE_SOMBRE = ['#3987e5','#d95926','#199e70','#c98500','#d55181','#008300','#9085e9','#e66767'];
+const AUTRES_GRIS = '#898781';
+
+function paletteActuelle() {
+  return document.documentElement.getAttribute('data-theme') === 'light' ? PALETTE_CLAIR : PALETTE_SOMBRE;
+}
+
+// Regroupe au-delà de `max` catégories dans un total "Autres" (jamais une 9e teinte générée).
+function regrouperAutres(labels, valeurs, max = 7) {
+  if (labels.length <= max + 1) {
+    return { labels, valeurs, couleurs: paletteActuelle().slice(0, labels.length) };
+  }
+  const paires = labels.map((l, i) => [l, valeurs[i]]).sort((a, b) => b[1] - a[1]);
+  const tete = paires.slice(0, max);
+  const reste = paires.slice(max).reduce((s, [, v]) => s + v, 0);
+  return {
+    labels: [...tete.map(p => p[0]), 'Autres'],
+    valeurs: [...tete.map(p => p[1]), reste],
+    couleurs: [...paletteActuelle().slice(0, max), AUTRES_GRIS],
+  };
+}
+
+// Légende + infobulle avec le pourcentage de chaque part, en plus de la valeur.
+// Même couleur que Chart.defaults.color (voir appliquerTheme) : un generateLabels
+// personnalisé n'hérite pas automatiquement du défaut global de Chart.js, il faut
+// la fixer explicitement sous peine de retomber sur le noir par défaut du canvas.
+function couleurTexteGraphique() {
+  return document.documentElement.getAttribute('data-theme') === 'light' ? '#64708c' : '#8d98b4';
+}
+
+function optionsDonutPourcentage() {
+  const pct = (valeur, data) => {
+    const total = data.reduce((a, b) => a + b, 0);
+    return total ? (valeur / total * 100).toFixed(1) : '0.0';
+  };
+  const couleurTexte = couleurTexteGraphique();
+  return {
+    plugins: {
+      legend: {
+        position: 'right',
+        labels: {
+          color: couleurTexte, boxWidth: 11, font: { size: 11 },
+          generateLabels: (chart) => {
+            const data = chart.data.datasets[0].data;
+            const bg = chart.data.datasets[0].backgroundColor;
+            return chart.data.labels.map((label, i) => ({
+              text: `${label} — ${pct(data[i], data)} %`,
+              fillStyle: bg[i], strokeStyle: bg[i], fontColor: couleurTexte, index: i,
+            }));
+          }
+        }
+      },
+      tooltip: {
+        callbacks: {
+          label: (ctx) => `${ctx.label} : ${fmt(ctx.parsed)} (${pct(ctx.parsed, ctx.dataset.data)} %)`
+        }
+      }
+    }
+  };
+}
+
 const MOIS_FR = ['Janvier','Février','Mars','Avril','Mai','Juin','Juillet','Août','Septembre','Octobre','Novembre','Décembre'];
 
 if (window.Chart) {
@@ -51,7 +115,11 @@ async function api(path, opts) {
   }
   if (!r.ok) {
     let msg = 'Erreur';
-    try { msg = (await r.json()).detail || msg; } catch (e) { }
+    try {
+      const detail = (await r.json()).detail;
+      // Erreurs de validation Pydantic (422) : detail est un tableau d'objets {loc, msg, ...}
+      msg = Array.isArray(detail) ? detail.map(e => e.msg).join(' · ') : (detail || msg);
+    } catch (e) { }
     toast(msg, false);
     throw new Error('API ' + r.status);
   }
@@ -327,14 +395,15 @@ async function chargerDash() {
       <div class="bar-bg"><div class="bar-fill" style="width:${Math.min(b.pct, 100)}%;background:${c}"></div></div></div>`;
   }).join('') || '<div class="vide">Aucune donnée</div>';
 
+  { const rep = regrouperAutres(r.donut.map(x => x.cat), r.donut.map(x => x.montant));
   dessiner('c-donut', {
     type: 'doughnut',
     data: {
-      labels: r.donut.map(x => x.cat),
-      datasets: [{ data: r.donut.map(x => x.montant), backgroundColor: PALETTE, borderWidth: 0 }]
+      labels: rep.labels,
+      datasets: [{ data: rep.valeurs, backgroundColor: rep.couleurs, borderWidth: 0 }]
     },
-    options: { plugins: { legend: { position: 'right', labels: { boxWidth: 11, font: { size: 11 } } } } }
-  });
+    options: optionsDonutPourcentage()
+  }); }
 
   dessiner('c-cumul', {
     type: 'line',
@@ -400,14 +469,15 @@ async function chargerDashJour() {
     <div class="kpi"><div class="l">Transactions</div>
       <div class="v">${r.nb_transactions}</div></div>`;
 
+  { const rep = regrouperAutres(r.donut.map(x => x.cat), r.donut.map(x => x.montant));
   dessiner('c-j-donut', {
     type: 'doughnut',
     data: {
-      labels: r.donut.map(x => x.cat),
-      datasets: [{ data: r.donut.map(x => x.montant), backgroundColor: PALETTE, borderWidth: 0 }]
+      labels: rep.labels,
+      datasets: [{ data: rep.valeurs, backgroundColor: rep.couleurs, borderWidth: 0 }]
     },
-    options: { plugins: { legend: { position: 'right', labels: { boxWidth: 11, font: { size: 11 } } } } }
-  });
+    options: optionsDonutPourcentage()
+  }); }
 
   const lignes = [
     ...r.depenses.map(x => ({ lbl: x.categorie + (x.description ? ' — ' + x.description : ''), m: x.montant, cls: 'dep-amt', sg: '−', extra: x.paiement })),
@@ -455,14 +525,15 @@ async function chargerDashSemaine() {
     }
   });
 
+  { const rep = regrouperAutres(r.donut.map(x => x.cat), r.donut.map(x => x.montant));
   dessiner('c-s-donut', {
     type: 'doughnut',
     data: {
-      labels: r.donut.map(x => x.cat),
-      datasets: [{ data: r.donut.map(x => x.montant), backgroundColor: PALETTE, borderWidth: 0 }]
+      labels: rep.labels,
+      datasets: [{ data: rep.valeurs, backgroundColor: rep.couleurs, borderWidth: 0 }]
     },
-    options: { plugins: { legend: { position: 'right', labels: { boxWidth: 11, font: { size: 11 } } } } }
-  });
+    options: optionsDonutPourcentage()
+  }); }
 
   $('s-top').innerHTML = r.top.length
     ? '<table><tbody>' + r.top.map(t =>
@@ -533,7 +604,7 @@ async function chargerDashAnnee() {
     data: {
       labels: topCats.map(c => c.cat),
       datasets: [{ label: 'Total ' + anneeCour, data: topCats.map(c => c.total),
-                   backgroundColor: PALETTE, borderRadius: 5 }]
+                   backgroundColor: paletteActuelle(), borderRadius: 5 }]
     },
     options: {
       indexAxis: 'y',
@@ -693,8 +764,9 @@ function appliquerTheme(t) {
     Chart.defaults.color = t === 'light' ? '#64708c' : '#8d98b4';
     Chart.defaults.borderColor = t === 'light' ? '#dfe4ee' : '#263250';
   }
-  // Redessiner le dashboard s'il est affiché
+  // Redessiner le dashboard s'il est affiché (la palette catégorielle dépend du thème)
   if ($('tab-dash').style.display !== 'none') chargerDashboard();
+  if ($('tab-bourse').style.display !== 'none' && vueBourse === 'positions') chargerPositionsBourse();
 }
 
 function basculerTheme() {
@@ -707,6 +779,9 @@ function basculerTheme() {
   appliquerTheme(localStorage.getItem('theme') || 'dark');
   $('d-date').value = auj();
   $('r-date').value = auj();
+  $('b-date').value = auj();
+  $('bd-date').value = auj();
+  $('bf-date').value = auj();
   $('jour').textContent = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   try {
     await api('/api/me');    // session valide ?

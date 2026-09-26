@@ -18,8 +18,8 @@ Application web personnelle pour gérer et suivre son budget au quotidien, avec 
 - Journal des achats et ventes (actions, obligations, OPCVM, IPO), avec autocomplétion des titres cotés à la BVC
 - Positions : PRU (prix de revient unitaire), valeur de marché, plus-value latente
 - Gains réalisés, avec calcul de la TPCVM (taxe sur les plus-values de cession)
-- Dividendes nets et frais de compte
-- Tableau de bord global, par mois ou par année, avec une estimation des droits de garde
+- Dividendes nets et frais de compte (y compris les droits de garde, saisis manuellement)
+- Tableau de bord global, par mois ou par année
 
 **Autres**
 - Connexion sécurisée : mot de passe haché avec PBKDF2, session dans un cookie HttpOnly

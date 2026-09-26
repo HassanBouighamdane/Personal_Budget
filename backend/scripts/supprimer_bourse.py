@@ -1,25 +1,27 @@
 # -*- coding: utf-8 -*-
 """
-Supprime toutes les tables du module Bourse (bourse_transactions, bourse_prix,
-bourse_parametres) — utile pour repartir sur un schéma propre après plusieurs
-migrations successives.
+Supprime toutes les tables du module Bourse (transactions, dividendes, frais
+de compte, cours, paramètres, référentiel des titres) — utile pour repartir
+sur un schéma propre.
 
-⚠️  Supprime aussi toutes les données Bourse déjà saisies (transactions, cours,
-paramètres). N'affecte PAS le reste de l'application (dépenses, revenus,
-catégories, utilisateurs...).
+⚠️  Supprime aussi toutes les données Bourse déjà saisies. N'affecte PAS le
+reste de l'application (dépenses, revenus, catégories, utilisateurs...).
 
 Usage :
     cd backend
-    python supprimer_bourse.py
+    python scripts/supprimer_bourse.py
 """
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from database import db
 
-TABLES_BOURSE = ["bourse_transactions", "bourse_prix", "bourse_parametres"]
+TABLES_BOURSE = [
+    "bourse_transactions", "bourse_dividendes", "bourse_frais",
+    "bourse_prix", "bourse_parametres", "bourse_titres",
+]
 
 
 def supprimer_tables_bourse():

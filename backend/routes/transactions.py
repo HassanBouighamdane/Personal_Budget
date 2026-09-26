@@ -21,7 +21,9 @@ def ajouter_depense(d: DepenseIn):
 @router.delete("/depenses/{did}")
 def supprimer_depense(did: int):
     with db() as c:
-        c.execute("DELETE FROM depenses WHERE id=%s", (did,))
+        res = c.execute("DELETE FROM depenses WHERE id=%s", (did,))
+        if res.rowcount == 0:
+            raise HTTPException(404, "Dépense introuvable")
     return {"ok": True}
 
 @router.post("/revenus")
@@ -34,7 +36,9 @@ def ajouter_revenu(r: RevenuIn):
 @router.delete("/revenus/{rid}")
 def supprimer_revenu(rid: int):
     with db() as c:
-        c.execute("DELETE FROM revenus WHERE id=%s", (rid,))
+        res = c.execute("DELETE FROM revenus WHERE id=%s", (rid,))
+        if res.rowcount == 0:
+            raise HTTPException(404, "Revenu introuvable")
     return {"ok": True}
 
 @router.get("/transactions")

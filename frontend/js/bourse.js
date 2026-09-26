@@ -103,18 +103,42 @@ async function majCoursBourse(titre, valeur) {
   if (vueBourse === 'dashboard') chargerDashboardBourse();
 }
 
+// optionsDonutPourcentage(), regrouperAutres() et paletteActuelle() sont définis dans app.js.
+function dessinerRepartitionBourse(liste) {
+  const parTitre = regrouperAutres(liste.map(p => p.titre), liste.map(p => p.valeur_marche));
+  dessiner('c-b-titre', {
+    type: 'doughnut',
+    data: { labels: parTitre.labels, datasets: [{ data: parTitre.valeurs, backgroundColor: parTitre.couleurs, borderWidth: 0 }] },
+    options: optionsDonutPourcentage()
+  });
+
+  const parSecteurMap = {};
+  liste.forEach(p => {
+    const s = p.secteur || 'Non classé';
+    parSecteurMap[s] = (parSecteurMap[s] || 0) + p.valeur_marche;
+  });
+  const parSecteur = regrouperAutres(Object.keys(parSecteurMap), Object.values(parSecteurMap));
+  dessiner('c-b-secteur', {
+    type: 'doughnut',
+    data: { labels: parSecteur.labels, datasets: [{ data: parSecteur.valeurs, backgroundColor: parSecteur.couleurs, borderWidth: 0 }] },
+    options: optionsDonutPourcentage()
+  });
+}
+
 async function chargerPositionsBourse() {
   const liste = (await api('/api/bourse/positions')).filter(p => p.quantite_detenue > 0);
+  dessinerRepartitionBourse(liste);
   if (!liste.length) {
     $('b-liste-positions').innerHTML = '<div class="vide">Aucune position ouverte pour le moment.</div>';
     return;
   }
   $('b-liste-positions').innerHTML = '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table><thead><tr>' +
-    '<th>Titre</th><th class="num">Qté détenue</th><th class="num">PRU</th><th class="num">Cours actuel</th>' +
+    '<th>Titre</th><th>Secteur</th><th class="num">Qté détenue</th><th class="num">PRU</th><th class="num">Cours actuel</th>' +
     '<th class="num">Valeur marché</th><th class="num">+/- value latente</th><th class="num">Perf.</th>' +
     '</tr></thead><tbody>' + liste.map(p => `
     <tr>
       <td>${p.titre}</td>
+      <td style="color:var(--muted);font-size:11px">${p.secteur}</td>
       <td class="num">${p.quantite_detenue}</td>
       <td class="num">${fmt(p.pru)}</td>
       <td class="num"><input type="text" inputmode="decimal" value="${p.cours_actuel || ''}"
@@ -277,18 +301,17 @@ async function chargerDashboardBourse() {
     <div class="kpi"><div class="l">Valeur de marché</div><div class="v" style="color:var(--blue)">${fmt(d.valeur_marche)}</div>
       <div class="h">coût d'acquisition : ${fmt(d.cout_acquisition)}</div></div>
     <div class="kpi"><div class="l">Plus/moins-value latente</div><div class="v" style="color:${cLatente}">${fmt(d.plus_value_latente)}</div>
-      <div class="h">${(d.performance_latente*100).toFixed(2)} %</div></div>
-    <div class="kpi"><div class="l">Droits de garde (trimestre en cours)</div><div class="v" style="color:var(--accent)">${fmt(d.droits_garde_trimestriel_estime)}</div>
-      <div class="h">estimation indicative sur l'encours actuel</div></div>`;
+      <div class="h">${(d.performance_latente*100).toFixed(2)} %</div></div>`;
 
   $('b-kpis-periode').innerHTML = `
     <div class="kpi"><div class="l">Gains nets réalisés</div><div class="v" style="color:${cRealise}">${fmt(d.gains_nets_realises)}</div>
       <div class="h">TPCVM : ${fmt(d.tpcvm_total)}</div></div>
     <div class="kpi"><div class="l">Dividendes nets</div><div class="v" style="color:var(--green)">${fmt(d.dividendes_nets)}</div></div>
-    <div class="kpi"><div class="l">Frais de transactions</div><div class="v" style="color:var(--accent)">${fmt(d.frais_transactions_totaux)}</div></div>
+    <div class="kpi"><div class="l">Frais de transactions</div><div class="v" style="color:var(--accent)">${fmt(d.frais_transactions_totaux)}</div>
+      <div class="h">déjà déduits du gain net ci-dessus — pour info</div></div>
     <div class="kpi"><div class="l">Frais de compte</div><div class="v" style="color:var(--accent)">${fmt(d.frais_compte_totaux)}</div></div>
     <div class="kpi"><div class="l">Résultat net de la période</div><div class="v" style="color:${cPeriode}">${fmt(d.resultat_net_periode)}</div>
-      <div class="h">gains réalisés + dividendes − frais</div></div>`;
+      <div class="h">gains nets + dividendes − frais de compte</div></div>`;
 }
 
 /* ---------------- Paramètres ---------------- */
@@ -296,25 +319,16 @@ function pct(v) { return (v * 100).toFixed(3).replace(/\.?0+$/, '').replace('.',
 
 async function chargerParametresBourse() {
   const p = await api('/api/bourse/parametres');
-  $('bp-garde-taux').value = pct(p.taux_droit_garde_annuel);
-  $('bp-garde-min').value = String(p.droit_garde_min_trimestriel).replace('.', ',');
   $('bp-tpcvm').value = pct(p.taux_tpcvm);
 }
 
 async function sauverParametresBourse() {
-  const tauxGarde = lireMontant('bp-garde-taux');
   const tauxTpcvm = lireMontant('bp-tpcvm');
-  const minGarde = lireMontant('bp-garde-min');
-  if ([tauxGarde, tauxTpcvm].some(v => isNaN(v) || v < 0)) return toast('Taux invalide', false);
-  if (isNaN(minGarde) || minGarde < 0) return toast('Montant invalide', false);
+  if (isNaN(tauxTpcvm) || tauxTpcvm < 0) return toast('Taux invalide', false);
 
   await api('/api/bourse/parametres', {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      taux_droit_garde_annuel: tauxGarde / 100,
-      droit_garde_min_trimestriel: minGarde,
-      taux_tpcvm: tauxTpcvm / 100,
-    }),
+    body: JSON.stringify({ taux_tpcvm: tauxTpcvm / 100 }),
   });
   toast('Paramètres enregistrés ✓');
 }
@@ -345,7 +359,7 @@ function kpisBourseHTML(bourse, libellePeriode) {
       <div class="h" style="color:${cLatente}">${bourse.plus_value_latente >= 0 ? '+' : ''}${fmt(bourse.plus_value_latente)} (${(bourse.performance_latente*100).toFixed(2)} %)</div></div>
     <div class="kpi"><div class="l">Résultat Bourse${libellePeriode ? ' ' + libellePeriode : ''}</div>
       <div class="v" style="color:${cPeriode}">${fmt(bourse.resultat_net_periode)}</div>
-      <div class="h">gains réalisés + dividendes − frais</div></div>`;
+      <div class="h">gains nets + dividendes − frais de compte</div></div>`;
 }
 
 /* ---------------- Point d'entrée de l'onglet ---------------- */

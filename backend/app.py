@@ -28,7 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from config import FRONT_DIR, DATABASE_URL, PORT
-from database import init_db
+from database import init_db, _pool
 from routes import auth, configuration, transactions, rapports, bourse
 
 init_db()
@@ -51,6 +51,10 @@ app.include_router(bourse.router)
 # Frontend statique — monté APRÈS les routes /api pour garder leur priorité
 if FRONT_DIR.exists():
     app.mount("/", StaticFiles(directory=FRONT_DIR, html=True), name="frontend")
+
+@app.on_event("shutdown")
+def fermer_pool():
+    _pool.close()
 
 if __name__ == "__main__":
     import uvicorn

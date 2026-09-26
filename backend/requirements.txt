@@ -3,4 +3,6 @@ uvicorn
 gunicorn
 python-multipart
 psycopg[binary]
+psycopg-pool
 python-dotenv
+pytest

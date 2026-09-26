@@ -15,6 +15,12 @@ BASE_DIR = Path(__file__).parent
 FRONT_DIR = BASE_DIR.parent / "frontend"
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError(
+        "DATABASE_URL manquant : renseigne-le dans backend/.env "
+        "(ex : postgresql://user:motdepasse@hote:5432/nom_base)."
+    )
+
 PORT = int(os.environ.get("PORT", 8500))                       # Render fournit PORT automatiquement
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() == "true"   # true en production HTTPS
 ADMIN_UTILISATEUR = os.environ.get("ADMIN_UTILISATEUR")
