@@ -320,6 +320,7 @@ function pct(v) { return (v * 100).toFixed(3).replace(/\.?0+$/, '').replace('.',
 async function chargerParametresBourse() {
   const p = await api('/api/bourse/parametres');
   $('bp-tpcvm').value = pct(p.taux_tpcvm);
+  chargerTitresManagement();
 }
 
 async function sauverParametresBourse() {
@@ -337,6 +338,58 @@ async function sauverParametresBourse() {
 async function chargerTitresBourse() {
   const liste = await api('/api/bourse/titres');
   $('b-titres-liste').innerHTML = liste.map(t => `<option value="${t.code}">${t.code} — ${t.nom}</option>`).join('');
+}
+
+/* ---- Gestion des titres (Paramètres > Bourse) ---- */
+async function chargerTitresManagement() {
+  const liste = await api('/api/bourse/titres');
+  $('p-titres').innerHTML = liste.map(t => `
+    <div class="cat-row">
+      <input type="text" value="${t.code}" id="pt-code-${t.id}" style="flex:1">
+      <input type="text" value="${t.nom}" id="pt-nom-${t.id}" style="flex:2">
+      <input type="text" value="${t.secteur}" id="pt-secteur-${t.id}" style="flex:1">
+      <button class="btn-sm" onclick="sauverTitreBourse(${t.id})">💾</button>
+      <button class="btn-sm" onclick="supprTitreBourse(${t.id})" style="color:var(--red)">✕</button>
+    </div>`).join('') || '<div class="vide">Aucun titre configuré</div>';
+}
+
+async function ajouterTitreBourse() {
+  const code = $('p-new-titre-code').value.trim();
+  const nom = $('p-new-titre-nom').value.trim();
+  const secteur = $('p-new-titre-secteur').value.trim();
+  if (!code || !nom) return toast('Code et nom requis', false);
+
+  await api('/api/bourse/titres', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, nom, secteur }),
+  });
+  $('p-new-titre-code').value = ''; $('p-new-titre-nom').value = ''; $('p-new-titre-secteur').value = '';
+  toast('Titre ajouté ✓');
+  chargerTitresManagement();
+  chargerTitresBourse();
+}
+
+async function sauverTitreBourse(id) {
+  const code = $('pt-code-' + id).value.trim();
+  const nom = $('pt-nom-' + id).value.trim();
+  const secteur = $('pt-secteur-' + id).value.trim();
+  if (!code || !nom) return toast('Code et nom requis', false);
+
+  await api('/api/bourse/titres/' + id, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, nom, secteur }),
+  });
+  toast('Titre mis à jour ✓');
+  chargerTitresManagement();
+  chargerTitresBourse();
+}
+
+async function supprTitreBourse(id) {
+  if (!confirm('Retirer ce titre de la liste ? (les transactions déjà saisies sont conservées)')) return;
+  await api('/api/bourse/titres/' + id, { method: 'DELETE' });
+  toast('Titre retiré');
+  chargerTitresManagement();
+  chargerTitresBourse();
 }
 
 /* ---------------- Résumé silencieux pour le Dashboard principal ---------------- */

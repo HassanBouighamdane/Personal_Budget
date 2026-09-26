@@ -35,7 +35,7 @@ from database import db
 from securite import utilisateur_courant
 from schemas import (
     ParametresBourse, TransactionBourseCreate, TransactionBourseOut,
-    PrixMaj, PositionBourse, GainRealise, DashboardBourse, TitreBourse,
+    PrixMaj, PositionBourse, GainRealise, DashboardBourse, TitreBourse, TitreBourseIn,
     DividendeCreate, DividendeOut, FraisBourseCreate, FraisBourseOut,
 )
 
@@ -128,9 +128,50 @@ def maj_parametres(p: ParametresBourse):
 def lister_titres():
     with db() as conn:
         rows = conn.execute(
-            "SELECT code, nom, secteur FROM bourse_titres WHERE actif = 1 ORDER BY nom"
+            "SELECT id, code, nom, secteur FROM bourse_titres WHERE actif = 1 ORDER BY nom"
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+@router.post("/titres", response_model=TitreBourse, status_code=201)
+def ajouter_titre(t: TitreBourseIn):
+    with db() as conn:
+        row = conn.execute(
+            """INSERT INTO bourse_titres (code, nom, secteur) VALUES (%s,%s,%s)
+               ON CONFLICT (code) DO UPDATE SET nom = EXCLUDED.nom, secteur = EXCLUDED.secteur, actif = 1
+               RETURNING id, code, nom, secteur""",
+            (t.code.strip().upper(), t.nom.strip(), t.secteur.strip()),
+        ).fetchone()
+    return dict(row)
+
+
+@router.put("/titres/{titre_id}", response_model=TitreBourse)
+def modifier_titre(titre_id: int, t: TitreBourseIn):
+    nouveau_code = t.code.strip().upper()
+    with db() as conn:
+        ancien = conn.execute("SELECT code FROM bourse_titres WHERE id = %s", (titre_id,)).fetchone()
+        if not ancien:
+            raise HTTPException(404, "Titre introuvable")
+        row = conn.execute(
+            """UPDATE bourse_titres SET code = %s, nom = %s, secteur = %s WHERE id = %s
+               RETURNING id, code, nom, secteur""",
+            (nouveau_code, t.nom.strip(), t.secteur.strip(), titre_id),
+        ).fetchone()
+        if nouveau_code != ancien["code"]:
+            # Le code sert de clé de rapprochement (texte libre) dans les transactions,
+            # dividendes et cours actuels — le renommer les détacherait sinon.
+            conn.execute("UPDATE bourse_transactions SET titre = %s WHERE titre = %s", (nouveau_code, ancien["code"]))
+            conn.execute("UPDATE bourse_dividendes SET titre = %s WHERE titre = %s", (nouveau_code, ancien["code"]))
+            conn.execute("UPDATE bourse_prix SET titre = %s WHERE titre = %s", (nouveau_code, ancien["code"]))
+    return dict(row)
+
+
+@router.delete("/titres/{titre_id}", status_code=204)
+def desactiver_titre(titre_id: int):
+    with db() as conn:
+        res = conn.execute("UPDATE bourse_titres SET actif = 0 WHERE id = %s", (titre_id,))
+        if res.rowcount == 0:
+            raise HTTPException(404, "Titre introuvable")
 
 
 # ---------------------------------------------------------------- transactions

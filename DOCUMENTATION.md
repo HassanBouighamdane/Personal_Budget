@@ -131,7 +131,7 @@ Les lanceurs `lancer_budget.bat` et `lancer_budget.sh` ouvrent le navigateur pui
 
 ### 3.2 `database.py` — base de données
 
-**`TITRES_BVC_DEFAUT`** : liste d'environ 80 sociétés cotées à la BVC, sous la forme `(code, nom, secteur)`. Elle alimente la table `bourse_titres`, qui sert à l'autocomplétion du champ « Titre » dans le frontend.
+**`TITRES_BVC_DEFAUT`** : liste d'environ 80 sociétés cotées à la BVC, sous la forme `(code, nom, secteur)`, insérée une fois au premier démarrage (table vide). Elle alimente la table `bourse_titres`, qui sert à l'autocomplétion du champ « Titre » et au regroupement par secteur des positions. Gérable ensuite depuis l'onglet Bourse > Paramètres (ajout, modification, désactivation) — voir `/api/bourse/titres` au [§5](#5-référence-de-lapi). Renommer un `code` répercute le changement sur `bourse_transactions.titre`, `bourse_dividendes.titre` et `bourse_prix.titre`, comme le fait `modifier_categorie` pour les dépenses (même raisonnement : ces colonnes stockent un texte libre, pas une clé étrangère).
 
 **`_pool`** est un `psycopg_pool.ConnectionPool` créé une fois au chargement du module (1 à 10 connexions, `row_factory=dict_row`). **`db()`** est un gestionnaire de contexte (`@contextmanager`) qui tire une connexion du pool :
 ```python
@@ -247,7 +247,7 @@ La logique centrale se trouve dans `_positions_et_gains()` :
 
 `_valider_vente()` reconstitue la chronologie complète d'un titre (transaction à insérer comprise) et refuse toute vente qui ferait passer la quantité détenue sous zéro à un instant quelconque — y compris pour une vente antidatée.
 
-Routes : `parametres` (GET/PUT), `titres`, `transactions` (GET/POST/DELETE), `prix/{titre}` (PUT, insertion ou mise à jour du cours actuel), `dividendes`, `frais`, `positions`, `gains`, `dashboard`. Les formules sont détaillées au [§6](#6-calculs-métier).
+Routes : `parametres` (GET/PUT), `titres` (GET/POST/PUT/DELETE), `transactions` (GET/POST/DELETE), `prix/{titre}` (PUT, insertion ou mise à jour du cours actuel), `dividendes`, `frais`, `positions`, `gains`, `dashboard`. Les formules sont détaillées au [§6](#6-calculs-métier).
 
 ### 3.11 `scripts/supprimer_bourse.py`
 
@@ -309,7 +309,7 @@ Toutes les routes sauf `/api/login` et `/api/logout` exigent le cookie `session`
 | GET | `/api/resume?mois=` | — | résumé du mois |
 | GET | `/api/resume_annuel?annee=` | — | résumé de l'année |
 | GET / PUT | `/api/bourse/parametres` | `ParametresBourse` | `ParametresBourse` |
-| GET | `/api/bourse/titres` | — | `[TitreBourse]` |
+| GET / POST / PUT / DELETE | `/api/bourse/titres[/{id}]` | `TitreBourseIn` (`{code, nom, secteur}`) | `TitreBourse` / `[TitreBourse]` |
 | GET / POST | `/api/bourse/transactions` | `?mois=&annee=` / `TransactionBourseCreate` | `[TransactionBourseOut]` |
 | DELETE | `/api/bourse/transactions/{id}` | — | 204 |
 | PUT | `/api/bourse/prix/{titre}` | `{cours_actuel}` | `{titre, cours_actuel}` |
@@ -403,7 +403,7 @@ Il réutilise les utilitaires globaux d'`app.js`, qui doit donc être chargé av
 - Le cours actuel se modifie **directement dans le tableau des positions** : un `<input>` avec `onchange` appelle `majCoursBourse()`.
 - Le dashboard Bourse a trois modes (Global / Mois / Année) et sa propre navigation ‹ ›.
 - Les paramètres sont affichés en % (`pct()` multiplie par 100) et renvoyés en fraction (÷ 100).
-- `chargerTitresBourse()` remplit un `<datalist>` HTML5 pour l'autocomplétion des codes BVC.
+- `chargerTitresBourse()` remplit un `<datalist>` HTML5 pour l'autocomplétion des codes BVC. `chargerTitresManagement()` (onglet Paramètres) affiche la liste éditable (code/nom/secteur) ; les deux sont rafraîchies après tout ajout/modification/suppression d'un titre.
 
 ### 7.4 `css/style.css`
 

@@ -77,9 +77,16 @@ class PrixMaj(BaseModel):
 
 
 class TitreBourse(BaseModel):
+    id: int
     code: str
     nom: str
     secteur: str
+
+
+class TitreBourseIn(BaseModel):
+    code: str = Field(min_length=1)
+    nom: str = Field(min_length=1)
+    secteur: str = ""
  
  
 class PositionBourse(BaseModel):

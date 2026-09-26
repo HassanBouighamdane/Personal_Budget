@@ -298,6 +298,18 @@
     <!-- ---------- Paramètres ---------- -->
     <div id="vue-bourse-parametres" style="display:none">
       <div class="card">
+        <h2>🏢 Titres BVC (autocomplétion &amp; secteurs)</h2>
+        <div id="p-titres" style="max-height:340px; overflow-y:auto"></div>
+        <h2 class="mt">Ajouter un titre</h2>
+        <div class="cat-row">
+          <input type="text" id="p-new-titre-code" placeholder="Code (ex : ATW)" style="flex:1">
+          <input type="text" id="p-new-titre-nom" placeholder="Nom de la société" style="flex:2">
+          <input type="text" id="p-new-titre-secteur" placeholder="Secteur" style="flex:1">
+          <button class="btn-sm" onclick="ajouterTitreBourse()">＋</button>
+        </div>
+        <p style="color:var(--muted); font-size:12px; margin-top:8px">Alimente l'autocomplétion du champ « Titre » et le regroupement par secteur des positions. Renommer un code met à jour les transactions, dividendes et cours déjà saisis sous l'ancien code.</p>
+      </div>
+      <div class="card">
         <h2>🏛️ Fiscalité</h2>
         <label>Taux TPCVM — plus-values de cession (%)</label>
         <input type="text" id="bp-tpcvm" inputmode="decimal">
@@ -372,7 +384,7 @@
   <button id="b-params" onclick="montrer('params')">⚙️ Paramètres</button>
 </nav>
 
-<script src="js/app.js?v=7"></script>
-<script src="js/bourse.js?v=7"></script>
+<script src="js/app.js?v=8"></script>
+<script src="js/bourse.js?v=8"></script>
 </body>
 </html>
