@@ -256,3 +256,70 @@ def resume_annuel(annee: int):
         "par_mois": mois_data, "epargne_cumulee": cumul_ep,
         "categories": categories, "grille": grille,
     }
+# ------------------------------------------------------------------ Vue GLOBALE
+def _mois_continus(debut: str, fin: str) -> list:
+    """Tous les mois AAAA-MM de `debut` à `fin` inclus (y compris les mois sans mouvement)."""
+    a, m = int(debut[:4]), int(debut[5:7])
+    fa, fm = int(fin[:4]), int(fin[5:7])
+    res = []
+    while (a, m) <= (fa, fm):
+        res.append(f"{a:04d}-{m:02d}")
+        a, m = (a + 1, 1) if m == 12 else (a, m + 1)
+    return res
+
+@router.get("/resume_global")
+def resume_global():
+    """Tout l'historique : totaux, évolution mois par mois, bilan par année, catégories, top dépenses."""
+    with db() as c:
+        dep_rows = c.execute("SELECT substr(date,1,7) m, SUM(montant) t FROM depenses GROUP BY 1").fetchall()
+        rev_rows = c.execute("SELECT substr(date,1,7) m, SUM(montant) t FROM revenus GROUP BY 1").fetchall()
+        obj = _objectif(c)
+        cat_tot = c.execute("SELECT categorie, SUM(montant) t FROM depenses "
+                            "GROUP BY categorie ORDER BY t DESC").fetchall()
+        top = c.execute("SELECT date,categorie,description,montant FROM depenses "
+                        "ORDER BY montant DESC LIMIT 10").fetchall()
+
+    dep_m = {r["m"]: r["t"] for r in dep_rows}
+    rev_m = {r["m"]: r["t"] for r in rev_rows}
+    tous = sorted(set(dep_m) | set(rev_m))
+    mois = _mois_continus(tous[0], tous[-1]) if tous else []
+
+    mois_data = [{"m": m, "dep": round(dep_m.get(m, 0), 2), "rev": round(rev_m.get(m, 0), 2),
+                  "ep": round(rev_m.get(m, 0) - dep_m.get(m, 0), 2)} for m in mois]
+    total_dep = round(sum(x["dep"] for x in mois_data), 2)
+    total_rev = round(sum(x["rev"] for x in mois_data), 2)
+    epargne = round(total_rev - total_dep, 2)
+
+    actifs = [x for x in mois_data if x["dep"] or x["rev"]]
+    meilleur = max(actifs, key=lambda x: x["ep"]) if actifs else None
+    pire = min(actifs, key=lambda x: x["ep"]) if actifs else None
+
+    cumul_ep, s = [], 0.0
+    for x in mois_data:
+        s += x["ep"]
+        cumul_ep.append(round(s, 2))
+
+    par_annee = {}
+    for x in mois_data:
+        a = par_annee.setdefault(x["m"][:4], {"annee": int(x["m"][:4]), "dep": 0.0, "rev": 0.0})
+        a["dep"] += x["dep"]
+        a["rev"] += x["rev"]
+    annees = [{"annee": a["annee"], "dep": round(a["dep"], 2), "rev": round(a["rev"], 2),
+               "ep": round(a["rev"] - a["dep"], 2),
+               "taux_epargne": round((a["rev"] - a["dep"]) / a["rev"] * 100, 1) if a["rev"] else 0}
+              for a in par_annee.values()]
+
+    return {
+        "premier_mois": mois[0] if mois else None, "dernier_mois": mois[-1] if mois else None,
+        "total_depenses": total_dep, "total_revenus": total_rev, "epargne": epargne,
+        "taux_epargne": round(epargne / total_rev * 100, 1) if total_rev else 0,
+        "nb_mois_actifs": len(actifs),
+        "moyenne_dep_mois": round(total_dep / len(actifs), 2) if actifs else 0,
+        "moyenne_rev_mois": round(total_rev / len(actifs), 2) if actifs else 0,
+        "nb_mois_objectif": sum(1 for x in actifs if x["ep"] >= obj),
+        "objectif_epargne": obj,
+        "meilleur_mois": meilleur, "pire_mois": pire,
+        "par_mois": mois_data, "epargne_cumulee": cumul_ep, "par_annee": annees,
+        "donut": [{"cat": r["categorie"], "montant": round(r["t"], 2)} for r in cat_tot],
+        "top": top,
+    }

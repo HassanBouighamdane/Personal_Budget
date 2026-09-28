@@ -6,7 +6,7 @@ Application web personnelle pour gérer et suivre son budget au quotidien, avec 
 
 **Budget**
 - Saisie rapide des dépenses (catégorie, montant, description, moyen de paiement) et des revenus (source, montant)
-- Tableaux de bord **Jour / Semaine / Mois / Année** avec graphiques :
+- Tableaux de bord **Jour / Semaine / Mois / Année / Global** avec graphiques :
   - budget prévu comparé au réel, par catégorie
   - dépenses cumulées et projection en fin de mois
   - évolution sur 6 mois et comparaison avec la période précédente

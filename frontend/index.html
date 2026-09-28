@@ -79,14 +79,15 @@
   <!-- ===================== DASHBOARD ===================== -->
   <section id="tab-dash" style="display:none">
     <div class="mois-nav">
-      <button onclick="navDash(-1)">‹</button>
+      <button id="dash-prev" onclick="navDash(-1)">‹</button>
       <div class="titre" id="mois-titre"></div>
-      <button onclick="navDash(1)">›</button>
+      <button id="dash-next" onclick="navDash(1)">›</button>
       <div class="vue-toggle">
         <button id="v-jour" onclick="changerVue('jour')">Jour</button>
         <button id="v-semaine" onclick="changerVue('semaine')">Semaine</button>
         <button id="v-mois" class="active" onclick="changerVue('mois')">Mois</button>
         <button id="v-annee" onclick="changerVue('annee')">Année</button>
+        <button id="v-global" onclick="changerVue('global')">Global</button>
       </div>
     </div>
 
@@ -132,6 +133,18 @@
         <div class="card"><h2>Épargne cumulée</h2><canvas id="c-an-cumul"></canvas></div>
       </div>
       <div class="card"><h2>Grille thermique — catégories × mois</h2><div id="an-grille" class="grille"></div></div>
+    </div>
+
+    <!-- ---------- Vue globale (tout l'historique) ---------- -->
+    <div id="vue-global" style="display:none">
+      <div class="kpis" id="g-kpis"></div>
+      <div class="card"><h2>Revenus, dépenses et épargne par mois</h2><canvas id="c-g-mois" class="haut"></canvas></div>
+      <div class="grid2">
+        <div class="card"><h2>Répartition des dépenses</h2><canvas id="c-g-donut"></canvas></div>
+        <div class="card"><h2>Épargne cumulée</h2><canvas id="c-g-cumul"></canvas></div>
+      </div>
+      <div class="card"><h2>Bilan par année</h2><div id="g-annees"></div></div>
+      <div class="card"><h2>Top dépenses (tout l'historique)</h2><div id="g-top"></div></div>
     </div>
   </section>
 
@@ -384,7 +397,7 @@
   <button id="b-params" onclick="montrer('params')">⚙️ Paramètres</button>
 </nav>
 
-<script src="js/app.js?v=8"></script>
-<script src="js/bourse.js?v=8"></script>
+<script src="js/app.js?v=9"></script>
+<script src="js/bourse.js?v=9"></script>
 </body>
 </html>

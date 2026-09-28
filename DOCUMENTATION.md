@@ -220,6 +220,7 @@ Fonctions utilitaires : `_valider_mois`, `_valider_date`, `_somme(c, table, wher
 | `GET /api/resume_semaine?date=` | semaine du lundi au dimanche contenant la date ; totaux, comparaison avec la semaine précédente, détail jour par jour, donut, top 8 ; **budget hebdomadaire** = budget mensuel × 12 ÷ 52 |
 | `GET /api/resume?mois=` | vue mensuelle complète (détail ci-dessous) |
 | `GET /api/resume_annuel?annee=` | 12 mois : revenus/dépenses/épargne par mois, meilleur et pire mois, nombre de mois où l'objectif est atteint, épargne cumulée, totaux par catégorie comparés au budget annuel (budget × 12), **grille catégorie × mois** pour la carte de chaleur |
+| `GET /api/resume_global` | tout l'historique : totaux, moyennes par mois actif, meilleur et pire mois, objectif atteint, évolution **mois par mois** (mois sans mouvement inclus, à 0) et épargne cumulée, **bilan par année**, répartition par catégorie, top 10 des dépenses |
 
 Détail de `/api/resume` :
 - `budget_vs_reel` : pour chaque catégorie active, dépense réelle ÷ budget en %, triée de la plus consommée à la moins consommée. Les dépenses rattachées à des catégories inactives ou renommées apparaissent aussi, avec un budget de 0.
@@ -308,6 +309,7 @@ Toutes les routes sauf `/api/login` et `/api/logout` exigent le cookie `session`
 | GET | `/api/resume_semaine?date=` | — | résumé de la semaine |
 | GET | `/api/resume?mois=` | — | résumé du mois |
 | GET | `/api/resume_annuel?annee=` | — | résumé de l'année |
+| GET | `/api/resume_global` | — | résumé de tout l'historique |
 | GET / PUT | `/api/bourse/parametres` | `ParametresBourse` | `ParametresBourse` |
 | GET / POST / PUT / DELETE | `/api/bourse/titres[/{id}]` | `TitreBourseIn` (`{code, nom, secteur}`) | `TitreBourse` / `[TitreBourse]` |
 | GET / POST | `/api/bourse/transactions` | `?mois=&annee=` / `TransactionBourseCreate` | `[TransactionBourseOut]` |
@@ -365,7 +367,7 @@ Une seule page contient :
 - l'en-tête avec la date, le bouton de thème jour/nuit et le bouton de déconnexion ;
 - quatre sections qui correspondent aux onglets de la barre de navigation du bas :
   - **Saisie** (`#tab-saisie`) : formulaires de dépense et de revenu, transactions du mois en cours ;
-  - **Dashboard** (`#tab-dash`) : quatre vues (Jour / Semaine / Mois / Année) avec des flèches ‹ › pour naviguer ;
+  - **Dashboard** (`#tab-dash`) : cinq vues (Jour / Semaine / Mois / Année / Global) avec des flèches ‹ › pour naviguer (masquées en vue Global, qui couvre tout l'historique) ;
   - **Bourse** (`#tab-bourse`) : sept sous-vues (Transactions, Positions, Gains, Dividendes, Frais, Dashboard, Paramètres) ;
   - **Paramètres** (`#tab-params`) : objectif d'épargne, catégories et budgets, sources, types de paiement, mot de passe.
 

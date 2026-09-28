@@ -317,14 +317,18 @@ function dateFr(dateStr, avecAnnee = true) {
 
 function changerVue(v) {
   vueDash = v;
-  for (const x of ['jour', 'semaine', 'mois', 'annee']) {
+  for (const x of ['jour', 'semaine', 'mois', 'annee', 'global']) {
     $('v-' + x).classList.toggle('active', x === v);
     $('vue-' + x).style.display = x === v ? '' : 'none';
   }
+  // Pas de période à faire défiler en vue globale : on masque les flèches ‹ ›
+  $('dash-prev').style.visibility = v === 'global' ? 'hidden' : '';
+  $('dash-next').style.visibility = v === 'global' ? 'hidden' : '';
   chargerDashboard();
 }
 
 function navDash(delta) {
+  if (vueDash === 'global') return;
   if (vueDash === 'annee') { anneeCour += delta; chargerDashAnnee(); }
   else if (vueDash === 'mois') changerMois(delta);
   else if (vueDash === 'semaine') { semaineCour = decalerDate(semaineCour, delta * 7); chargerDashSemaine(); }
@@ -334,7 +338,8 @@ function navDash(delta) {
 function chargerDashboard() {
   if (!jourCour) jourCour = auj();
   if (!semaineCour) semaineCour = auj();
-  if (vueDash === 'annee') chargerDashAnnee();
+  if (vueDash === 'global') chargerDashGlobal();
+  else if (vueDash === 'annee') chargerDashAnnee();
   else if (vueDash === 'semaine') chargerDashSemaine();
   else if (vueDash === 'jour') chargerDashJour();
   else chargerDash();
@@ -640,6 +645,102 @@ async function chargerDashAnnee() {
         return `<td style="background:rgba(242,166,60,${alpha.toFixed(2)})">${v ? Math.round(v).toLocaleString('fr-FR') : ''}</td>`;
       }).join('') + `<td class="num dep-amt">${fmt(tot)}</td></tr>`;
     }).join('') + '</tbody></table>';
+}
+
+/* ---------------- Vue globale (tout l'historique) ---------------- */
+// "2026-09" → "Sept. 2026" (libellé court pour les axes et les KPI)
+const moisCourt = m => MOIS_FR[+m.slice(5, 7) - 1].slice(0, 4) + '. ' + m.slice(0, 4);
+
+async function chargerDashGlobal() {
+  const [r, bourse] = await Promise.all([
+    api('/api/resume_global'),
+    resumeBourseSilencieux(''),   // sans filtre = tout l'historique Bourse
+  ]);
+  $('mois-titre').textContent = r.premier_mois
+    ? 'Depuis ' + MOIS_FR[+r.premier_mois.slice(5) - 1].toLowerCase() + ' ' + r.premier_mois.slice(0, 4)
+    : 'Tout l’historique';
+
+  const epC = r.epargne >= 0 ? 'var(--green)' : 'var(--red)';
+
+  $('g-kpis').innerHTML = `
+    <div class="kpi"><div class="l">Revenus totaux</div>
+      <div class="v" style="color:var(--blue)">${fmt(r.total_revenus)}</div>
+      <div class="h">moyenne : ${fmt(r.moyenne_rev_mois)} / mois actif</div></div>
+    <div class="kpi"><div class="l">Dépenses totales</div>
+      <div class="v" style="color:var(--accent)">${fmt(r.total_depenses)}</div>
+      <div class="h">moyenne : ${fmt(r.moyenne_dep_mois)} / mois actif</div></div>
+    <div class="kpi"><div class="l">Épargne totale</div>
+      <div class="v" style="color:${epC}">${fmt(r.epargne)}</div>
+      <div class="h">taux : ${r.taux_epargne}%</div></div>
+    <div class="kpi"><div class="l">Objectif atteint</div>
+      <div class="v">${r.nb_mois_objectif} / ${r.nb_mois_actifs}</div>
+      <div class="h">mois à ≥ ${fmt(r.objectif_epargne)} d'épargne</div></div>
+    ${r.meilleur_mois ? `<div class="kpi"><div class="l">Meilleur mois</div>
+      <div class="v" style="color:var(--green)">${moisCourt(r.meilleur_mois.m)}</div>
+      <div class="h">épargne : ${fmt(r.meilleur_mois.ep)}</div></div>` : ''}
+    ${r.pire_mois ? `<div class="kpi"><div class="l">Mois le plus difficile</div>
+      <div class="v" style="color:var(--red)">${moisCourt(r.pire_mois.m)}</div>
+      <div class="h">épargne : ${fmt(r.pire_mois.ep)}</div></div>` : ''}
+    ${kpisBourseHTML(bourse, '(global)')}`;
+
+  const labels = r.par_mois.map(x => moisCourt(x.m));
+
+  dessiner('c-g-mois', {
+    data: {
+      labels,
+      datasets: [
+        { type: 'bar', label: 'Revenus', data: r.par_mois.map(x => x.rev), backgroundColor: '#55c3ee', borderRadius: 4 },
+        { type: 'bar', label: 'Dépenses', data: r.par_mois.map(x => x.dep), backgroundColor: '#f2a63c', borderRadius: 4 },
+        { type: 'line', label: 'Épargne', data: r.par_mois.map(x => x.ep), borderColor: '#34d399',
+          backgroundColor: '#34d399', tension: .3, pointRadius: 3 }
+      ]
+    },
+    options: {
+      plugins: { legend: { labels: { boxWidth: 11 } } },
+      scales: { y: { ticks: { callback: v => v.toLocaleString('fr-FR') } } }
+    }
+  });
+
+  { const rep = regrouperAutres(r.donut.map(x => x.cat), r.donut.map(x => x.montant));
+  dessiner('c-g-donut', {
+    type: 'doughnut',
+    data: {
+      labels: rep.labels,
+      datasets: [{ data: rep.valeurs, backgroundColor: rep.couleurs, borderWidth: 0 }]
+    },
+    options: optionsDonutPourcentage()
+  }); }
+
+  dessiner('c-g-cumul', {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{ label: 'Épargne cumulée', data: r.epargne_cumulee, borderColor: '#34d399',
+                   backgroundColor: 'rgba(52,211,153,.15)', fill: true, tension: .3, pointRadius: 0 }]
+    },
+    options: {
+      plugins: { legend: { labels: { boxWidth: 11 } } },
+      scales: { y: { ticks: { callback: v => v.toLocaleString('fr-FR') } } }
+    }
+  });
+
+  $('g-annees').innerHTML = r.par_annee.length
+    ? '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table><thead><tr><th>Année</th>' +
+      '<th class="num">Revenus</th><th class="num">Dépenses</th><th class="num">Épargne</th><th class="num">Taux</th>' +
+      '</tr></thead><tbody>' + r.par_annee.map(a => `
+      <tr><td>${a.annee}</td>
+        <td class="num rev-amt">${fmt(a.rev)}</td>
+        <td class="num dep-amt">${fmt(a.dep)}</td>
+        <td class="num" style="color:${a.ep >= 0 ? 'var(--green)' : 'var(--red)'}">${fmt(a.ep)}</td>
+        <td class="num">${a.taux_epargne}%</td></tr>`).join('') + '</tbody></table></div>'
+    : '<div class="vide">Aucune donnée</div>';
+
+  $('g-top').innerHTML = r.top.length
+    ? '<table><thead><tr><th>Date</th><th>Catégorie</th><th>Description</th><th style="text-align:right">Montant</th></tr></thead><tbody>' +
+      r.top.map(t => `<tr><td style="white-space:nowrap">${t.date.slice(8)}/${t.date.slice(5, 7)}/${t.date.slice(2, 4)}</td><td>${t.categorie}</td>
+        <td>${t.description || ''}</td><td class="num dep-amt">${fmt(t.montant)}</td></tr>`).join('') +
+      '</tbody></table>'
+    : '<div class="vide">Aucune dépense enregistrée</div>';
 }
 
 /* ---------------- Paramètres ---------------- */
