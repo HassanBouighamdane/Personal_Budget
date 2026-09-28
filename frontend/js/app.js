@@ -9,12 +9,12 @@ const API_URL = "";
 /* Palette catégorielle validée (8 teintes, ordre fixe — voir CVD/contraste) :
  * jamais de 9e teinte générée. Au-delà de 8, regrouperAutres() fond le
  * surplus dans un total "Autres" gris neutre plutôt que de cycler la palette. */
-const PALETTE_CLAIR = ['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#4a3aa7','#e34948'];
-const PALETTE_SOMBRE = ['#3987e5','#d95926','#199e70','#c98500','#d55181','#008300','#9085e9','#e66767'];
+// Même palette dans les deux thèmes (celle du mode clair)
+const PALETTE = ['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#4a3aa7','#e34948'];
 const AUTRES_GRIS = '#898781';
 
 function paletteActuelle() {
-  return document.documentElement.getAttribute('data-theme') === 'light' ? PALETTE_CLAIR : PALETTE_SOMBRE;
+  return PALETTE;
 }
 
 // Regroupe au-delà de `max` catégories dans un total "Autres" (jamais une 9e teinte générée).
@@ -415,8 +415,8 @@ async function chargerDash() {
     data: {
       labels: [...Array(r.nb_jours).keys()].map(i => i + 1),
       datasets: [
-        { label: 'Cumul dépenses', data: r.cumul_quotidien, borderColor: '#f2a63c',
-          backgroundColor: 'rgba(242,166,60,.15)', fill: true, tension: .3, pointRadius: 0 },
+        { label: 'Cumul dépenses', data: r.cumul_quotidien, borderColor: '#eb6834',
+          backgroundColor: 'rgba(235,104,52,.15)', fill: true, tension: .3, pointRadius: 0 },
         { label: 'Budget total', data: Array(r.nb_jours).fill(r.budget_total),
           borderColor: '#64748b', borderDash: [6, 4], pointRadius: 0 }
       ]
@@ -432,8 +432,8 @@ async function chargerDash() {
     data: {
       labels: r.evolution.map(x => x.m),
       datasets: [
-        { label: 'Revenus', data: r.evolution.map(x => x.rev), backgroundColor: '#55c3ee', borderRadius: 5 },
-        { label: 'Dépenses', data: r.evolution.map(x => x.dep), backgroundColor: '#f2a63c', borderRadius: 5 }
+        { label: 'Revenus', data: r.evolution.map(x => x.rev), backgroundColor: '#0e8bbd', borderRadius: 5 },
+        { label: 'Dépenses', data: r.evolution.map(x => x.dep), backgroundColor: '#eb6834', borderRadius: 5 }
       ]
     },
     options: {
@@ -520,8 +520,8 @@ async function chargerDashSemaine() {
     data: {
       labels: r.par_jour.map((x, i) => JOURS_FR[i].slice(0, 3) + ' ' + x.date.slice(8)),
       datasets: [
-        { label: 'Dépenses', data: r.par_jour.map(x => x.dep), backgroundColor: '#f2a63c', borderRadius: 5 },
-        { label: 'Revenus', data: r.par_jour.map(x => x.rev), backgroundColor: '#55c3ee', borderRadius: 5 }
+        { label: 'Dépenses', data: r.par_jour.map(x => x.dep), backgroundColor: '#eb6834', borderRadius: 5 },
+        { label: 'Revenus', data: r.par_jour.map(x => x.rev), backgroundColor: '#0e8bbd', borderRadius: 5 }
       ]
     },
     options: {
@@ -591,10 +591,10 @@ async function chargerDashAnnee() {
     data: {
       labels,
       datasets: [
-        { type: 'bar', label: 'Revenus', data: r.par_mois.map(x => x.rev), backgroundColor: '#55c3ee', borderRadius: 4 },
-        { type: 'bar', label: 'Dépenses', data: r.par_mois.map(x => x.dep), backgroundColor: '#f2a63c', borderRadius: 4 },
-        { type: 'line', label: 'Épargne', data: r.par_mois.map(x => x.ep), borderColor: '#34d399',
-          backgroundColor: '#34d399', tension: .3, pointRadius: 3 }
+        { type: 'bar', label: 'Revenus', data: r.par_mois.map(x => x.rev), backgroundColor: '#0e8bbd', borderRadius: 4 },
+        { type: 'bar', label: 'Dépenses', data: r.par_mois.map(x => x.dep), backgroundColor: '#eb6834', borderRadius: 4 },
+        { type: 'line', label: 'Épargne', data: r.par_mois.map(x => x.ep), borderColor: '#0f9e6e',
+          backgroundColor: '#0f9e6e', tension: .3, pointRadius: 3 }
       ]
     },
     options: {
@@ -622,8 +622,8 @@ async function chargerDashAnnee() {
     type: 'line',
     data: {
       labels,
-      datasets: [{ label: 'Épargne cumulée', data: r.epargne_cumulee, borderColor: '#34d399',
-                   backgroundColor: 'rgba(52,211,153,.15)', fill: true, tension: .3, pointRadius: 0 }]
+      datasets: [{ label: 'Épargne cumulée', data: r.epargne_cumulee, borderColor: '#0f9e6e',
+                   backgroundColor: 'rgba(15,158,110,.15)', fill: true, tension: .3, pointRadius: 0 }]
     },
     options: {
       plugins: { legend: { labels: { boxWidth: 11 } } },
@@ -642,7 +642,7 @@ async function chargerDashAnnee() {
       const tot = vals.reduce((a, b) => a + b, 0);
       return `<tr><td>${c}</td>` + vals.map(v => {
         const alpha = maxVal ? (v / maxVal * 0.85) : 0;
-        return `<td style="background:rgba(242,166,60,${alpha.toFixed(2)})">${v ? Math.round(v).toLocaleString('fr-FR') : ''}</td>`;
+        return `<td style="background:rgba(235,104,52,${alpha.toFixed(2)})">${v ? Math.round(v).toLocaleString('fr-FR') : ''}</td>`;
       }).join('') + `<td class="num dep-amt">${fmt(tot)}</td></tr>`;
     }).join('') + '</tbody></table>';
 }
@@ -689,10 +689,10 @@ async function chargerDashGlobal() {
     data: {
       labels,
       datasets: [
-        { type: 'bar', label: 'Revenus', data: r.par_mois.map(x => x.rev), backgroundColor: '#55c3ee', borderRadius: 4 },
-        { type: 'bar', label: 'Dépenses', data: r.par_mois.map(x => x.dep), backgroundColor: '#f2a63c', borderRadius: 4 },
-        { type: 'line', label: 'Épargne', data: r.par_mois.map(x => x.ep), borderColor: '#34d399',
-          backgroundColor: '#34d399', tension: .3, pointRadius: 3 }
+        { type: 'bar', label: 'Revenus', data: r.par_mois.map(x => x.rev), backgroundColor: '#0e8bbd', borderRadius: 4 },
+        { type: 'bar', label: 'Dépenses', data: r.par_mois.map(x => x.dep), backgroundColor: '#eb6834', borderRadius: 4 },
+        { type: 'line', label: 'Épargne', data: r.par_mois.map(x => x.ep), borderColor: '#0f9e6e',
+          backgroundColor: '#0f9e6e', tension: .3, pointRadius: 3 }
       ]
     },
     options: {
@@ -715,8 +715,8 @@ async function chargerDashGlobal() {
     type: 'line',
     data: {
       labels,
-      datasets: [{ label: 'Épargne cumulée', data: r.epargne_cumulee, borderColor: '#34d399',
-                   backgroundColor: 'rgba(52,211,153,.15)', fill: true, tension: .3, pointRadius: 0 }]
+      datasets: [{ label: 'Épargne cumulée', data: r.epargne_cumulee, borderColor: '#0f9e6e',
+                   backgroundColor: 'rgba(15,158,110,.15)', fill: true, tension: .3, pointRadius: 0 }]
     },
     options: {
       plugins: { legend: { labels: { boxWidth: 11 } } },
