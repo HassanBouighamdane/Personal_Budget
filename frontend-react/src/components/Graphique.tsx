@@ -8,14 +8,31 @@ import { useMediaQuery } from '@mantine/hooks';
 import { fmt, nombreFr } from '../lib/format';
 
 const COULEURS = {
-  light: { texte: '#64708c', grille: '#dfe4ee' },
-  dark: { texte: '#8d98b4', grille: '#263250' },
+  light: { texte: '#64708c', grille: 'rgba(27,36,55,.07)', infobulle: '#1b2437' },
+  dark: { texte: '#8d98b4', grille: 'rgba(141,152,180,.12)', infobulle: '#1f2942' },
 };
 
 /** À appeler au rendu de la racine : les graphiques lisent ces valeurs par défaut à leur création */
 export function appliquerThemeGraphiques(schema: 'light' | 'dark') {
-  ChartJS.defaults.color = COULEURS[schema].texte;
-  ChartJS.defaults.borderColor = COULEURS[schema].grille;
+  const c = COULEURS[schema];
+  ChartJS.defaults.color = c.texte;
+  ChartJS.defaults.borderColor = c.grille;
+  ChartJS.defaults.font.family = "'Inter', 'Segoe UI', system-ui, sans-serif";
+  ChartJS.defaults.font.size = 11.5;
+  const tip = ChartJS.defaults.plugins.tooltip;
+  tip.backgroundColor = c.infobulle;
+  tip.titleColor = '#e8edf7';
+  tip.bodyColor = '#c3cadb';
+  tip.padding = 10;
+  tip.cornerRadius = 8;
+  tip.boxPadding = 4;
+  tip.usePointStyle = true;
+  const leg = ChartJS.defaults.plugins.legend.labels;
+  leg.usePointStyle = true;
+  leg.pointStyle = 'circle';
+  leg.boxWidth = 8;
+  leg.boxHeight = 8;
+  leg.padding = 14;
 }
 
 type Props = {
@@ -37,11 +54,13 @@ export function Graphique({ type, data, options, hauteur = 260 }: Props) {
 }
 
 /* ---------- Options communes ---------- */
-const axeMontants = { ticks: { callback: (v: string | number) => nombreFr(v) } };
+const axeMontants = { border: { display: false }, ticks: { callback: (v: string | number) => nombreFr(v), maxTicksLimit: 6 } };
+const axeLibelles = { border: { display: false }, grid: { display: false } };
+const survol = { interaction: { mode: 'index' as const, intersect: false } };
 
 export const optionsSeries = (horizontal = false): ChartOptions => horizontal
-  ? { indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: axeMontants } }
-  : { plugins: { legend: { labels: { boxWidth: 11 } } }, scales: { y: axeMontants } };
+  ? { indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: axeMontants, y: axeLibelles } }
+  : { ...survol, plugins: { legend: { position: 'top', align: 'end' } }, scales: { y: axeMontants, x: axeLibelles } };
 
 // Légende + infobulle avec le pourcentage de chaque part, en plus de la valeur.
 function optionsDonut(texte: string, etroit: boolean): ChartOptions<'doughnut'> {
@@ -50,20 +69,21 @@ function optionsDonut(texte: string, etroit: boolean): ChartOptions<'doughnut'> 
     return total ? (valeur / total * 100).toFixed(1) : '0.0';
   };
   return {
+    cutout: '68%',
     plugins: {
       legend: {
         // Écran étroit : légende sous le graphique pour lui laisser toute la largeur
         position: etroit ? 'bottom' : 'right',
         labels: {
           // generateLabels personnalisé : n'hérite pas de Chart.defaults.color, couleur fixée explicitement
-          color: texte, boxWidth: 11, font: { size: 11 },
+          color: texte, boxWidth: 8, boxHeight: 8, usePointStyle: true, pointStyle: 'circle', padding: 12, font: { size: 12 },
           generateLabels: chart => {
             const ds = chart.data.datasets[0];
             const data = ds.data as number[];
             const bg = ds.backgroundColor as string[];
             return (chart.data.labels as string[]).map((label, i) => ({
               text: `${label} — ${pct(data[i], data)} %`,
-              fillStyle: bg[i], strokeStyle: bg[i], fontColor: texte, index: i,
+              fillStyle: bg[i], strokeStyle: bg[i], fontColor: texte, index: i, pointStyle: 'circle' as const,
             }));
           },
         },
@@ -83,7 +103,7 @@ export function Donut({ labels, valeurs, couleurs }: { labels: string[]; valeurs
     <Graphique
       type="doughnut"
       hauteur={etroit ? 300 : 260}
-      data={{ labels, datasets: [{ data: valeurs, backgroundColor: couleurs, borderWidth: 0 }] }}
+      data={{ labels, datasets: [{ data: valeurs, backgroundColor: couleurs, borderWidth: 0, hoverOffset: 6, spacing: 2, borderRadius: 4 }] }}
       options={optionsDonut(COULEURS[schema].texte, etroit) as ChartOptions}
     />
   );

@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { ActionIcon, Button, Group, NumberInput, PasswordInput, Stack, TextInput, Tooltip } from '@mantine/core';
-import { IconDeviceFloppy, IconPlus } from '@tabler/icons-react';
+import { ActionIcon, Button, Divider, Grid, Group, NumberInput, PasswordInput, Stack, Text, TextInput, Tooltip } from '@mantine/core';
+import { IconBriefcase, IconCategory, IconDeviceFloppy, IconLock, IconPlus, IconTarget } from '@tabler/icons-react';
 
 import { api, toast } from '../lib/api';
 import type { Categorie, Source } from '../lib/types';
 import { useConfig, useEcriture } from '../lib/queries';
-import { BoutonSuppr, Carte, Chargement, confirmer, Info, Vide } from '../components/ui';
+import { BoutonSuppr, Carte, Chargement, confirmer, EnTetePage, Pastille, Vide } from '../components/ui';
 
 const nombre = (v: string | number) => (typeof v === 'number' ? v : parseFloat(v)) || 0;
 
@@ -91,10 +91,9 @@ export function Parametres({ onMdpChange }: { onMdpChange: () => void }) {
     onMdpChange();
   }
 
-  return (
-    <Stack gap="md">
-      <Carte titre="🎯 Objectif d'épargne mensuel">
-        <Group gap="xs" wrap="nowrap" maw={420}>
+  const objectifCarte = (
+      <Carte titre="Objectif d'épargne mensuel" description="Sert à colorer l'épargne et à compter les mois réussis" icone={<Pastille icone={IconTarget} couleur="menthe" />}>
+        <Group gap="xs" wrap="nowrap">
           <NumberInput value={objectif} onChange={setObjectif} min={0} allowNegative={false} decimalSeparator="," thousandSeparator=" "
                        rightSection="DH" style={{ flex: 1 }} aria-label="Objectif d'épargne mensuel" />
           <Button loading={ecrire.isPending}
@@ -103,38 +102,46 @@ export function Parametres({ onMdpChange }: { onMdpChange: () => void }) {
           </Button>
         </Group>
       </Carte>
+  );
 
-      <Carte titre="📂 Catégories et budgets mensuels (DH)">
+  const categoriesCarte = (
+      <Carte titre="Catégories et budgets mensuels" description="Budget en DH par mois ; désactiver garde les dépenses existantes" icone={<Pastille icone={IconCategory} couleur="safran" />}>
         {isPending ? <Chargement /> : (
           <Stack gap="xs">
             {/* key incluant les valeurs : la ligne se réinitialise après un rechargement */}
             {config?.categories.map(c => <LigneCategorie key={`${c.id}|${c.nom}|${c.budget}`} c={c} />)}
           </Stack>
         )}
-        <Info><b style={{ display: 'block', marginTop: 16, marginBottom: 6 }}>Ajouter une catégorie</b></Info>
+        <Divider my="md" color="var(--bordure-douce)" />
+        <Text fz="xs" fw={700} c="dimmed" tt="uppercase" lts={0.5} mb={8}>Ajouter une catégorie</Text>
         <Group gap="xs" wrap="nowrap">
           <TextInput placeholder="Nom" value={nouvCat} onChange={e => setNouvCat(e.currentTarget.value)} style={{ flex: 2 }} />
           <NumberInput placeholder="Budget" value={nouvBudget} onChange={setNouvBudget} min={0} allowNegative={false}
                        decimalSeparator="," thousandSeparator=" " style={{ flex: 1 }} rightSection="DH" />
-          <ActionIcon size="lg" onClick={ajouterCategorie} aria-label="Ajouter la catégorie"><IconPlus size={18} /></ActionIcon>
+          <ActionIcon size={36} onClick={ajouterCategorie} aria-label="Ajouter la catégorie"><IconPlus size={18} /></ActionIcon>
         </Group>
       </Carte>
+  );
 
-      <Carte titre="💼 Sources de revenus">
+  const sourcesCarte = (
+      <Carte titre="Sources de revenus" description="Proposées dans le formulaire de revenu" icone={<Pastille icone={IconBriefcase} couleur="ocean" />}>
         {isPending ? <Chargement /> : !config?.sources.length ? <Vide>Aucune source configurée</Vide> : (
           <Stack gap="xs">
             {config.sources.map(s => <LigneSource key={`${s.id}|${s.nom}`} s={s} />)}
           </Stack>
         )}
-        <Info><b style={{ display: 'block', marginTop: 16, marginBottom: 6 }}>Ajouter une source</b></Info>
+        <Divider my="md" color="var(--bordure-douce)" />
+        <Text fz="xs" fw={700} c="dimmed" tt="uppercase" lts={0.5} mb={8}>Ajouter une source</Text>
         <Group gap="xs" wrap="nowrap">
           <TextInput placeholder="ex : Loyer perçu" value={nouvSource} onChange={e => setNouvSource(e.currentTarget.value)} style={{ flex: 1 }} />
-          <ActionIcon size="lg" onClick={ajouterSource} aria-label="Ajouter la source"><IconPlus size={18} /></ActionIcon>
+          <ActionIcon size={36} onClick={ajouterSource} aria-label="Ajouter la source"><IconPlus size={18} /></ActionIcon>
         </Group>
       </Carte>
+  );
 
-      <Carte titre="🔐 Changer le mot de passe">
-        <Stack gap="sm" maw={420}>
+  const mdpCarte = (
+      <Carte titre="Changer le mot de passe" description="Tu devras te reconnecter ensuite" icone={<Pastille icone={IconLock} couleur="gray" />}>
+        <Stack gap="sm">
           <PasswordInput label="Mot de passe actuel" autoComplete="current-password"
                          value={mdpActuel} onChange={e => setMdpActuel(e.currentTarget.value)} />
           <PasswordInput label="Nouveau mot de passe (6 caractères min.)" autoComplete="new-password"
@@ -142,6 +149,15 @@ export function Parametres({ onMdpChange }: { onMdpChange: () => void }) {
           <Button onClick={changerMdp} loading={envoiMdp} style={{ alignSelf: 'flex-start' }}>Mettre à jour</Button>
         </Stack>
       </Carte>
+  );
+
+  return (
+    <Stack gap="lg">
+      <EnTetePage titre="Paramètres" description="Budget, sources de revenus et sécurité du compte" />
+      <Grid gap="lg" align="flex-start">
+        <Grid.Col span={{ base: 12, md: 7 }}><Stack gap="lg">{categoriesCarte}{sourcesCarte}</Stack></Grid.Col>
+        <Grid.Col span={{ base: 12, md: 5 }}><Stack gap="lg">{objectifCarte}{mdpCarte}</Stack></Grid.Col>
+      </Grid>
     </Stack>
   );
 }

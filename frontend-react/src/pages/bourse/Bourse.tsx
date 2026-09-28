@@ -1,7 +1,11 @@
 import { useState } from 'react';
-import { Group, ScrollArea, SegmentedControl, Stack, Title } from '@mantine/core';
+import { ScrollArea, Stack, Tabs } from '@mantine/core';
+import {
+  IconArrowsExchange, IconBuildingBank, IconChartDonut, IconCoins, IconLayoutDashboard, IconReceiptTax, IconReportMoney, IconSettings,
+} from '@tabler/icons-react';
 
 import { auj } from '../../lib/format';
+import { EnTetePage } from '../../components/ui';
 import { JournalDividendes, JournalFrais, JournalMouvements, JournalTransactions } from './Journaux';
 import { DashboardBourse, Gains, Positions } from './Portefeuille';
 import { ParametresBourse } from './ParametresBourse';
@@ -19,26 +23,35 @@ export function useNavBourse() {
 }
 export type NavBourse = ReturnType<typeof useNavBourse>;
 
-const VUES: { value: VueBourse; label: string }[] = [
-  { value: 'transactions', label: 'Transactions' },
-  { value: 'positions', label: 'Positions' },
-  { value: 'gains', label: 'Gains' },
-  { value: 'dividendes', label: 'Dividendes' },
-  { value: 'frais', label: 'Frais' },
-  { value: 'mouvements', label: 'Apports / Retraits' },
-  { value: 'dashboard', label: 'Dashboard' },
-  { value: 'parametres', label: 'Paramètres' },
+const VUES: { value: VueBourse; label: string; Icone: typeof IconCoins }[] = [
+  { value: 'dashboard', label: 'Dashboard', Icone: IconLayoutDashboard },
+  { value: 'transactions', label: 'Transactions', Icone: IconArrowsExchange },
+  { value: 'positions', label: 'Positions', Icone: IconChartDonut },
+  { value: 'gains', label: 'Gains', Icone: IconReportMoney },
+  { value: 'dividendes', label: 'Dividendes', Icone: IconCoins },
+  { value: 'frais', label: 'Frais', Icone: IconReceiptTax },
+  { value: 'mouvements', label: 'Apports / Retraits', Icone: IconBuildingBank },
+  { value: 'parametres', label: 'Paramètres', Icone: IconSettings },
 ];
 
 export function Bourse({ nav }: { nav: NavBourse }) {
   return (
-    <Stack gap="md">
-      <Group justify="space-between" gap="sm" wrap="wrap">
-        <Title order={2} fz={20}>📈 Bourse</Title>
-        <ScrollArea type="never" maw="100%">
-          <SegmentedControl data={VUES} value={nav.vue} onChange={v => nav.setVue(v as VueBourse)} radius="md" />
+    <Stack gap="lg">
+      <Stack gap="sm">
+        <EnTetePage titre="Bourse" description="Portefeuille à la Bourse de Casablanca" />
+        <ScrollArea type="never" offsetScrollbars={false}>
+          <Tabs value={nav.vue} onChange={v => v && nav.setVue(v as VueBourse)} variant="default" color="safran">
+            <Tabs.List style={{ flexWrap: 'nowrap' }}>
+              {VUES.map(({ value, label, Icone }) => (
+                <Tabs.Tab key={value} value={value} leftSection={<Icone size={16} stroke={1.7} />} fw={500} fz={13.5}
+                          px={12} style={{ whiteSpace: 'nowrap' }}>
+                  {label}
+                </Tabs.Tab>
+              ))}
+            </Tabs.List>
+          </Tabs>
         </ScrollArea>
-      </Group>
+      </Stack>
       {nav.vue === 'transactions' && <JournalTransactions />}
       {nav.vue === 'positions' && <Positions />}
       {nav.vue === 'gains' && <Gains />}

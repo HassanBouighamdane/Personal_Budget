@@ -1,59 +1,70 @@
-/* Couleurs métier (identiques dans les deux thèmes) et fond « design premium » de l'ancien style.css */
+/* Couleurs métier (identiques dans les deux thèmes) et surfaces */
 :root {
   --c-dep: #eb6834;    /* dépenses */
   --c-rev: #0e8bbd;    /* revenus */
   --c-ep: #0f9e6e;     /* épargne / positif */
   --c-neg: #d64550;    /* négatif */
-  --c-warn: #e8b93c;   /* avertissement */
-  --bg-glow-1: rgba(235, 104, 52, .06);
-  --bg-glow-2: rgba(52, 211, 153, .04);
-  --trame-opacite: .05;
+  --c-warn: #e8a33c;   /* avertissement */
+  --bg-glow-1: rgba(235, 104, 52, .07);
+  --bg-glow-2: rgba(14, 139, 189, .05);
+  --surface-navbar: #0d1426;
+  --bordure-douce: rgba(141, 152, 180, .14);
 }
 
 :root[data-mantine-color-scheme='light'] {
-  --mantine-color-body: #eef1f6;
-  --bg-glow-1: rgba(235, 104, 52, .09);
-  --bg-glow-2: rgba(52, 211, 153, .07);
-  --trame-opacite: .045;
+  --mantine-color-body: #f4f6fa;
+  --bg-glow-1: rgba(235, 104, 52, .06);
+  --bg-glow-2: rgba(14, 139, 189, .05);
+  --surface-navbar: #ffffff;
+  --bordure-douce: rgba(27, 36, 55, .08);
 }
 
 html { overflow-x: hidden; }
 
 body {
   background:
-    radial-gradient(900px 420px at 8% -8%, var(--bg-glow-1), transparent 60%),
-    radial-gradient(800px 400px at 100% 0%, var(--bg-glow-2), transparent 55%),
+    radial-gradient(1000px 480px at 12% -12%, var(--bg-glow-1), transparent 60%),
+    radial-gradient(900px 420px at 100% 0%, var(--bg-glow-2), transparent 55%),
     var(--mantine-color-body);
   background-attachment: fixed;
   font-size: 14.5px;
   min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Trame zellige en filigrane (losanges croisés) */
-body::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  opacity: var(--trame-opacite);
-  background-image:
-    repeating-linear-gradient(45deg, currentColor 0 1px, transparent 1px 26px),
-    repeating-linear-gradient(-45deg, currentColor 0 1px, transparent 1px 26px);
-  color: var(--c-dep);
-  mask-image: linear-gradient(to bottom, black, transparent 340px);
-  -webkit-mask-image: linear-gradient(to bottom, black, transparent 340px);
-}
-
-#root { position: relative; z-index: 1; }
+/* Bordures de cartes plus discrètes */
+.mantine-Card-root { border-color: var(--bordure-douce) !important; }
+:root[data-mantine-color-scheme='light'] .mantine-Card-root { box-shadow: 0 1px 2px rgba(27, 36, 55, .04), 0 4px 16px rgba(27, 36, 55, .04); }
 
 /* Chiffres : Space Grotesk, alignés en colonnes */
-.chiffre { font-family: 'Space Grotesk', 'Inter', sans-serif; font-variant-numeric: tabular-nums; }
+.chiffre { font-family: 'Space Grotesk', 'Inter', sans-serif; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
 td.num, th.num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+th.num > button > div { justify-content: flex-end; }
 
 /* Grille thermique catégories × mois */
-.grille td, .grille th { text-align: center; font-size: 12px; padding: 6px 4px; }
+.grille td, .grille th { text-align: center; font-size: 12px; padding: 7px 4px; }
 .grille td:first-child, .grille th:first-child { text-align: left; }
 
-/* Notifications au-dessus de la barre d'onglets du bas (64 px) */
-.mantine-Notifications-root[data-position='bottom-center'] { bottom: calc(64px + var(--mantine-spacing-sm)); }
+/* Notifications : au-dessus de la barre d'onglets sur mobile, en bas à droite sur ordinateur */
+.mantine-Notifications-root[data-position='bottom-right'] { bottom: calc(64px + var(--mantine-spacing-sm)); }
+@media (min-width: 48em) {
+  .mantine-Notifications-root[data-position='bottom-right'] { bottom: var(--mantine-spacing-lg); right: var(--mantine-spacing-lg); }
+}
+
+/* Lien actif de la barre latérale */
+.nav-lien { border-radius: var(--mantine-radius-md); font-weight: 500; }
+.nav-lien[data-active] { font-weight: 600; }
+
+/* Ligne de transaction (liste Saisie) */
+.ligne-op { border-radius: var(--mantine-radius-md); transition: background .12s; }
+.ligne-op:hover { background: light-dark(rgba(27, 36, 55, .035), rgba(141, 152, 180, .06)); }
+.ligne-op .suppr { opacity: 0; transition: opacity .12s; }
+.ligne-op:hover .suppr, .ligne-op:focus-within .suppr { opacity: 1; }
+@media (hover: none) { .ligne-op .suppr { opacity: .7; } }
+
+/* Formulaire de saisie collant sur ordinateur */
+@media (min-width: 62em) { .colle { position: sticky; top: calc(var(--app-shell-header-offset, 0px) + 16px); } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition: none !important; animation: none !important; }
+}

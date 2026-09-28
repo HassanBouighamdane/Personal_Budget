@@ -6,7 +6,8 @@ import { toast } from '../../lib/api';
 import { lireMontant, tauxEnPct } from '../../lib/format';
 import type { Titre } from '../../lib/types';
 import { useEcriture, useParametresBourse, useTitres } from '../../lib/queries';
-import { BoutonSuppr, Carte, Chargement, confirmer, Info, Vide } from '../../components/ui';
+import { IconBuildingSkyscraper, IconReceiptTax } from '@tabler/icons-react';
+import { BoutonSuppr, Carte, Chargement, confirmer, Info, Pastille, Vide } from '../../components/ui';
 
 function LigneTitre({ t }: { t: Titre }) {
   const ecrire = useEcriture('bourse');
@@ -64,7 +65,7 @@ export function ParametresBourse() {
 
   return (
     <>
-      <Carte titre="🏢 Titres BVC (autocomplétion & secteurs)">
+      <Carte titre="Titres BVC" description="Autocomplétion du champ « Titre » et regroupement par secteur" icone={<Pastille icone={IconBuildingSkyscraper} couleur="ocean" />}>
         {isPending ? <Chargement /> : !titres?.length ? <Vide>Aucun titre configuré</Vide> : (
           <ScrollArea.Autosize mah={340} type="auto" offsetScrollbars>
             <Stack gap="xs">
@@ -88,7 +89,7 @@ export function ParametresBourse() {
         </Stack>
       </Carte>
 
-      <Carte titre="🏛️ Fiscalité">
+      <Carte titre="Fiscalité" icone={<Pastille icone={IconReceiptTax} couleur="violet" />}>
         <Stack gap="xs">
           <TextInput label="Taux TPCVM — plus-values de cession (%)" inputMode="decimal" maw={320}
                      value={tpcvm} onChange={e => setTpcvm(e.currentTarget.value)} rightSection="%" />

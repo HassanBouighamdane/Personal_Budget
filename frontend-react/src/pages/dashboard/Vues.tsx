@@ -1,5 +1,8 @@
 /* Vues du dashboard budget — mêmes KPI, graphiques et tableaux que l'ancien app.js */
 import { Box, Group, Progress, Skeleton, Stack, Table, Text } from '@mantine/core';
+import {
+  IconAlertTriangle, IconArrowDownLeft, IconArrowUpRight, IconBriefcase, IconChartBar, IconChartLine, IconPercentage, IconPigMoney, IconReceipt, IconScale, IconTarget, IconTrophy, IconWallet,
+} from '@tabler/icons-react';
 
 import {
   dateFr, decalerDate, fmt, JOURS_FR, jjmm, jjmmaa, libelleMois, MOIS_FR, moisCourt, nombreFr, nomJour,
@@ -18,8 +21,8 @@ function Squelette({ nav, titre }: { nav: NavDashboard; titre: string }) {
   return (
     <>
       <EnTetePeriode nav={nav} titre={titre} />
-      <GrilleKpi>{Array.from({ length: 4 }, (_, i) => <Skeleton key={i} h={92} radius="lg" />)}</GrilleKpi>
-      <Grille2><Skeleton h={300} radius="lg" /><Skeleton h={300} radius="lg" /></Grille2>
+      <GrilleKpi>{Array.from({ length: 4 }, (_, i) => <Skeleton key={i} h={108} radius="lg" />)}</GrilleKpi>
+      <Grille2><Skeleton h={320} radius="lg" /><Skeleton h={320} radius="lg" /></Grille2>
     </>
   );
 }
@@ -28,11 +31,11 @@ function KpisBourse({ bourse, libelle }: { bourse: DashboardBourse | null | unde
   if (!bourse) return null;
   return (
     <>
-      <Kpi label="Portefeuille Bourse" valeur={fmt(bourse.valeur_marche)} couleur={T.rev}
+      <Kpi label="Portefeuille Bourse" icone={IconBriefcase} teinte="ocean" valeur={fmt(bourse.valeur_marche)} couleur={T.rev}
            aide={<Text span inherit c={signe(bourse.plus_value_latente)}>
              {bourse.plus_value_latente >= 0 ? '+' : ''}{fmt(bourse.plus_value_latente)} ({(bourse.performance_latente * 100).toFixed(2)} %)
            </Text>} />
-      <Kpi label={`Résultat Bourse ${libelle}`} valeur={fmt(bourse.resultat_net_periode)}
+      <Kpi label={`Résultat Bourse ${libelle}`} icone={IconChartLine} teinte="menthe" valeur={fmt(bourse.resultat_net_periode)}
            couleur={signe(bourse.resultat_net_periode)} aide="gains nets + dividendes − frais de compte" />
     </>
   );
@@ -98,45 +101,48 @@ export function VueMois({ nav }: { nav: NavDashboard }) {
     <>
       <EnTetePeriode nav={nav} titre={titre} />
       <GrilleKpi>
-        <Kpi label="Revenus" valeur={fmt(r.total_revenus)} couleur={T.rev}
+        <Kpi label="Revenus" icone={IconArrowDownLeft} teinte="ocean" valeur={fmt(r.total_revenus)} couleur={T.rev}
              badge={<Variation actuel={r.total_revenus} precedent={r.revenus_mois_precedent} inverse />} />
-        <Kpi label="Dépenses" valeur={fmt(r.total_depenses)} couleur={T.dep}
+        <Kpi label="Dépenses" icone={IconArrowUpRight} teinte="safran" valeur={fmt(r.total_depenses)} couleur={T.dep}
              badge={<Variation actuel={r.total_depenses} precedent={r.depenses_mois_precedent} />}
              aide={<>{fmt(r.total_depenses / Math.max(jourRef, 1))} / jour
                {r.projection_fin_mois ? <> · projection fin de mois : <b>{fmt(r.projection_fin_mois)}</b></> : null}</>} />
-        <Kpi label="Reste à dépenser" valeur={fmt(r.reste_budget)} couleur={signe(r.reste_budget)}
+        <Kpi label="Reste à dépenser" icone={IconWallet} teinte="menthe" valeur={fmt(r.reste_budget)} couleur={signe(r.reste_budget)}
              aide={`sur un budget de ${fmt(r.budget_total)}`} />
-        <Kpi label="Épargne" valeur={fmt(r.epargne)} couleur={epC} aide={`Objectif : ${fmt(r.objectif_epargne)}`} />
-        <Kpi label="Taux d'épargne" valeur={`${r.taux_epargne}%`} couleur={epC} />
+        <Kpi label="Épargne" icone={IconPigMoney} teinte="menthe" valeur={fmt(r.epargne)} couleur={epC} aide={`Objectif : ${fmt(r.objectif_epargne)}`} />
+        <Kpi label="Taux d'épargne" icone={IconPercentage} teinte="violet" valeur={`${r.taux_epargne}%`} couleur={epC} />
         <KpisBourse bourse={bourse} libelle="du mois" />
       </GrilleKpi>
 
       <Grille2>
-        <Carte titre="Budget vs Réel">
+        <Carte titre="Budget vs Réel" description="Dépensé par rapport au budget de chaque catégorie">
           {r.budget_vs_reel.length ? (
-            <Stack gap="sm">
+            <Stack gap="md">
               {r.budget_vs_reel.map(b => {
                 const couleur = b.pct <= 80 ? T.ep : (b.pct <= 100 ? T.warn : T.neg);
                 return (
                   <Box key={b.cat}>
-                    <Group justify="space-between" fz="sm" mb={4} wrap="nowrap">
+                    <Group justify="space-between" mb={6} wrap="nowrap" gap="xs">
                       <Text fz="sm" fw={600} truncate>{b.cat}</Text>
-                      <Text fz="xs" c="dimmed" className="chiffre" style={{ whiteSpace: 'nowrap' }}>
-                        {fmt(b.reel)} / {fmt(b.budget)} · {b.pct}%
-                      </Text>
+                      <Group gap={8} wrap="nowrap">
+                        <Text fz="xs" c="dimmed" className="chiffre" style={{ whiteSpace: 'nowrap' }}>
+                          {fmt(b.reel)} <Text span inherit opacity={0.6}>/ {fmt(b.budget)}</Text>
+                        </Text>
+                        <Text fz="xs" fw={700} className="chiffre" c={couleur} w={40} ta="right">{b.pct}%</Text>
+                      </Group>
                     </Group>
-                    <Progress value={Math.min(b.pct, 100)} color={couleur} size="md" radius="xl" transitionDuration={400} />
+                    <Progress value={Math.min(b.pct, 100)} color={couleur} size={8} radius="xl" transitionDuration={400} />
                   </Box>
                 );
               })}
             </Stack>
           ) : <Vide>Aucune donnée</Vide>}
         </Carte>
-        <Carte titre="Répartition"><RepartitionCats donut={r.donut} /></Carte>
+        <Carte titre="Répartition" description="Dépenses du mois par catégorie"><RepartitionCats donut={r.donut} /></Carte>
       </Grille2>
 
       <Grille2>
-        <Carte titre="Dépenses cumulées">
+        <Carte titre="Dépenses cumulées" description="Comparées au budget total du mois">
           <Graphique type="line" options={optionsSeries()} data={{
             labels: Array.from({ length: r.nb_jours }, (_, i) => i + 1),
             datasets: [
@@ -145,7 +151,7 @@ export function VueMois({ nav }: { nav: NavDashboard }) {
             ],
           }} />
         </Carte>
-        <Carte titre="Évolution 6 mois">
+        <Carte titre="Évolution sur 6 mois" description="Revenus et dépenses">
           <Graphique type="bar" options={optionsSeries()} data={{
             labels: r.evolution.map(x => x.m),
             datasets: [
@@ -177,14 +183,14 @@ export function VueJour({ nav }: { nav: NavDashboard }) {
     <>
       <EnTetePeriode nav={nav} titre={titre} />
       <GrilleKpi>
-        <Kpi label="Dépenses du jour" valeur={fmt(r.total_depenses)} couleur={T.dep}
+        <Kpi label="Dépenses du jour" icone={IconArrowUpRight} teinte="safran" valeur={fmt(r.total_depenses)} couleur={T.dep}
              badge={<Variation actuel={r.total_depenses} precedent={r.depenses_veille} />}
              aide={`veille : ${fmt(r.depenses_veille)}`} />
-        <Kpi label="Revenus du jour" valeur={fmt(r.total_revenus)} couleur={T.rev} />
-        <Kpi label="Budget journalier" valeur={fmt(r.budget_jour)} couleur={dansBudget ? T.ep : T.neg}
+        <Kpi label="Revenus du jour" icone={IconArrowDownLeft} teinte="ocean" valeur={fmt(r.total_revenus)} couleur={T.rev} />
+        <Kpi label="Budget journalier" icone={IconTarget} teinte="violet" valeur={fmt(r.budget_jour)} couleur={dansBudget ? T.ep : T.neg}
              aide={dansBudget ? 'dans le budget ✓' : 'dépassé de ' + fmt(r.total_depenses - r.budget_jour)} />
-        <Kpi label="Moyenne / jour du mois" valeur={fmt(r.moyenne_jour_mois)} />
-        <Kpi label="Transactions" valeur={r.nb_transactions} />
+        <Kpi label="Moyenne / jour du mois" icone={IconChartBar} teinte="gray" valeur={fmt(r.moyenne_jour_mois)} />
+        <Kpi label="Transactions" icone={IconReceipt} teinte="gray" valeur={r.nb_transactions} />
       </GrilleKpi>
       <Grille2>
         <Carte titre="Répartition du jour"><RepartitionCats donut={r.donut} vide="Aucune dépense ce jour" /></Carte>
@@ -220,13 +226,13 @@ export function VueSemaine({ nav }: { nav: NavDashboard }) {
     <>
       <EnTetePeriode nav={nav} titre={titre} />
       <GrilleKpi>
-        <Kpi label="Dépenses" valeur={fmt(r.total_depenses)} couleur={T.dep}
+        <Kpi label="Dépenses" icone={IconArrowUpRight} teinte="safran" valeur={fmt(r.total_depenses)} couleur={T.dep}
              badge={<Variation actuel={r.total_depenses} precedent={r.depenses_semaine_precedente} />}
              aide={`semaine préc. : ${fmt(r.depenses_semaine_precedente)}`} />
-        <Kpi label="Revenus" valeur={fmt(r.total_revenus)} couleur={T.rev}
+        <Kpi label="Revenus" icone={IconArrowDownLeft} teinte="ocean" valeur={fmt(r.total_revenus)} couleur={T.rev}
              badge={<Variation actuel={r.total_revenus} precedent={r.revenus_semaine_precedente} inverse />} />
-        <Kpi label="Solde de la semaine" valeur={fmt(r.epargne)} couleur={signe(r.epargne)} />
-        <Kpi label="Reste budget hebdo" valeur={fmt(r.reste_budget_hebdo)} couleur={signe(r.reste_budget_hebdo)}
+        <Kpi label="Solde de la semaine" icone={IconScale} teinte="menthe" valeur={fmt(r.epargne)} couleur={signe(r.epargne)} />
+        <Kpi label="Reste budget hebdo" icone={IconWallet} teinte="violet" valeur={fmt(r.reste_budget_hebdo)} couleur={signe(r.reste_budget_hebdo)}
              aide={`sur ${fmt(r.budget_hebdo)}`} />
       </GrilleKpi>
       <Carte titre="Dépenses et revenus par jour">
@@ -276,15 +282,15 @@ export function VueAnnee({ nav }: { nav: NavDashboard }) {
     <>
       <EnTetePeriode nav={nav} titre={titre} />
       <GrilleKpi>
-        <Kpi label={`Revenus ${nav.annee}`} valeur={fmt(r.total_revenus)} couleur={T.rev} />
-        <Kpi label={`Dépenses ${nav.annee}`} valeur={fmt(r.total_depenses)} couleur={T.dep}
+        <Kpi label={`Revenus ${nav.annee}`} icone={IconArrowDownLeft} teinte="ocean" valeur={fmt(r.total_revenus)} couleur={T.rev} />
+        <Kpi label={`Dépenses ${nav.annee}`} icone={IconArrowUpRight} teinte="safran" valeur={fmt(r.total_depenses)} couleur={T.dep}
              aide={`moyenne : ${fmt(r.moyenne_dep_mois)} / mois actif`} />
-        <Kpi label={`Épargne ${nav.annee}`} valeur={fmt(r.epargne)} couleur={signe(r.epargne)} aide={`taux : ${r.taux_epargne}%`} />
-        <Kpi label="Objectif atteint" valeur={`${r.nb_mois_objectif} / ${r.nb_mois_actifs}`}
+        <Kpi label={`Épargne ${nav.annee}`} icone={IconPigMoney} teinte="menthe" valeur={fmt(r.epargne)} couleur={signe(r.epargne)} aide={`taux : ${r.taux_epargne}%`} />
+        <Kpi label="Objectif atteint" icone={IconTarget} teinte="violet" valeur={`${r.nb_mois_objectif} / ${r.nb_mois_actifs}`}
              aide={`mois à ≥ ${fmt(r.objectif_epargne)} d'épargne`} />
-        {r.meilleur_mois && <Kpi label="Meilleur mois" valeur={MOIS_FR[r.meilleur_mois.m - 1]} couleur={T.ep}
+        {r.meilleur_mois && <Kpi label="Meilleur mois" icone={IconTrophy} teinte="menthe" valeur={MOIS_FR[r.meilleur_mois.m - 1]} couleur={T.ep}
                                  aide={`épargne : ${fmt(r.meilleur_mois.ep)}`} />}
-        {r.pire_mois && <Kpi label="Mois le plus difficile" valeur={MOIS_FR[r.pire_mois.m - 1]} couleur={T.neg}
+        {r.pire_mois && <Kpi label="Mois le plus difficile" icone={IconAlertTriangle} teinte="rouge" valeur={MOIS_FR[r.pire_mois.m - 1]} couleur={T.neg}
                              aide={`épargne : ${fmt(r.pire_mois.ep)}`} />}
         <KpisBourse bourse={bourse} libelle={nav.annee} />
       </GrilleKpi>
@@ -358,14 +364,14 @@ export function VueGlobal({ nav }: { nav: NavDashboard }) {
     <>
       <EnTetePeriode nav={nav} titre={titre} />
       <GrilleKpi>
-        <Kpi label="Revenus totaux" valeur={fmt(r.total_revenus)} couleur={T.rev} aide={`moyenne : ${fmt(r.moyenne_rev_mois)} / mois actif`} />
-        <Kpi label="Dépenses totales" valeur={fmt(r.total_depenses)} couleur={T.dep} aide={`moyenne : ${fmt(r.moyenne_dep_mois)} / mois actif`} />
-        <Kpi label="Épargne totale" valeur={fmt(r.epargne)} couleur={signe(r.epargne)} aide={`taux : ${r.taux_epargne}%`} />
-        <Kpi label="Objectif atteint" valeur={`${r.nb_mois_objectif} / ${r.nb_mois_actifs}`}
+        <Kpi label="Revenus totaux" icone={IconArrowDownLeft} teinte="ocean" valeur={fmt(r.total_revenus)} couleur={T.rev} aide={`moyenne : ${fmt(r.moyenne_rev_mois)} / mois actif`} />
+        <Kpi label="Dépenses totales" icone={IconArrowUpRight} teinte="safran" valeur={fmt(r.total_depenses)} couleur={T.dep} aide={`moyenne : ${fmt(r.moyenne_dep_mois)} / mois actif`} />
+        <Kpi label="Épargne totale" icone={IconPigMoney} teinte="menthe" valeur={fmt(r.epargne)} couleur={signe(r.epargne)} aide={`taux : ${r.taux_epargne}%`} />
+        <Kpi label="Objectif atteint" icone={IconTarget} teinte="violet" valeur={`${r.nb_mois_objectif} / ${r.nb_mois_actifs}`}
              aide={`mois à ≥ ${fmt(r.objectif_epargne)} d'épargne`} />
-        {r.meilleur_mois && <Kpi label="Meilleur mois" valeur={moisCourt(r.meilleur_mois.m)} couleur={T.ep}
+        {r.meilleur_mois && <Kpi label="Meilleur mois" icone={IconTrophy} teinte="menthe" valeur={moisCourt(r.meilleur_mois.m)} couleur={T.ep}
                                  aide={`épargne : ${fmt(r.meilleur_mois.ep)}`} />}
-        {r.pire_mois && <Kpi label="Mois le plus difficile" valeur={moisCourt(r.pire_mois.m)} couleur={T.neg}
+        {r.pire_mois && <Kpi label="Mois le plus difficile" icone={IconAlertTriangle} teinte="rouge" valeur={moisCourt(r.pire_mois.m)} couleur={T.neg}
                              aide={`épargne : ${fmt(r.pire_mois.ep)}`} />}
         <KpisBourse bourse={bourse} libelle="(global)" />
       </GrilleKpi>

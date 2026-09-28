@@ -36,8 +36,8 @@ createRoot(document.getElementById('root')!).render(
       <DatesProvider settings={{ locale: 'fr', firstDayOfWeek: 1 }}>
         <QueryClientProvider client={queryClient}>
           <ModalsProvider>
-            {/* En bas, juste au-dessus de la barre d’onglets : ne masque jamais l’en-tête ni les sous-onglets */}
-            <Notifications position="bottom-center" limit={3} containerWidth={420} />
+            {/* En bas à droite (au-dessus de la barre d’onglets sur mobile) : ne masque jamais la navigation */}
+            <Notifications position="bottom-right" limit={3} containerWidth={380} />
             <App />
           </ModalsProvider>
         </QueryClientProvider>

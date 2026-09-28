@@ -8,7 +8,8 @@ import { auj, fmt, jjmm, jjmmaa, lireMontant } from '../../lib/format';
 import { T } from '../../lib/palette';
 import { useDividendes, useEcriture, useFraisBourse, useMouvements, useTitres, useTransactionsBourse } from '../../lib/queries';
 import { ChampDate, ChampMontant } from '../../components/champs';
-import { BoutonSuppr, Carte, Chargement, confirmer, Grille2, Info, Tableau, ThTri, useTri, Vide } from '../../components/ui';
+import { IconArrowsExchange, IconBuildingBank, IconCoins, IconReceiptTax } from '@tabler/icons-react';
+import { Aide, BoutonSuppr, Carte, Chargement, confirmer, Grille2, Pastille, Tableau, ThTri, useTri, Vide } from '../../components/ui';
 
 /* ---------- Champ « Titre » : autocomplétion par code OU par nom de société ---------- */
 function ChampTitre({ value, onChange }: { value: string; onChange: (v: string) => void }) {
@@ -76,7 +77,7 @@ export function JournalTransactions() {
   return (
     <>
       <Grille2>
-        <Carte titre="➕ Achat / Vente">
+        <Carte titre="Achat / Vente" description="Enregistre une opération de ton relevé de courtage" icone={<Pastille icone={IconArrowsExchange} couleur="safran" />}>
           <Stack gap="sm">
             <ChampDate value={date} onChange={setDate} />
             <Select label="Type d'instrument" value={instrument} onChange={v => v && setInstrument(v)} allowDeselect={false}
@@ -91,8 +92,7 @@ export function JournalTransactions() {
             <Button mt="xs" onClick={ajouter} loading={ecrire.isPending}>Ajouter la transaction</Button>
           </Stack>
         </Carte>
-        <Carte titre="ℹ️ Saisie manuelle">
-          <Info>
+        <Aide titre="Saisie manuelle">
             Aucun frais n'est calculé automatiquement : indique directement le prix
             net auquel l'opération a réellement eu lieu (celui de ton relevé de
             courtage). Le champ « Frais de transaction » est optionnel, pour une
@@ -101,8 +101,7 @@ export function JournalTransactions() {
             utilise plutôt l'onglet <b>Frais</b>.<br /><br />
             Le PRU (prix de revient unitaire) reste calculé automatiquement en
             coût moyen pondéré, tous instruments confondus par titre.
-          </Info>
-        </Carte>
+          </Aide>
       </Grille2>
       <TableTransactions />
     </>
@@ -119,7 +118,7 @@ function TableTransactions() {
   const th = { tri, basculer };
 
   return (
-    <Carte titre="🧾 Journal des transactions">
+    <Carte titre="Journal des transactions" description="Clique sur un en-tête de colonne pour trier">
       {isPending ? <Chargement /> : !data?.length ? (
         <Vide>Aucune transaction — ajoute ton premier achat ci-dessus 👆</Vide>
       ) : (
@@ -181,7 +180,7 @@ export function JournalDividendes() {
   return (
     <>
       <Grille2>
-        <Carte titre="💸 Dividende reçu">
+        <Carte titre="Dividende reçu" description="Montant net crédité sur ton compte" icone={<Pastille icone={IconCoins} couleur="ocean" />}>
           <Stack gap="sm">
             <ChampDate value={date} onChange={setDate} />
             <ChampTitre value={titre} onChange={setTitre} />
@@ -189,15 +188,13 @@ export function JournalDividendes() {
             <Button mt="xs" color="ocean" onClick={ajouter} loading={ecrire.isPending}>Ajouter le dividende</Button>
           </Stack>
         </Carte>
-        <Carte titre="ℹ️ Saisie manuelle">
-          <Info>
+        <Aide titre="Saisie manuelle">
             Indique directement le montant NET déjà reçu (après retenue à la
             source), tel qu'il apparaît sur ton relevé — aucun calcul de
             fiscalité n'est appliqué ici.
-          </Info>
-        </Carte>
+          </Aide>
       </Grille2>
-      <Carte titre="🧾 Journal des dividendes">
+      <Carte titre="Journal des dividendes">
         {isPending ? <Chargement /> : !data?.length ? <Vide>Aucun dividende — ajoute le premier ci-dessus 👆</Vide> : (
           <Tableau>
             <Table.Thead>
@@ -243,7 +240,7 @@ export function JournalFrais() {
   return (
     <>
       <Grille2>
-        <Carte titre="🧾 Frais de compte">
+        <Carte titre="Frais de compte" description="Abonnement, tenue de compte, droits de garde…" icone={<Pastille icone={IconReceiptTax} couleur="safran" />}>
           <Stack gap="sm">
             <ChampDate value={date} onChange={setDate} />
             <TextInput label="Libellé" placeholder="ex : Abonnement Wafabourse" value={libelle} onChange={e => setLibelle(e.currentTarget.value)} />
@@ -251,16 +248,14 @@ export function JournalFrais() {
             <Button mt="xs" onClick={ajouter} loading={ecrire.isPending}>Ajouter le frais</Button>
           </Stack>
         </Carte>
-        <Carte titre="ℹ️ À quoi ça sert">
-          <Info>
+        <Aide titre="À quoi ça sert">
             Pour les frais indépendants d'une transaction précise : abonnement
             mensuel de ta plateforme (ex : 19 DH/mois Wafabourse), frais de
             tenue de compte, etc. Ils sont intégrés au résultat de la période
             dans le Dashboard.
-          </Info>
-        </Carte>
+          </Aide>
       </Grille2>
-      <Carte titre="🧾 Journal des frais">
+      <Carte titre="Journal des frais">
         {isPending ? <Chargement /> : !data?.length ? <Vide>Aucun frais enregistré — ajoute le premier ci-dessus 👆</Vide> : (
           <Tableau>
             <Table.Thead>
@@ -310,7 +305,7 @@ export function JournalMouvements() {
   return (
     <>
       <Grille2>
-        <Carte titre="🏦 Apport / Retrait">
+        <Carte titre="Apport / Retrait" description="Virement entre ta banque et le compte Bourse" icone={<Pastille icone={IconBuildingBank} couleur="ocean" />}>
           <Stack gap="sm">
             <ChampDate value={date} onChange={setDate} />
             <Select label="Type" value={type} onChange={v => v && setType(v)} allowDeselect={false}
@@ -322,8 +317,7 @@ export function JournalMouvements() {
             <Button mt="xs" color="ocean" onClick={ajouter} loading={ecrire.isPending}>Ajouter le mouvement</Button>
           </Stack>
         </Carte>
-        <Carte titre="ℹ️ Comment ça marche">
-          <Info>
+        <Aide titre="Comment ça marche">
             Un virement de ta banque vers le compte Bourse est un <b>apport</b> :
             ce n'est pas une dépense, l'argent reste à toi. Ne le saisis donc
             <b> pas</b> dans l'onglet Saisie.<br /><br />
@@ -331,10 +325,9 @@ export function JournalMouvements() {
             n'ont rien à saisir ici : ils s'ajoutent automatiquement aux espèces
             disponibles, et un réinvestissement est simplement un nouvel achat.<br /><br />
             Saisis un <b>retrait</b> seulement quand de l'argent revient vers ta banque.
-          </Info>
-        </Carte>
+          </Aide>
       </Grille2>
-      <Carte titre="🧾 Journal des apports et retraits">
+      <Carte titre="Journal des apports et retraits">
         {isPending ? <Chargement /> : !data?.length ? <Vide>Aucun mouvement — ajoute ton premier apport ci-dessus 👆</Vide> : (
           <>
             <Text c="dimmed" fz="sm" mb="xs">

@@ -413,7 +413,7 @@ Application React d'une seule page, dans `frontend-react/src/`. Il n'y a pas de 
 ```
 src/
 ├── main.tsx              Fournisseurs : Mantine, dates (fr, lundi), TanStack Query, fenêtres, notifications
-├── App.tsx               Connexion, en-tête, barre d'onglets du bas, état de navigation
+├── App.tsx               Connexion, barre latérale (ordinateur) / barre d'onglets du bas (mobile), état de navigation
 ├── theme.ts              Thème Mantine (couleurs safran / menthe / océan, échelle sombre, polices)
 ├── global.css            Couleurs métier, fond dégradé et trame zellige, grille thermique
 ├── lib/
@@ -423,7 +423,8 @@ src/
 │   ├── format.ts         fmt(), lireMontant(), auj(), dates en français
 │   └── palette.ts        Palette de 8 couleurs, regrouperAutres(), couleurs des séries
 ├── components/
-│   ├── ui.tsx            Carte, Kpi, Variation, confirmer(), tableaux triables, états vides/chargement
+│   ├── ui.tsx            EnTetePage, Carte, Kpi, Pastille, Aide, Variation, confirmer(), tableaux triables, états vides
+│   ├── Logo.tsx          Logo de l'application
 │   ├── champs.tsx        ChampDate (JJ/MM/AAAA ↔ AAAA-MM-JJ), ChampMontant (virgule ou point)
 │   ├── Graphique.tsx     Graphique, Donut (légende en %), options communes, couleurs selon le thème
 │   └── Protection.tsx    Affiche un message au lieu d'une page blanche en cas d'erreur d'affichage
@@ -449,7 +450,10 @@ src/
 - La navigation (vue du dashboard, période affichée, sous-onglet Bourse) est conservée quand on change d'onglet.
 - Les suppressions et désactivations passent par une fenêtre de confirmation.
 - Les tableaux de la Bourse (transactions, positions, gains) se trient en cliquant sur l'en-tête des colonnes.
-- Les notifications s'affichent en bas, au-dessus de la barre d'onglets, pour ne jamais masquer l'en-tête ni les sous-onglets.
+- Navigation : barre latérale sur ordinateur (à partir de 768 px), barre d'onglets en bas sur mobile.
+- Les notifications s'affichent en bas à droite (au-dessus de la barre d'onglets sur mobile), pour ne jamais masquer la navigation.
+- Saisie : un seul formulaire avec un choix Dépense / Revenu ; la saisie en cours est conservée en changeant de type. Les transactions du mois sont groupées par jour, avec les totaux du mois.
+- Dashboard : le bouton « Aujourd'hui » ramène à la période en cours.
 - Sous 600 px de large, les légendes des donuts passent sous le graphique.
 
 ---

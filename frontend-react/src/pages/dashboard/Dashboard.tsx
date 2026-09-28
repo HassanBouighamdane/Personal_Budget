@@ -1,11 +1,17 @@
 import { useState, type ReactNode } from 'react';
-import { ActionIcon, Group, SegmentedControl, Stack, Title } from '@mantine/core';
+import { ActionIcon, Button, Group, SegmentedControl, Stack, Tooltip } from '@mantine/core';
 import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 
 import { auj, decalerDate, decalerMois } from '../../lib/format';
+import { EnTetePage } from '../../components/ui';
 import { VueAnnee, VueGlobal, VueJour, VueMois, VueSemaine } from './Vues';
 
 export type VueDash = 'jour' | 'semaine' | 'mois' | 'annee' | 'global';
+
+const lundiDe = (d: string) => {
+  const [a, m, j] = d.split('-').map(Number);
+  return decalerDate(d, -((new Date(a, m - 1, j).getDay() + 6) % 7));
+};
 
 /** État de navigation du dashboard, gardé par App pour survivre aux changements d'onglet */
 export function useNavDashboard() {
@@ -21,7 +27,14 @@ export function useNavDashboard() {
     else if (vue === 'semaine') setSemaine(s => decalerDate(s, delta * 7));
     else if (vue === 'jour') setJour(j => decalerDate(j, delta));
   }
-  return { vue, setVue, jour, semaine, mois, annee, naviguer };
+  function aujourdhui() {
+    setJour(auj()); setSemaine(auj()); setMois(auj().slice(0, 7)); setAnnee(new Date().getFullYear());
+  }
+  const surPeriodeCourante = vue === 'global'
+    || (vue === 'jour' && jour === auj()) || (vue === 'mois' && mois === auj().slice(0, 7))
+    || (vue === 'annee' && annee === new Date().getFullYear())
+    || (vue === 'semaine' && lundiDe(semaine) === lundiDe(auj()));
+  return { vue, setVue, jour, semaine, mois, annee, naviguer, aujourdhui, surPeriodeCourante };
 }
 export type NavDashboard = ReturnType<typeof useNavDashboard>;
 
@@ -33,30 +46,44 @@ const VUES = [
   { value: 'global', label: 'Global' },
 ];
 
-/** Barre ‹ titre › + choix de la vue ; les flèches sont masquées en vue globale */
+const DESCRIPTIONS: Record<VueDash, string> = {
+  jour: 'Vue journalière',
+  semaine: 'Vue hebdomadaire',
+  mois: 'Vue mensuelle — budget, épargne et tendances',
+  annee: 'Vue annuelle — bilan mois par mois',
+  global: "Vue globale — tout l'historique",
+};
+
+/** En-tête : période affichée, navigation ‹ › (masquée en vue globale) et choix de la vue */
 export function EnTetePeriode({ nav, titre }: { nav: NavDashboard; titre: ReactNode }) {
   const fleches = nav.vue !== 'global';
   return (
-    <Group justify="space-between" gap="sm" wrap="wrap">
-      <Group gap="xs" wrap="nowrap">
-        <ActionIcon variant="default" size="lg" radius="md" aria-label="Période précédente"
-                    style={{ visibility: fleches ? undefined : 'hidden' }} onClick={() => nav.naviguer(-1)}>
-          <IconChevronLeft size={18} />
-        </ActionIcon>
-        <Title order={2} fz={{ base: 17, sm: 20 }} miw={{ sm: 260 }} ta="center">{titre}</Title>
-        <ActionIcon variant="default" size="lg" radius="md" aria-label="Période suivante"
-                    style={{ visibility: fleches ? undefined : 'hidden' }} onClick={() => nav.naviguer(1)}>
-          <IconChevronRight size={18} />
-        </ActionIcon>
+    <EnTetePage titre={titre} description={DESCRIPTIONS[nav.vue]} actions={
+      <Group gap="xs" wrap="wrap">
+        <Group gap={4} wrap="nowrap" style={{ visibility: fleches ? undefined : 'hidden' }}>
+          <Tooltip label="Période précédente">
+            <ActionIcon variant="default" size={36} radius="md" aria-label="Période précédente" onClick={() => nav.naviguer(-1)}>
+              <IconChevronLeft size={18} />
+            </ActionIcon>
+          </Tooltip>
+          <Button variant="default" h={36} px="sm" fw={600} disabled={nav.surPeriodeCourante} onClick={nav.aujourdhui}>
+            Aujourd'hui
+          </Button>
+          <Tooltip label="Période suivante">
+            <ActionIcon variant="default" size={36} radius="md" aria-label="Période suivante" onClick={() => nav.naviguer(1)}>
+              <IconChevronRight size={18} />
+            </ActionIcon>
+          </Tooltip>
+        </Group>
+        <SegmentedControl data={VUES} value={nav.vue} onChange={v => nav.setVue(v as VueDash)} />
       </Group>
-      <SegmentedControl data={VUES} value={nav.vue} onChange={v => nav.setVue(v as VueDash)} radius="md" />
-    </Group>
+    } />
   );
 }
 
 export function Dashboard({ nav }: { nav: NavDashboard }) {
   return (
-    <Stack gap="md">
+    <Stack gap="lg">
       {nav.vue === 'jour' && <VueJour nav={nav} />}
       {nav.vue === 'semaine' && <VueSemaine nav={nav} />}
       {nav.vue === 'mois' && <VueMois nav={nav} />}

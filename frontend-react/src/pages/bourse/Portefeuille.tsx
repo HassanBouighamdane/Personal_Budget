@@ -1,7 +1,9 @@
 /* Bourse — positions, gains réalisés et tableau de bord */
 import { useState } from 'react';
-import { ActionIcon, Group, SegmentedControl, Table, TextInput, Title } from '@mantine/core';
-import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
+import { ActionIcon, Box, Group, SegmentedControl, Table, Text, TextInput, Title } from '@mantine/core';
+import {
+  IconChevronLeft, IconChevronRight, IconArrowsExchange, IconBuildingBank, IconCash, IconChartDonut, IconChartLine, IconCoins, IconReceipt, IconReceiptTax, IconReportMoney, IconScale, IconTrendingUp,
+} from '@tabler/icons-react';
 
 import { toast } from '../../lib/api';
 import { decalerMois, fmt, jjmm, libelleMois } from '../../lib/format';
@@ -9,7 +11,7 @@ import { regrouperAutres, signe, T } from '../../lib/palette';
 import type { Position } from '../../lib/types';
 import { useDashboardBourse, useEcriture, useGains, usePositions } from '../../lib/queries';
 import { Donut } from '../../components/Graphique';
-import { Carte, Chargement, Grille2, GrilleKpi, Kpi, Tableau, ThTri, useTri, Vide } from '../../components/ui';
+import { Carte, Chargement, Grille2, GrilleKpi, Kpi, Tableau, ThTri, TitreSection, useTri, Vide } from '../../components/ui';
 import type { NavBourse, PeriodeBourse } from './Bourse';
 
 const pctFr = (v: number) => (v * 100).toFixed(2) + ' %';
@@ -66,7 +68,7 @@ export function Positions() {
   return (
     <>
       <Repartitions liste={liste} />
-      <Carte titre="📊 Portefeuille actuel">
+      <Carte titre="Portefeuille actuel" description="Modifie le cours actuel directement dans le tableau (Entrée pour valider)">
         {isPending ? <Chargement /> : !liste.length ? <Vide>Aucune position ouverte pour le moment.</Vide> : (
           <Tableau minWidth={820}>
             <Table.Thead>
@@ -108,7 +110,7 @@ export function Gains() {
   const th = { tri, basculer };
 
   return (
-    <Carte titre="💵 Gains réalisés & TPCVM">
+    <Carte titre="Gains réalisés & TPCVM" description="Calculés vente par vente, PRU en coût moyen pondéré">
       {isPending ? <Chargement /> : !data?.length ? <Vide>Aucune vente enregistrée pour le moment.</Vide> : (
         <Tableau minWidth={640}>
           <Table.Thead>
@@ -151,53 +153,58 @@ export function DashboardBourse({ nav }: { nav: NavBourse }) {
 
   return (
     <>
-      <Group justify="space-between" gap="sm" wrap="wrap">
-        <Group gap="xs" wrap="nowrap">
-          <ActionIcon variant="default" size="lg" radius="md" aria-label="Période précédente"
-                      style={{ visibility: fleches ? undefined : 'hidden' }} onClick={() => naviguer(-1)}>
-            <IconChevronLeft size={18} />
-          </ActionIcon>
-          <Title order={3} fz={18} miw={{ sm: 200 }} ta="center">{libelle}</Title>
-          <ActionIcon variant="default" size="lg" radius="md" aria-label="Période suivante"
-                      style={{ visibility: fleches ? undefined : 'hidden' }} onClick={() => naviguer(1)}>
-            <IconChevronRight size={18} />
-          </ActionIcon>
+      <Group justify="space-between" align="center" gap="sm" wrap="wrap">
+        <Box>
+          <Title order={2} fz={18}>{libelle}</Title>
+          <Text c="dimmed" fz="xs" mt={2}>Résultat de la période et état actuel du compte</Text>
+        </Box>
+        <Group gap="xs" wrap="wrap">
+          {fleches && (
+            <Group gap={4} wrap="nowrap">
+              <ActionIcon variant="default" size={36} radius="md" aria-label="Période précédente" onClick={() => naviguer(-1)}>
+                <IconChevronLeft size={18} />
+              </ActionIcon>
+              <ActionIcon variant="default" size={36} radius="md" aria-label="Période suivante" onClick={() => naviguer(1)}>
+                <IconChevronRight size={18} />
+              </ActionIcon>
+            </Group>
+          )}
+          <SegmentedControl value={nav.periode} onChange={v => nav.setPeriode(v as PeriodeBourse)}
+            data={[{ value: 'global', label: 'Global' }, { value: 'mois', label: 'Mois' }, { value: 'annee', label: 'Année' }]} />
         </Group>
-        <SegmentedControl value={nav.periode} onChange={v => nav.setPeriode(v as PeriodeBourse)} radius="md"
-          data={[{ value: 'global', label: 'Global' }, { value: 'mois', label: 'Mois' }, { value: 'annee', label: 'Année' }]} />
       </Group>
 
       {!d ? <Chargement lignes={6} /> : (
         <>
-          <Title order={4} fz="md" mt="xs">🏦 Compte Bourse</Title>
+          <TitreSection>Compte Bourse</TitreSection>
           <GrilleKpi>
-            <Kpi label="Patrimoine Bourse" valeur={fmt(d.patrimoine_total)} couleur={T.rev} aide="titres + espèces disponibles" />
-            <Kpi label="Espèces disponibles" valeur={fmt(d.especes_disponibles)} couleur={d.especes_disponibles >= 0 ? undefined : T.neg}
+            <Kpi label="Patrimoine Bourse" icone={IconBuildingBank} teinte="ocean" valeur={fmt(d.patrimoine_total)} couleur={T.rev} aide="titres + espèces disponibles" />
+            <Kpi label="Espèces disponibles" icone={IconCash} teinte="gray" valeur={fmt(d.especes_disponibles)} couleur={d.especes_disponibles >= 0 ? undefined : T.neg}
                  aide={d.especes_disponibles < 0 ? 'négatif : un apport n’a sans doute pas été saisi' : 'non investi, prêt à réinvestir'} />
-            <Kpi label="Apports nets" valeur={fmt(d.apports_nets)} aide="argent sorti de ta banque (apports − retraits)" />
-            <Kpi label="Performance globale" couleur={signe(d.performance_globale)}
+            <Kpi label="Apports nets" icone={IconArrowsExchange} teinte="gray" valeur={fmt(d.apports_nets)} aide="argent sorti de ta banque (apports − retraits)" />
+            <Kpi label="Performance globale" icone={IconTrendingUp} teinte="menthe" couleur={signe(d.performance_globale)}
                  valeur={(d.performance_globale >= 0 ? '+' : '') + fmt(d.performance_globale)}
                  aide={d.apports_nets > 0 ? pctFr(d.performance_globale_pct) + ' des apports nets' : 'saisis tes apports pour la calculer'} />
           </GrilleKpi>
 
-          <Title order={4} fz="md" mt="xs">📊 Portefeuille actuel</Title>
+          <TitreSection>Portefeuille actuel</TitreSection>
           <GrilleKpi>
-            <Kpi label="Valeur de marché" valeur={fmt(d.valeur_marche)} couleur={T.rev} aide={`coût d'acquisition : ${fmt(d.cout_acquisition)}`} />
-            <Kpi label="Plus/moins-value latente" valeur={fmt(d.plus_value_latente)} couleur={signe(d.plus_value_latente)}
+            <Kpi label="Valeur de marché" icone={IconChartDonut} teinte="ocean" valeur={fmt(d.valeur_marche)} couleur={T.rev} aide={`coût d'acquisition : ${fmt(d.cout_acquisition)}`} />
+            <Kpi label="Plus/moins-value latente" icone={IconChartLine} teinte="menthe" valeur={fmt(d.plus_value_latente)} couleur={signe(d.plus_value_latente)}
                  aide={pctFr(d.performance_latente)} />
           </GrilleKpi>
 
-          <Title order={4} fz="md" mt="xs">💰 Résultat — {libelle}</Title>
+          <TitreSection>Résultat — {libelle}</TitreSection>
           <GrilleKpi>
-            <Kpi label="Gains nets réalisés" valeur={fmt(d.gains_nets_realises)} couleur={signe(d.gains_nets_realises)}
+            <Kpi label="Gains nets réalisés" icone={IconReportMoney} teinte="menthe" valeur={fmt(d.gains_nets_realises)} couleur={signe(d.gains_nets_realises)}
                  aide={`TPCVM : ${fmt(d.tpcvm_total)}`} />
-            <Kpi label="Dividendes nets" valeur={fmt(d.dividendes_nets)} couleur={T.ep} />
-            <Kpi label="Frais de transactions" valeur={fmt(d.frais_transactions_totaux)} couleur={T.dep}
+            <Kpi label="Dividendes nets" icone={IconCoins} teinte="menthe" valeur={fmt(d.dividendes_nets)} couleur={T.ep} />
+            <Kpi label="Frais de transactions" icone={IconReceipt} teinte="safran" valeur={fmt(d.frais_transactions_totaux)} couleur={T.dep}
                  aide="déjà déduits du gain net ci-dessus — pour info" />
-            <Kpi label="Frais de compte" valeur={fmt(d.frais_compte_totaux)} couleur={T.dep} />
-            <Kpi label="Résultat net de la période" valeur={fmt(d.resultat_net_periode)} couleur={signe(d.resultat_net_periode)}
+            <Kpi label="Frais de compte" icone={IconReceiptTax} teinte="safran" valeur={fmt(d.frais_compte_totaux)} couleur={T.dep} />
+            <Kpi label="Résultat net de la période" icone={IconScale} teinte="violet" valeur={fmt(d.resultat_net_periode)} couleur={signe(d.resultat_net_periode)}
                  aide="gains nets + dividendes − frais de compte" />
-            <Kpi label="Apports / retraits" valeur={fmt(d.apports_periode - d.retraits_periode)}
+            <Kpi label="Apports / retraits" icone={IconBuildingBank} teinte="gray" valeur={fmt(d.apports_periode - d.retraits_periode)}
                  aide={`apports : ${fmt(d.apports_periode)} · retraits : ${fmt(d.retraits_periode)}`} />
           </GrilleKpi>
         </>
