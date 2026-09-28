@@ -32,9 +32,9 @@ Application web personnelle pour gérer et suivre son budget au quotidien, avec 
 |---|---|
 | Backend | Python 3.10+, FastAPI, Uvicorn |
 | Base de données | PostgreSQL (`psycopg` v3) |
-| Frontend | HTML, CSS, JavaScript vanilla, Chart.js |
+| Frontend | React 19, TypeScript, Vite, Mantine, TanStack Query, Chart.js |
 
-Le backend sert aussi le frontend : un seul serveur suffit.
+Le backend sert aussi le frontend compilé (`frontend-react/dist/`) : un seul serveur suffit, et Node.js n'est nécessaire que pour modifier le frontend.
 
 ## Installation
 
@@ -71,6 +71,17 @@ Sous Windows, tu peux aussi double-cliquer sur `lancer_budget.bat`. Sous Linux, 
 - Application : http://localhost:8500
 - Documentation de l'API (Swagger) : http://localhost:8500/docs
 
+### 4. Modifier le frontend (optionnel)
+
+Nécessite Node.js 20 ou plus récent.
+
+```bash
+cd frontend-react
+npm install
+npm run dev      # http://localhost:5173 (le backend doit tourner sur le port 8500)
+npm run build    # à relancer après chaque modification, puis committer dist/
+```
+
 ## Déploiement
 
 L'application peut être hébergée sur une plateforme comme Render, avec une base PostgreSQL managée. Commande de démarrage :
@@ -91,11 +102,10 @@ backend/
   securite.py       mots de passe et sessions
   schemas.py        modèles Pydantic
   routes/           auth, configuration, transactions, rapports, bourse
-frontend/
-  index.html        interface (page unique)
-  js/app.js         logique budget et dashboards
-  js/bourse.js      module Bourse
-  css/style.css     styles et thèmes
+frontend-react/
+  src/              code React (pages, composants, appels API)
+  dist/             build de production servi par FastAPI
+frontend/           ancien frontend HTML/JS (servi seulement si dist/ est absent)
 ```
 
 ## Documentation

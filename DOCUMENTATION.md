@@ -3,8 +3,8 @@
 Application web personnelle pour suivre son budget (dépenses, revenus, épargne) et un portefeuille boursier à la Bourse de Casablanca. Toutes les valeurs sont en dirhams (DH).
 
 - **Backend** : Python, FastAPI, PostgreSQL (driver `psycopg` v3, pool `psycopg_pool`)
-- **Frontend** : HTML/CSS/JavaScript vanilla, sans framework ni build, avec Chart.js pour les graphiques
-- **Déploiement** : un seul serveur. FastAPI sert à la fois l'API (`/api/...`) et les fichiers statiques du frontend (`/`).
+- **Frontend** : React 19 + TypeScript, compilé avec Vite. Interface Mantine, données via TanStack Query, graphiques Chart.js (react-chartjs-2)
+- **Déploiement** : un seul serveur. FastAPI sert à la fois l'API (`/api/...`) et le frontend compilé (`frontend-react/dist/`, sur `/`). Node.js ne sert qu'à développer et compiler, jamais en production.
 
 ---
 
@@ -44,13 +44,13 @@ Personal_Budget/
 │       ├── transactions.py       dépenses et revenus
 │       ├── rapports.py           résumés jour / semaine / mois / année / global
 │       └── bourse.py             module Bourse
-├── frontend/
-│   ├── index.html          Page unique : tous les onglets y sont, masqués/affichés en JS
-│   ├── css/style.css       Thèmes sombre/clair via variables CSS, responsive
-│   ├── js/app.js           Auth, saisie, dashboards, paramètres, utilitaires communs
-│   ├── js/bourse.js        Onglet Bourse
-│   ├── js/chart.umd.min.js Chart.js embarqué (pas de CDN)
-│   └── assets/             Favicons
+├── frontend-react/         Frontend React (voir §7)
+│   ├── src/                Code source TypeScript
+│   ├── public/             Favicons (copiés tels quels dans dist/)
+│   ├── dist/               Build de production servi par FastAPI (généré par npm run build)
+│   ├── package.json        Dépendances et scripts npm
+│   └── vite.config.ts      Build + proxy /api vers FastAPI en développement
+├── frontend/               Ancien frontend HTML/JS : servi seulement si frontend-react/dist/ n'existe pas
 ├── lancer_budget.bat       Lanceur Windows
 └── lancer_budget.sh        Lanceur Linux
 ```
@@ -86,6 +86,7 @@ Réponse JSON  → le JS génère le HTML (échappé par esc()) et les graphique
 ### Prérequis
 - Python 3.10 ou plus récent
 - Une base PostgreSQL accessible
+- Node.js 20 ou plus récent, **uniquement pour modifier le frontend** (pas pour lancer l'application)
 
 ### Fichier `backend/.env`
 
@@ -116,6 +117,24 @@ Les lanceurs `lancer_budget.bat` et `lancer_budget.sh` ouvrent le navigateur pui
 
 En production : `gunicorn app:app -k uvicorn.workers.UvicornWorker`.
 
+### Développer le frontend
+
+```bash
+cd frontend-react
+npm install          # une seule fois
+npm run dev          # http://localhost:5173, rechargement à chaud
+```
+
+Le backend doit tourner en parallèle sur le port 8500 : Vite lui redirige les appels `/api` (même origine pour le navigateur, donc cookie de session et CORS inchangés).
+
+Après une modification, recompiler puis committer `frontend-react/dist/` :
+
+```bash
+npm run build        # vérifie les types (tsc) puis produit dist/
+```
+
+`dist/` est versionné exprès : le serveur de production n'a ainsi besoin que de Python.
+
 ### Tests
 
 ```bash
@@ -132,7 +151,7 @@ pytest tests -v
 ### 3.1 `config.py` — configuration
 
 - Charge `backend/.env` via `python-dotenv` (sinon, seules les variables système sont lues).
-- Définit `FRONT_DIR`, le dossier `frontend/` servi en statique.
+- Définit `FRONT_DIR`, le dossier servi en statique : `frontend-react/dist/` s'il contient un `index.html`, sinon l'ancien `frontend/`.
 - Lit `DATABASE_URL`, `PORT`, `COOKIE_SECURE`, `ADMIN_UTILISATEUR`, `ADMIN_MOT_DE_PASSE` et `CORS_ORIGINS`.
 - Constantes :
   - `DUREE_SESSION_JOURS = 1` : une session expire au bout de 24 h ;
@@ -197,7 +216,7 @@ Ces modèles valident automatiquement les données reçues. En cas d'échec, Fas
 2. Appelle `init_db()`.
 3. Crée l'application FastAPI. CORS n'est activé que si `CORS_ORIGINS` est renseigné, et seulement pour ces origines.
 4. Branche les 5 routeurs.
-5. Monte `frontend/` sur `/` **après** les routes API, pour que `/api/...` reste prioritaire.
+5. Monte `FRONT_DIR` sur `/` **après** les routes API, pour que `/api/...` reste prioritaire.
 6. Lancé directement, démarre `uvicorn` sur `0.0.0.0:PORT`.
 
 ### 3.6 `routes/auth.py`
@@ -377,56 +396,61 @@ Un transfert n'est ni une dépense ni un revenu du Budget : le saisir dans l'ong
 
 ## 7. Frontend
 
-### 7.1 `index.html`
+Application React d'une seule page, dans `frontend-react/src/`. Il n'y a pas de routeur : l'onglet affiché est un état de `App.tsx`.
 
-Une seule page contient :
-- l'écran de connexion ;
-- l'en-tête (date, bouton de thème jour/nuit, déconnexion) ;
-- quatre onglets, accessibles depuis la barre de navigation du bas :
-  - **Saisie** : formulaires de dépense et de revenu, transactions du mois en cours ;
-  - **Dashboard** : cinq vues (Jour / Semaine / Mois / Année / Global), avec des flèches ‹ › pour changer de période (masquées en vue Global) ;
-  - **Bourse** : huit sous-vues (Transactions, Positions, Gains, Dividendes, Frais, Apports / Retraits, Dashboard, Paramètres) ;
-  - **Paramètres** : objectif d'épargne, catégories et budgets, sources de revenus, mot de passe.
+### 7.1 Bibliothèques
 
-La navigation se fait sans routeur, en affichant ou masquant les sections. Les scripts sont chargés avec un numéro de version (`app.js?v=14`), à incrémenter à chaque mise à jour du JavaScript pour que les navigateurs rechargent les fichiers.
+| Rôle | Bibliothèque |
+|---|---|
+| Interface (formulaires, tableaux, fenêtres, notifications, thème clair/sombre) | Mantine 9 (`@mantine/core`, `dates`, `modals`, `notifications`) |
+| Chargement et cache des données | TanStack Query 5 |
+| Graphiques | Chart.js 4 via `react-chartjs-2` |
+| Icônes | Tabler Icons |
+| Dates (sélecteur, locale française) | Day.js |
 
-### 7.2 `js/app.js`
+### 7.2 Organisation du code
 
-**Utilitaires** (partagés avec `bourse.js`)
-- `$(id)` : raccourci pour `getElementById`.
-- `esc(v)` : échappe `& < > " '` avant toute insertion d'une donnée saisie dans le HTML. Toute nouvelle donnée affichée via `innerHTML` doit passer par `esc()`.
-- `fmt(v)` : formate un montant (`1 234,5 DH`).
-- `lireMontant(id)` : lit un montant saisi, avec virgule ou point.
-- `auj()` : date du jour en heure locale (et non UTC).
-- `toast(msg, ok)` : notification verte ou rouge.
-- `api(path, opts)` : enveloppe de `fetch`. Sur 401, affiche l'écran de connexion ; sur une autre erreur, affiche le message du serveur.
-- `dessiner(id, cfg)` : (re)crée un graphique Chart.js en détruisant le précédent.
-- `paletteActuelle()`, `regrouperAutres()`, `optionsDonutPourcentage()` : palette de 8 couleurs, regroupement des petites parts en « Autres », légendes avec pourcentages.
+```
+src/
+├── main.tsx              Fournisseurs : Mantine, dates (fr, lundi), TanStack Query, fenêtres, notifications
+├── App.tsx               Connexion, en-tête, barre d'onglets du bas, état de navigation
+├── theme.ts              Thème Mantine (couleurs safran / menthe / océan, échelle sombre, polices)
+├── global.css            Couleurs métier, fond dégradé et trame zellige, grille thermique
+├── lib/
+│   ├── api.ts            api() : fetch, message d'erreur du serveur, 401 → écran de connexion
+│   ├── queries.ts        Une fonction use… par route de lecture + useEcriture() pour les écritures
+│   ├── types.ts          Types TypeScript des réponses de l'API
+│   ├── format.ts         fmt(), lireMontant(), auj(), dates en français
+│   └── palette.ts        Palette de 8 couleurs, regrouperAutres(), couleurs des séries
+├── components/
+│   ├── ui.tsx            Carte, Kpi, Variation, confirmer(), tableaux triables, états vides/chargement
+│   ├── champs.tsx        ChampDate (JJ/MM/AAAA ↔ AAAA-MM-JJ), ChampMontant (virgule ou point)
+│   ├── Graphique.tsx     Graphique, Donut (légende en %), options communes, couleurs selon le thème
+│   └── Protection.tsx    Affiche un message au lieu d'une page blanche en cas d'erreur d'affichage
+└── pages/
+    ├── Connexion.tsx
+    ├── Saisie.tsx
+    ├── Parametres.tsx
+    ├── dashboard/        Dashboard.tsx (navigation ‹ ›, choix de vue) + Vues.tsx (Jour/Semaine/Mois/Année/Global)
+    └── bourse/           Bourse.tsx (sous-onglets) + Journaux, Portefeuille, ParametresBourse
+```
 
-**Cycle de vie**
-1. `init()` applique le thème enregistré, préremplit les dates des formulaires et appelle `/api/me`.
-2. Si la session est valide, `demarrerApp()` ; sinon, écran de connexion.
-3. `montrer(onglet)` affiche un onglet et recharge ses données à chaque ouverture.
+### 7.3 Données
 
-**Dashboards** : `chargerDashJour()`, `chargerDashSemaine()`, `chargerDash()` (mois), `chargerDashAnnee()` et `chargerDashGlobal()`. Les vues Mois, Année et Global ajoutent deux indicateurs Bourse via `resumeBourseSilencieux()`, qui ne remonte jamais d'erreur, pour qu'un problème Bourse ne casse pas le dashboard Budget.
+- **Lecture** : chaque écran appelle un hook de `queries.ts` (ex. `useResumeMois(mois)`). Les clés commencent par `['budget', …]` ou `['bourse', …]`. Un écran recharge ses données à chaque affichage ; en changeant de période, l'ancien contenu reste visible pendant le chargement.
+- **Écriture** : `useEcriture('budget' | 'bourse')` envoie la requête, affiche la notification de succès puis invalide tout le module, ce qui recharge les écrans concernés (y compris les KPI Bourse du dashboard Budget).
+- **Erreurs** : `api()` affiche le message renvoyé par le serveur (erreurs Pydantic comprises). Un 401 ramène à l'écran de connexion, sauf sur `/api/login`, où il signifie « identifiants incorrects ». Les réponses 204 (suppressions Bourse) sont gérées.
+- **Résumé Bourse du dashboard Budget** : `useResumeBourseSilencieux()` ne notifie jamais d'erreur, pour qu'un problème Bourse ne casse pas le dashboard Budget.
 
-**Thème** : `appliquerTheme()` pose `data-theme` sur `<html>`, mémorise le choix et adapte les graphiques.
+### 7.4 Comportements à connaître
 
-### 7.3 `js/bourse.js`
-
-Réutilise les utilitaires d'`app.js`, chargé avant lui.
-- `changerVueBourse(v)` : bascule entre les huit sous-vues.
-- Le cours actuel d'un titre se modifie directement dans le tableau des positions.
-- Le dashboard Bourse a trois modes (Global / Mois / Année) et sa propre navigation ‹ ›.
-- Paramètres : taux de TPCVM (affiché en %) et gestion du référentiel des titres.
-- `chargerTitresBourse()` alimente l'autocomplétion des codes BVC.
-
-### 7.4 `css/style.css`
-
-- Variables CSS dans `:root` (thème sombre par défaut), redéfinies dans `[data-theme="light"]` pour les fonds, bordures et textes.
-- Couleurs métier identiques dans les deux thèmes : orange pour les dépenses, bleu pour les revenus, vert pour l'épargne, rouge pour les alertes.
-- Responsive : `.grid2` passe sur une colonne sous 820 px, d'autres ajustements s'appliquent sous 560 px.
-- Respecte `prefers-reduced-motion`.
+- React échappe automatiquement tout texte affiché : une saisie contenant du HTML s'affiche telle quelle, sans être interprétée.
+- Le thème est mémorisé dans `localStorage` sous la clé `theme` (`light` / `dark`), la même que l'ancien frontend. Un script dans `index.html` l'applique avant le premier affichage.
+- La navigation (vue du dashboard, période affichée, sous-onglet Bourse) est conservée quand on change d'onglet.
+- Les suppressions et désactivations passent par une fenêtre de confirmation.
+- Les tableaux de la Bourse (transactions, positions, gains) se trient en cliquant sur l'en-tête des colonnes.
+- Les notifications s'affichent en bas, au-dessus de la barre d'onglets, pour ne jamais masquer l'en-tête ni les sous-onglets.
+- Sous 600 px de large, les légendes des donuts passent sous le graphique.
 
 ---
 

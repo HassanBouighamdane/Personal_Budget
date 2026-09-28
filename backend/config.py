@@ -12,7 +12,9 @@ except ImportError:
     pass   # python-dotenv non installé : variables système uniquement
 
 BASE_DIR = Path(__file__).parent
-FRONT_DIR = BASE_DIR.parent / "frontend"
+# Frontend React compilé (npm run build dans frontend-react/) ; à défaut, l'ancien frontend HTML/JS
+FRONT_REACT_DIR = BASE_DIR.parent / "frontend-react" / "dist"
+FRONT_DIR = FRONT_REACT_DIR if (FRONT_REACT_DIR / "index.html").exists() else BASE_DIR.parent / "frontend"
 
 DATABASE_URL = os.environ.get("DATABASE_URL")
 if not DATABASE_URL:
