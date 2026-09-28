@@ -448,8 +448,3 @@ Les tests couvrent les calculs Bourse, le renommage et les 404 du Budget, et les
 **5. Limitation des connexions en mémoire**
 Le compteur d'échecs est remis à zéro au redémarrage et propre à chaque processus serveur. Le blocage se fait par nom d'utilisateur (l'adresse IP n'est pas fiable derrière le proxy de l'hébergeur) : quelqu'un qui connaît le nom d'utilisateur peut bloquer la connexion pendant 15 minutes.
 
-**6. Pas d'historique des cours**
-`bourse_prix` ne garde que le dernier cours de chaque titre. La valorisation du portefeuille est donc toujours celle d'aujourd'hui, quelle que soit la période choisie dans le dashboard.
-
-**7. Données inutilisées**
-La table `paiements` et la colonne `depenses.paiement` ne sont plus utilisées depuis le retrait des types de paiement. Elles peuvent être supprimées une fois l'historique jugé inutile.
