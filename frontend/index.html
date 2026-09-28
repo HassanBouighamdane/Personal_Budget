@@ -54,8 +54,6 @@
         <input type="text" id="d-montant" inputmode="decimal" placeholder="0,00">
         <label>Description (optionnel)</label>
         <input type="text" id="d-desc" placeholder="ex : courses Marjane">
-        <label>Paiement</label>
-        <div class="chips" id="d-pays"></div>
         <button class="btn btn-dep" onclick="ajouterDepense()">Ajouter la dépense</button>
       </div>
       <div class="card">
@@ -399,24 +397,13 @@
         <button class="btn-sm" onclick="ajouterCategorie()">＋</button>
       </div>
     </div>
-    <div class="grid2">
-      <div class="card">
-        <h2>💼 Sources de revenus</h2>
-        <div id="p-sources"></div>
-        <h2 class="mt">Ajouter une source</h2>
-        <div class="cat-row">
-          <input type="text" id="p-new-source" placeholder="ex : Loyer perçu">
-          <button class="btn-sm" onclick="ajouterSource()">＋</button>
-        </div>
-      </div>
-      <div class="card">
-        <h2>💳 Types de paiement</h2>
-        <div id="p-paies"></div>
-        <h2 class="mt">Ajouter un type</h2>
-        <div class="cat-row">
-          <input type="text" id="p-new-paie" placeholder="ex : Chèque">
-          <button class="btn-sm" onclick="ajouterPaiement()">＋</button>
-        </div>
+    <div class="card">
+      <h2>💼 Sources de revenus</h2>
+      <div id="p-sources"></div>
+      <h2 class="mt">Ajouter une source</h2>
+      <div class="cat-row">
+        <input type="text" id="p-new-source" placeholder="ex : Loyer perçu">
+        <button class="btn-sm" onclick="ajouterSource()">＋</button>
       </div>
     </div>
     <div class="card">
@@ -437,7 +424,7 @@
   <button id="b-params" onclick="montrer('params')">⚙️ Paramètres</button>
 </nav>
 
-<script src="js/app.js?v=12"></script>
-<script src="js/bourse.js?v=12"></script>
+<script src="js/app.js?v=13"></script>
+<script src="js/bourse.js?v=13"></script>
 </body>
 </html>

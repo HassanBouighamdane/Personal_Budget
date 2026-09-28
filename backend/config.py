@@ -46,4 +46,3 @@ CATEGORIES_DEFAUT = [
     ("Imprévus & Divers", 1000),
 ]
 SOURCES_DEFAUT = [("Salaire",), ("Prime",), ("Freelance",), ("Remboursement",)]
-PAIEMENTS_DEFAUT = [("Espèces",), ("Carte",), ("Virement",)]

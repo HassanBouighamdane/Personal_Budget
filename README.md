@@ -5,14 +5,14 @@ Application web personnelle pour gérer et suivre son budget au quotidien, avec 
 ## Fonctionnalités
 
 **Budget**
-- Saisie rapide des dépenses (catégorie, montant, description, moyen de paiement) et des revenus (source, montant)
+- Saisie rapide des dépenses (catégorie, montant, description) et des revenus (source, montant)
 - Tableaux de bord **Jour / Semaine / Mois / Année / Global** avec graphiques :
   - budget prévu comparé au réel, par catégorie
   - dépenses cumulées et projection en fin de mois
   - évolution sur 6 mois et comparaison avec la période précédente
   - épargne, taux d'épargne et suivi de l'objectif mensuel
   - grille thermique catégories × mois (vue annuelle)
-- Catégories et budgets mensuels, sources de revenus et types de paiement configurables
+- Catégories et budgets mensuels, sources de revenus configurables
 
 **Bourse**
 - Journal des achats et ventes (actions, obligations, OPCVM, IPO), avec autocomplétion des titres cotés à la BVC

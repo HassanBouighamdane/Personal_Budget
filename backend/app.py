@@ -8,7 +8,7 @@ Architecture modulaire :
     securite.py          hachage des mots de passe, sessions
     schemas.py            modèles Pydantic
     routes/auth.py        login, logout, mot de passe
-    routes/configuration.py   catégories, sources, paiements, objectif
+    routes/configuration.py   catégories, sources, objectif
     routes/transactions.py    dépenses, revenus
     routes/rapports.py        résumés jour / semaine / mois / année
     routes/bourse.py          achats, ventes, commissions, TPCVM, positions, gains

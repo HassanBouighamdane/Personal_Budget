@@ -36,11 +36,11 @@ Personal_Budget/
 │   │   └── supprimer_bourse.py  Supprime toutes les tables du module Bourse (script manuel, pas un test)
 │   ├── tests/
 │   │   ├── test_bourse.py     PRU chronologique, frais, arrondi de performance, garde-fou de vente
-│   │   ├── test_budget.py     Cascade de renommage (catégories/sources/paiements), erreurs 404
+│   │   ├── test_budget.py     Cascade de renommage (catégories/sources), erreurs 404
 │   │   └── test_mouvements.py Apports/retraits, espèces disponibles, performance globale
 │   └── routes/
 │       ├── auth.py            /api/login, /logout, /me, /mot_de_passe
-│       ├── configuration.py   catégories, sources de revenus, types de paiement, objectif
+│       ├── configuration.py   catégories, sources de revenus, objectif
 │       ├── transactions.py    dépenses et revenus
 │       ├── rapports.py        résumés jour / semaine / mois / année
 │       └── bourse.py          module Bourse (transactions, positions, gains, dividendes, frais)
@@ -74,7 +74,7 @@ Réponse JSON  → le JS génère le HTML (innerHTML) et les graphiques Chart.js
 
 - **Pas d'ORM** : le code écrit ses requêtes SQL à la main, toujours paramétrées avec `%s`, donc protégées contre l'injection SQL.
 - **Pool de connexions** : `db()` tire une connexion d'un `psycopg_pool.ConnectionPool` partagé (1 à 10 connexions), la valide (commit) puis la remet dans le pool — en cas d'exception, le pool fait un rollback avant réutilisation. Avant, chaque `with db()` ouvrait une connexion TCP dédiée ; un seul appel au dashboard Bourse en ouvrait 3 à 4.
-- **Suppression douce** : les catégories, sources et types de paiement ne sont jamais supprimés. On met `actif=0`, et l'historique reste intact. Les renommer met aussi à jour les dépenses/revenus déjà saisis sous l'ancien nom (`categorie`/`source`/`paiement` stockés par nom, pas par id).
+- **Suppression douce** : les catégories et sources ne sont jamais supprimées. On met `actif=0`, et l'historique reste intact. Les renommer met aussi à jour les dépenses/revenus déjà saisis sous l'ancien nom (`categorie`/`source` stockés par nom, pas par id).
 - **Migrations « additives »** : il n'y a ni Alembic ni outil équivalent. `init_db()` s'exécute à chaque démarrage et utilise `CREATE TABLE IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` — et, depuis le nettoyage du 26/09/2026, `DROP COLUMN IF EXISTS` pour les colonnes définitivement mortes (toutes ces opérations sont idempotentes, sans risque à rejouer à chaque démarrage).
 - **Nommage en français** dans tout le code (fonctions, variables, colonnes).
 
@@ -129,7 +129,6 @@ Les lanceurs `lancer_budget.bat` et `lancer_budget.sh` ouvrent le navigateur pui
 - Valeurs insérées au premier démarrage :
   - `CATEGORIES_DEFAUT` : 11 catégories de dépense, chacune avec un budget mensuel (Alimentation 1500, Loyer 300, etc.)
   - `SOURCES_DEFAUT` : Salaire, Prime, Freelance, Remboursement
-  - `PAIEMENTS_DEFAUT` : Espèces, Carte, Virement
 
 ### 3.2 `database.py` — base de données
 
@@ -149,7 +148,7 @@ with db() as c:
    - ajoute la colonne `taux_retenue_source_dividendes` si elle manque (nécessaire à l'étape suivante) ;
    - si l'ancienne colonne `bourse_dividendes.montant_brut` existe, calcule le montant net (`brut × (1 − taux de retenue)`) puis supprime les anciennes colonnes. Les dividendes sont désormais saisis en net ;
    - supprime (`DROP COLUMN IF EXISTS`, idempotent) les anciennes colonnes de taux figés dans `bourse_parametres` et `bourse_transactions`, devenues mortes depuis la simplification du module Bourse ;
-3. insère les valeurs par défaut quand les tables sont vides : catégories, sources, paiements, objectif d'épargne (5000), compte administrateur (échoue avec un message explicite si `ADMIN_UTILISATEUR`/`ADMIN_MOT_DE_PASSE` manquent), ligne de paramètres Bourse, titres BVC ;
+3. insère les valeurs par défaut quand les tables sont vides : catégories, sources, objectif d'épargne (5000), compte administrateur (échoue avec un message explicite si `ADMIN_UTILISATEUR`/`ADMIN_MOT_DE_PASSE` manquent), ligne de paramètres Bourse, titres BVC ;
 4. affiche un avertissement si le mot de passe administrateur vaut `"admin"`.
 
 `hacher_mdp` est importé à l'intérieur de la fonction. Un import en tête de fichier créerait une boucle, car `securite.py` importe déjà `database.py`.
@@ -177,7 +176,7 @@ Ces modèles valident automatiquement les données. Si la validation échoue, Fa
 | `DepenseIn` | nouvelle dépense | `montant > 0` ; `date` au format `AAAA-MM-JJ` (type `DateISO`, stocké en texte) |
 | `RevenuIn` | nouveau revenu | `montant > 0` ; `date` au format `AAAA-MM-JJ` (`DateISO`) |
 | `CategorieIn` | catégorie | `nom` non vide, `budget ≥ 0` |
-| `ObjectifIn`, `NomIn` | objectif, source, paiement | — |
+| `ObjectifIn`, `NomIn` | objectif, source | — |
 | `ParametresBourse` | paramètres Bourse | taux compris entre 0 et 1 |
 | `TransactionBourseCreate` / `Out` | achat/vente | `type_instrument` ∈ {Action, Obligation, OPCVM, IPO}, `type_operation` ∈ {Achat, Vente}, `quantite > 0` |
 | `PositionBourse`, `GainRealise`, `DashboardBourse` | sorties calculées | — |
@@ -203,9 +202,9 @@ Ces modèles valident automatiquement les données. Si la validation échoue, Fa
 
 Tout le routeur est protégé par `dependencies=[Depends(utilisateur_courant)]`.
 
-- `GET /api/categories` renvoie **en une seule requête** les catégories, les sources, les types de paiement et l'objectif d'épargne.
+- `GET /api/categories` renvoie **en une seule requête** les catégories, les sources et l'objectif d'épargne.
 - Les routes `POST` utilisent `ON CONFLICT (nom) DO UPDATE SET actif=1`. Si on recrée une catégorie qui avait été désactivée, elle est réactivée au lieu de provoquer une erreur d'unicité.
-- Les routes `PUT` (renommer) répercutent le nouveau nom sur les lignes déjà saisies : `modifier_categorie` met à jour `depenses.categorie`, `modifier_source` met à jour `revenus.source`, `modifier_paiement` met à jour `depenses.paiement` — sinon ces lignes resteraient rattachées à l'ancien nom (catégorie « fantôme » à budget 0 dans les rapports). Elles renvoient **404** si l'id n'existe pas.
+- Les routes `PUT` (renommer) répercutent le nouveau nom sur les lignes déjà saisies : `modifier_categorie` met à jour `depenses.categorie`, `modifier_source` met à jour `revenus.source` — sinon ces lignes resteraient rattachées à l'ancien nom (catégorie « fantôme » à budget 0 dans les rapports). Elles renvoient **404** si l'id n'existe pas.
 - Les routes `DELETE` font une désactivation douce (`actif=0`) et renvoient **404** si l'id n'existe pas (`rowcount == 0`).
 
 ### 3.8 `routes/transactions.py`
@@ -265,10 +264,10 @@ Script manuel (pas un test, malgré l'ancien fichier `test.py` qui portait ce no
 | Table | Colonnes principales | Remarques |
 |---|---|---|
 | `categories` | `id`, `nom` UNIQUE, `budget`, `actif` | budget mensuel en DH |
-| `depenses` | `id`, `date` **TEXT**, `categorie` **TEXT**, `description`, `montant`, `paiement`, `cree_le` | catégorie/paiement stockés **par leur nom**, sans clé étrangère — un renommage côté `categories`/`paiements` met donc à jour ces colonnes en cascade (voir [§3.7](#37-routesconfigurationpy)) |
+| `depenses` | `id`, `date` **TEXT**, `categorie` **TEXT**, `description`, `montant`, `paiement` (inutilisée), `cree_le` | catégorie stockée **par son nom**, sans clé étrangère — un renommage côté `categories` met donc à jour cette colonne en cascade (voir [§3.7](#37-routesconfigurationpy)). `paiement` : plus lue ni écrite depuis le retrait des types de paiement, conservée pour l'historique |
 | `revenus` | `id`, `date` TEXT, `source`, `montant`, `cree_le` | `source` idem : mise à jour en cascade au renommage |
 | `sources_revenus` | `id`, `nom` UNIQUE, `actif` | |
-| `paiements` | `id`, `nom` UNIQUE, `actif` | |
+| `paiements` | `id`, `nom` UNIQUE, `actif` | **inutilisée** depuis le 29/09/2026 (types de paiement retirés), conservée pour l'historique |
 | `params` | `cle` PK, `valeur` | ne contient pour l'instant que `objectif_epargne` |
 | `utilisateurs` | `id`, `nom` UNIQUE, `mdp_hash` | |
 | `sessions` | `token` PK, `utilisateur_id` FK (ON DELETE CASCADE), `expire` | |
@@ -301,11 +300,11 @@ Toutes les routes sauf `/api/login` et `/api/logout` exigent le cookie `session`
 | POST | `/api/logout` | — | `{ok}` |
 | GET | `/api/me` | — | `{utilisateur}` |
 | PUT | `/api/mot_de_passe` | `{actuel, nouveau}` | `{ok, message}` |
-| GET | `/api/categories` | — | `{categories, sources, paiements, objectif_epargne}` |
+| GET | `/api/categories` | — | `{categories, sources, objectif_epargne}` |
 | POST / PUT / DELETE | `/api/categories[/{id}]` | `{nom, budget}` | `{ok}` |
 | PUT | `/api/objectif` | `{objectif}` | `{ok}` |
-| POST / PUT / DELETE | `/api/sources[/{id}]`, `/api/paiements[/{id}]` | `{nom}` | `{ok}` |
-| POST / DELETE | `/api/depenses[/{id}]` | `{date, categorie, description, montant, paiement}` | `{id}` / `{ok}` |
+| POST / PUT / DELETE | `/api/sources[/{id}]` | `{nom}` | `{ok}` |
+| POST / DELETE | `/api/depenses[/{id}]` | `{date, categorie, description, montant}` | `{id}` / `{ok}` |
 | POST / DELETE | `/api/revenus[/{id}]` | `{date, source, montant}` | `{id}` / `{ok}` |
 | GET | `/api/transactions?mois=` | — | `{depenses, revenus}` |
 | GET | `/api/resume_jour?date=` | — | résumé du jour |
@@ -379,7 +378,7 @@ Une seule page contient :
   - **Saisie** (`#tab-saisie`) : formulaires de dépense et de revenu, transactions du mois en cours ;
   - **Dashboard** (`#tab-dash`) : cinq vues (Jour / Semaine / Mois / Année / Global) avec des flèches ‹ › pour naviguer (masquées en vue Global, qui couvre tout l'historique) ;
   - **Bourse** (`#tab-bourse`) : sept sous-vues (Transactions, Positions, Gains, Dividendes, Frais, Dashboard, Paramètres) ;
-  - **Paramètres** (`#tab-params`) : objectif d'épargne, catégories et budgets, sources, types de paiement, mot de passe.
+  - **Paramètres** (`#tab-params`) : objectif d'épargne, catégories et budgets, sources de revenus, mot de passe.
 
 La navigation se fait **sans routeur** : on bascule `style.display` entre `''` et `'none'`. Les boutons appellent des fonctions globales via `onclick="..."`.
 
@@ -400,7 +399,7 @@ La navigation se fait **sans routeur** : on bascule `style.display` entre `''` e
 2. Si la session est valide, `demarrerApp()` ; sinon, écran de connexion.
 3. `montrer(onglet)` affiche l'onglet et charge ses données **à chaque ouverture**. Il n'y a pas de cache.
 
-**Saisie** : `chargerCats()` remplit les listes déroulantes et les boutons de paiement (`paySel` garde le paiement choisi). L'option « Autre… » dans les sources affiche un champ libre.
+**Saisie** : `chargerCats()` remplit les listes déroulantes des catégories et des sources. L'option « Autre… » dans les sources affiche un champ libre.
 
 **Dashboards** : `chargerDash()` (mois), `chargerDashJour()`, `chargerDashSemaine()` et `chargerDashAnnee()`. Les vues mois et année appellent aussi `resumeBourseSilencieux()` en parallèle (`Promise.all`) pour ajouter deux indicateurs Bourse. Cet appel ne remonte jamais d'erreur, pour qu'un problème Bourse ne casse pas le dashboard Budget.
 
@@ -460,7 +459,7 @@ Les champs `b-date`, `bd-date` et `bf-date` n'étaient pas initialisés dans `in
 
 **6. ~~Renommer une catégorie « détachait » ses anciennes dépenses~~**
 `depenses.categorie` stocke le nom, pas l'identifiant. Après un renommage, les anciennes dépenses apparaissaient dans « Budget vs Réel » sous l'ancien nom avec un budget de 0. Il en allait de même pour les sources et les paiements.
-*Correction appliquée* : `modifier_categorie`/`modifier_source`/`modifier_paiement` mettent à jour respectivement `depenses.categorie`, `revenus.source` et `depenses.paiement` quand le nom change. Testé par [test_budget.py](backend/tests/test_budget.py).
+*Correction appliquée* : `modifier_categorie`/`modifier_source`/`modifier_paiement` mettent à jour respectivement `depenses.categorie`, `revenus.source` et `depenses.paiement` quand le nom change. Testé par [test_budget.py](backend/tests/test_budget.py). (Les types de paiement ont depuis été retirés, le 29/09/2026.)
 
 **7. ~~Aucune erreur 404 sur les modifications et suppressions du module Budget~~**
 `DELETE /api/depenses/999` renvoyait `{ok: true}`, même si la ligne n'existait pas.

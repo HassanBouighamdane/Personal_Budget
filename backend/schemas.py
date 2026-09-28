@@ -35,7 +35,6 @@ class DepenseIn(BaseModel):
     categorie: str
     description: str = ""
     montant: float = Field(gt=0)
-    paiement: str = ""
 
 class RevenuIn(BaseModel):
     date: DateISO

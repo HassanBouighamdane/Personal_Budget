@@ -78,7 +78,7 @@ if (window.Chart) {
   Chart.defaults.borderColor = '#263250';
 }
 
-let cats = [], sources = [], paiements = [], paySel = null;
+let cats = [], sources = [];
 let charts = {};
 
 const $ = id => document.getElementById(id);
@@ -188,12 +188,11 @@ function montrer(t) {
   if (t === 'saisie') chargerTransactions();
 }
 
-/* ---------------- Configuration (catégories, sources, paiements) ---------------- */
+/* ---------------- Configuration (catégories, sources) ---------------- */
 async function chargerCats() {
   const d = await api('/api/categories');
   cats = d.categories;
   sources = d.sources;
-  paiements = d.paiements;
   $('p-objectif').value = d.objectif_epargne;
 
   // Liste déroulante des catégories de dépense
@@ -212,21 +211,6 @@ async function chargerCats() {
   if (valSrc && (valSrc === '__autre__' || sources.some(s => s.nom === valSrc))) selS.value = valSrc;
   basculerSourceAutre();
 
-  // Chips des types de paiement (configurables depuis Paramètres)
-  if (!paySel || !paiements.some(p => p.nom === paySel)) paySel = paiements[0] ? paiements[0].nom : null;
-  const pb = $('d-pays');
-  pb.innerHTML = '';
-  paiements.forEach(p => {
-    const b = document.createElement('button');
-    b.className = 'chip' + (p.nom === paySel ? ' sel' : '');
-    b.textContent = p.nom;
-    b.onclick = () => { paySel = p.nom; majChips(); };
-    pb.appendChild(b);
-  });
-}
-
-function majChips() {
-  [...$('d-pays').children].forEach(b => b.classList.toggle('sel', b.textContent === paySel));
 }
 
 function basculerSourceAutre() {
@@ -239,13 +223,12 @@ async function ajouterDepense() {
   const categorie = $('d-cat').value;
   if (!categorie) return toast('Choisis une catégorie', false);
   if (isNaN(montant) || montant <= 0) return toast('Montant invalide', false);
-  if (!paySel) return toast('Choisis un type de paiement', false);
   await api('/api/depenses', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       date: $('d-date').value, categorie,
-      description: $('d-desc').value, montant, paiement: paySel
+      description: $('d-desc').value, montant
     })
   });
   $('d-montant').value = '';
@@ -489,12 +472,12 @@ async function chargerDashJour() {
   }); }
 
   const lignes = [
-    ...r.depenses.map(x => ({ lbl: x.categorie + (x.description ? ' — ' + x.description : ''), m: x.montant, cls: 'dep-amt', sg: '−', extra: x.paiement })),
-    ...r.revenus.map(x => ({ lbl: x.source || 'Revenu', m: x.montant, cls: 'rev-amt', sg: '+', extra: '' }))
+    ...r.depenses.map(x => ({ lbl: x.categorie + (x.description ? ' — ' + x.description : ''), m: x.montant, cls: 'dep-amt', sg: '−' })),
+    ...r.revenus.map(x => ({ lbl: x.source || 'Revenu', m: x.montant, cls: 'rev-amt', sg: '+' }))
   ];
   $('j-trans').innerHTML = lignes.length
     ? '<table><tbody>' + lignes.map(l =>
-        `<tr><td>${esc(l.lbl)}</td><td style="color:var(--muted);font-size:11px">${esc(l.extra)}</td>
+        `<tr><td>${esc(l.lbl)}</td>
          <td class="num ${l.cls}">${l.sg} ${fmt(l.m)}</td></tr>`).join('') + '</tbody></table>'
     : '<div class="vide">Aucune transaction ce jour</div>';
 }
@@ -764,13 +747,6 @@ async function chargerParams() {
       <button class="btn-sm" onclick="sauverSource(${s.id})">💾</button>
       <button class="btn-sm" onclick="supprSource(${s.id})" style="color:var(--red)">✕</button>
     </div>`).join('') || '<div class="vide">Aucune source configurée</div>';
-
-  $('p-paies').innerHTML = paiements.map(p => `
-    <div class="cat-row">
-      <input type="text" value="${esc(p.nom)}" id="pp-nom-${p.id}">
-      <button class="btn-sm" onclick="sauverPaiement(${p.id})">💾</button>
-      <button class="btn-sm" onclick="supprPaiement(${p.id})" style="color:var(--red)">✕</button>
-    </div>`).join('') || '<div class="vide">Aucun type configuré</div>';
 }
 
 /* ---- Sources de revenus ---- */
@@ -793,29 +769,6 @@ async function supprSource(id) {
   if (!confirm('Retirer cette source de la liste ? (les revenus existants sont conservés)')) return;
   await api('/api/sources/' + id, { method: 'DELETE' });
   toast('Source retirée');
-  chargerParams();
-}
-
-/* ---- Types de paiement ---- */
-async function ajouterPaiement() {
-  const nom = $('p-new-paie').value.trim();
-  if (!nom) return toast('Nom requis', false);
-  await api('/api/paiements', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ nom }) });
-  $('p-new-paie').value = '';
-  toast('Type ajouté ✓');
-  chargerParams();
-}
-async function sauverPaiement(id) {
-  await api('/api/paiements/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ nom: $('pp-nom-' + id).value }) });
-  toast('Type mis à jour ✓');
-  chargerParams();
-}
-async function supprPaiement(id) {
-  if (!confirm('Retirer ce type de paiement ? (les dépenses existantes sont conservées)')) return;
-  await api('/api/paiements/' + id, { method: 'DELETE' });
-  toast('Type retiré');
   chargerParams();
 }
 

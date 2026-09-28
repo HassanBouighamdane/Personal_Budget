@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Routes de configuration : catégories, sources de revenus, types de paiement, objectif."""
+"""Routes de configuration : catégories, sources de revenus, objectif."""
 from fastapi import APIRouter, Depends, HTTPException
 
 from database import db
@@ -14,9 +14,8 @@ def lister_config():
     with db() as c:
         rows = c.execute("SELECT id,nom,budget FROM categories WHERE actif=1 ORDER BY nom").fetchall()
         src = c.execute("SELECT id,nom FROM sources_revenus WHERE actif=1 ORDER BY nom").fetchall()
-        pay = c.execute("SELECT id,nom FROM paiements WHERE actif=1 ORDER BY id").fetchall()
         obj = c.execute("SELECT valeur FROM params WHERE cle='objectif_epargne'").fetchone()
-    return {"categories": rows, "sources": src, "paiements": pay,
+    return {"categories": rows, "sources": src,
             "objectif_epargne": obj["valeur"]}
 
 # ---- Catégories de dépense ----
@@ -85,30 +84,3 @@ def desactiver_source(sid: int):
             raise HTTPException(404, "Source introuvable")
     return {"ok": True}
 
-# ---- Types de paiement ----
-@router.post("/paiements")
-def ajouter_paiement(p: NomIn):
-    with db() as c:
-        c.execute("""INSERT INTO paiements(nom) VALUES(%s)
-                     ON CONFLICT (nom) DO UPDATE SET actif=1""", (p.nom.strip(),))
-    return {"ok": True}
-
-@router.put("/paiements/{pid}")
-def modifier_paiement(pid: int, p: NomIn):
-    with db() as c:
-        ancien = c.execute("SELECT nom FROM paiements WHERE id=%s", (pid,)).fetchone()
-        if not ancien:
-            raise HTTPException(404, "Type de paiement introuvable")
-        nouveau_nom = p.nom.strip()
-        c.execute("UPDATE paiements SET nom=%s WHERE id=%s", (nouveau_nom, pid))
-        if nouveau_nom != ancien["nom"]:
-            c.execute("UPDATE depenses SET paiement=%s WHERE paiement=%s", (nouveau_nom, ancien["nom"]))
-    return {"ok": True}
-
-@router.delete("/paiements/{pid}")
-def desactiver_paiement(pid: int):
-    with db() as c:
-        res = c.execute("UPDATE paiements SET actif=0 WHERE id=%s", (pid,))
-        if res.rowcount == 0:
-            raise HTTPException(404, "Type de paiement introuvable")
-    return {"ok": True}

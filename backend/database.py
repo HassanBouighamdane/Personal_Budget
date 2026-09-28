@@ -6,7 +6,7 @@ from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
 from config import (DATABASE_URL, CATEGORIES_DEFAUT, SOURCES_DEFAUT,
-                    PAIEMENTS_DEFAUT, ADMIN_UTILISATEUR, ADMIN_MOT_DE_PASSE)
+                    ADMIN_UTILISATEUR, ADMIN_MOT_DE_PASSE)
 
 # Un seul pool pour toute l'application (au lieu d'ouvrir une connexion TCP par
 # requête) : chaque endpoint ouvre plusieurs `with db()` (jusqu'à 3-4 pour le
@@ -150,6 +150,8 @@ def init_db():
             nom TEXT UNIQUE NOT NULL,
             actif INTEGER NOT NULL DEFAULT 1
         );
+        -- Types de paiement : fonctionnalité retirée (29/09/2026). Table et colonne
+        -- depenses.paiement conservées pour l'historique déjà saisi, plus lues ni écrites.
         CREATE TABLE IF NOT EXISTS paiements (
             id SERIAL PRIMARY KEY,
             nom TEXT UNIQUE NOT NULL,
@@ -318,8 +320,6 @@ def init_db():
                 cur.executemany("INSERT INTO categories(nom,budget) VALUES(%s,%s)", CATEGORIES_DEFAUT)
             if c.execute("SELECT COUNT(*) n FROM sources_revenus").fetchone()["n"] == 0:
                 cur.executemany("INSERT INTO sources_revenus(nom) VALUES(%s)", SOURCES_DEFAUT)
-            if c.execute("SELECT COUNT(*) n FROM paiements").fetchone()["n"] == 0:
-                cur.executemany("INSERT INTO paiements(nom) VALUES(%s)", PAIEMENTS_DEFAUT)
         c.execute("INSERT INTO params(cle,valeur) VALUES('objectif_epargne',5000) ON CONFLICT DO NOTHING")
         if c.execute("SELECT COUNT(*) n FROM utilisateurs").fetchone()["n"] == 0:
             if not ADMIN_UTILISATEUR or not ADMIN_MOT_DE_PASSE:

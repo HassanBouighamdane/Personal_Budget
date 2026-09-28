@@ -13,9 +13,9 @@ router = APIRouter(prefix="/api", tags=["transactions"],
 @router.post("/depenses")
 def ajouter_depense(d: DepenseIn):
     with db() as c:
-        row = c.execute("INSERT INTO depenses(date,categorie,description,montant,paiement) "
-                        "VALUES(%s,%s,%s,%s,%s) RETURNING id",
-                        (d.date, d.categorie, d.description.strip(), d.montant, d.paiement)).fetchone()
+        row = c.execute("INSERT INTO depenses(date,categorie,description,montant) "
+                        "VALUES(%s,%s,%s,%s) RETURNING id",
+                        (d.date, d.categorie, d.description.strip(), d.montant)).fetchone()
     return {"id": row["id"]}
 
 @router.delete("/depenses/{did}")
@@ -49,7 +49,7 @@ def transactions(mois: str):
         raise HTTPException(400, "Format de mois attendu : AAAA-MM")
     like = mois + "-%"
     with db() as c:
-        dep = c.execute("SELECT id,date,categorie,description,montant,paiement FROM depenses "
+        dep = c.execute("SELECT id,date,categorie,description,montant FROM depenses "
                         "WHERE date LIKE %s ORDER BY date DESC, id DESC", (like,)).fetchall()
         rev = c.execute("SELECT id,date,source,montant FROM revenus "
                         "WHERE date LIKE %s ORDER BY date DESC, id DESC", (like,)).fetchall()

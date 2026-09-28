@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Tests du module Budget : cascade de renommage (catégories/sources/paiements)
+Tests du module Budget : cascade de renommage (catégories/sources)
 et erreurs 404 sur les suppressions/modifications. Utilise la vraie base
 configurée dans .env : chaque test isole ses données sous un préfixe fictif
 (ZZTEST) et les supprime avant/après, pour ne jamais toucher aux données réelles.
@@ -22,7 +22,6 @@ from schemas import CategorieIn, NomIn, DepenseIn, RevenuIn
 from routes.configuration import (
     ajouter_categorie, modifier_categorie, desactiver_categorie,
     ajouter_source, modifier_source, desactiver_source,
-    ajouter_paiement, modifier_paiement, desactiver_paiement,
 )
 from routes.transactions import ajouter_depense, supprimer_depense, ajouter_revenu, supprimer_revenu
 
@@ -31,11 +30,10 @@ PREFIXE = "ZZTEST"
 
 def _nettoyer():
     with db() as c:
-        c.execute("DELETE FROM depenses WHERE categorie LIKE %s OR paiement LIKE %s", (PREFIXE + "%", PREFIXE + "%"))
+        c.execute("DELETE FROM depenses WHERE categorie LIKE %s", (PREFIXE + "%",))
         c.execute("DELETE FROM revenus WHERE source LIKE %s", (PREFIXE + "%",))
         c.execute("DELETE FROM categories WHERE nom LIKE %s", (PREFIXE + "%",))
         c.execute("DELETE FROM sources_revenus WHERE nom LIKE %s", (PREFIXE + "%",))
-        c.execute("DELETE FROM paiements WHERE nom LIKE %s", (PREFIXE + "%",))
 
 
 @pytest.fixture(autouse=True)
@@ -51,13 +49,13 @@ def _id_categorie(nom):
 
 
 # ---------------------------------------------------------------------------
-# Point 6 — renommer une catégorie/source/paiement ne doit pas détacher
+# Point 6 — renommer une catégorie/source ne doit pas détacher
 # les dépenses/revenus déjà saisis sous l'ancien nom.
 # ---------------------------------------------------------------------------
 def test_renommer_categorie_met_a_jour_les_depenses_existantes():
     ajouter_categorie(CategorieIn(nom=PREFIXE + "Cat", budget=100))
     cid = _id_categorie(PREFIXE + "Cat")
-    ajouter_depense(DepenseIn(date="2026-01-15", categorie=PREFIXE + "Cat", montant=50, description="", paiement=""))
+    ajouter_depense(DepenseIn(date="2026-01-15", categorie=PREFIXE + "Cat", montant=50, description=""))
 
     modifier_categorie(cid, CategorieIn(nom=PREFIXE + "CatRenommee", budget=100))
 
@@ -77,20 +75,6 @@ def test_renommer_source_met_a_jour_les_revenus_existants():
     with db() as c:
         row = c.execute("SELECT source FROM revenus WHERE source LIKE %s", (PREFIXE + "%",)).fetchone()
     assert row["source"] == PREFIXE + "SrcRenommee"
-
-
-def test_renommer_paiement_met_a_jour_les_depenses_existantes():
-    ajouter_categorie(CategorieIn(nom=PREFIXE + "Cat2", budget=100))
-    ajouter_paiement(NomIn(nom=PREFIXE + "Pay"))
-    with db() as c:
-        pid = c.execute("SELECT id FROM paiements WHERE nom=%s", (PREFIXE + "Pay",)).fetchone()["id"]
-    ajouter_depense(DepenseIn(date="2026-01-15", categorie=PREFIXE + "Cat2", montant=30, description="", paiement=PREFIXE + "Pay"))
-
-    modifier_paiement(pid, NomIn(nom=PREFIXE + "PayRenomme"))
-
-    with db() as c:
-        row = c.execute("SELECT paiement FROM depenses WHERE categorie=%s", (PREFIXE + "Cat2",)).fetchone()
-    assert row["paiement"] == PREFIXE + "PayRenomme"
 
 
 # ---------------------------------------------------------------------------
@@ -118,16 +102,10 @@ def test_404_sur_categorie_inexistante():
     assert exc.value.status_code == 404
 
 
-def test_404_sur_source_et_paiement_inexistants():
+def test_404_sur_source_inexistante():
     with pytest.raises(HTTPException) as exc:
         modifier_source(9_999_999, NomIn(nom="X"))
     assert exc.value.status_code == 404
     with pytest.raises(HTTPException) as exc:
         desactiver_source(9_999_999)
-    assert exc.value.status_code == 404
-    with pytest.raises(HTTPException) as exc:
-        modifier_paiement(9_999_999, NomIn(nom="X"))
-    assert exc.value.status_code == 404
-    with pytest.raises(HTTPException) as exc:
-        desactiver_paiement(9_999_999)
     assert exc.value.status_code == 404

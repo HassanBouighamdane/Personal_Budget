@@ -47,7 +47,7 @@ def resume_jour(date: str):
 
         donut = c.execute("SELECT categorie, SUM(montant) t FROM depenses WHERE date=%s "
                           "GROUP BY categorie ORDER BY t DESC", (date,)).fetchall()
-        dep = c.execute("SELECT id,categorie,description,montant,paiement FROM depenses "
+        dep = c.execute("SELECT id,categorie,description,montant FROM depenses "
                         "WHERE date=%s ORDER BY id DESC", (date,)).fetchall()
         rev = c.execute("SELECT id,source,montant FROM revenus WHERE date=%s ORDER BY id DESC",
                         (date,)).fetchall()
