@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from database import db
 
 TABLES_BOURSE = [
-    "bourse_transactions", "bourse_dividendes", "bourse_frais",
+    "bourse_transactions", "bourse_dividendes", "bourse_frais", "bourse_mouvements",
     "bourse_prix", "bourse_parametres", "bourse_titres",
 ]
 

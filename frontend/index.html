@@ -158,6 +158,7 @@
         <button id="vb-gains" onclick="changerVueBourse('gains')">Gains</button>
         <button id="vb-dividendes" onclick="changerVueBourse('dividendes')">Dividendes</button>
         <button id="vb-frais" onclick="changerVueBourse('frais')">Frais</button>
+        <button id="vb-mouvements" onclick="changerVueBourse('mouvements')">Apports / Retraits</button>
         <button id="vb-dashboard" onclick="changerVueBourse('dashboard')">Dashboard</button>
         <button id="vb-parametres" onclick="changerVueBourse('parametres')">Paramètres</button>
       </div>
@@ -290,6 +291,43 @@
       </div>
     </div>
 
+    <!-- ---------- Mouvements banque <-> compte Bourse ---------- -->
+    <div id="vue-bourse-mouvements" style="display:none">
+      <div class="grid2">
+        <div class="card">
+          <h2>🏦 Apport / Retrait</h2>
+          <label>Date</label>
+          <input type="date" id="bm-date">
+          <label>Type</label>
+          <select id="bm-type">
+            <option value="Apport">Apport — banque → compte Bourse</option>
+            <option value="Retrait">Retrait — compte Bourse → banque</option>
+          </select>
+          <label>Montant (DH)</label>
+          <input type="text" id="bm-montant" inputmode="decimal" placeholder="0,00">
+          <label>Libellé (optionnel)</label>
+          <input type="text" id="bm-libelle" placeholder="ex : Virement vers Wafabourse">
+          <button class="btn btn-rev" onclick="ajouterMouvementBourse()">Ajouter le mouvement</button>
+        </div>
+        <div class="card">
+          <h2>ℹ️ Comment ça marche</h2>
+          <p style="color:var(--muted); font-size:13px; line-height:1.6">
+            Un virement de ta banque vers le compte Bourse est un <b>apport</b> :
+            ce n'est pas une dépense, l'argent reste à toi. Ne le saisis donc
+            <b>pas</b> dans l'onglet Saisie.<br><br>
+            Les gains de vente et les dividendes que tu laisses sur le compte
+            n'ont rien à saisir ici : ils s'ajoutent automatiquement aux espèces
+            disponibles, et un réinvestissement est simplement un nouvel achat.<br><br>
+            Saisis un <b>retrait</b> seulement quand de l'argent revient vers ta banque.
+          </p>
+        </div>
+      </div>
+      <div class="card">
+        <h2>🧾 Journal des apports et retraits</h2>
+        <div id="b-liste-mouvements"></div>
+      </div>
+    </div>
+
     <!-- ---------- Dashboard ---------- -->
     <div id="vue-bourse-dashboard" style="display:none">
       <div class="mois-nav">
@@ -302,6 +340,8 @@
           <button id="bv-annee" onclick="changerVueDashBourse('annee')">Année</button>
         </div>
       </div>
+      <h2 class="mt">🏦 Compte Bourse</h2>
+      <div class="kpis" id="b-kpis-compte"></div>
       <h2 class="mt">📊 Portefeuille actuel</h2>
       <div class="kpis" id="b-kpis-actuel"></div>
       <h2 class="mt" id="b-kpis-periode-titre">💰 Résultat de la période</h2>
@@ -397,7 +437,7 @@
   <button id="b-params" onclick="montrer('params')">⚙️ Paramètres</button>
 </nav>
 
-<script src="js/app.js?v=10"></script>
-<script src="js/bourse.js?v=10"></script>
+<script src="js/app.js?v=11"></script>
+<script src="js/bourse.js?v=11"></script>
 </body>
 </html>

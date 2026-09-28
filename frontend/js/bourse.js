@@ -12,7 +12,7 @@ let vueBourse = 'transactions';
 
 function changerVueBourse(v) {
   vueBourse = v;
-  for (const x of ['transactions', 'positions', 'gains', 'dividendes', 'frais', 'dashboard', 'parametres']) {
+  for (const x of ['transactions', 'positions', 'gains', 'dividendes', 'frais', 'mouvements', 'dashboard', 'parametres']) {
     $('vb-' + x).classList.toggle('active', x === v);
     $('vue-bourse-' + x).style.display = x === v ? '' : 'none';
   }
@@ -25,6 +25,7 @@ function chargerVueBourseActive() {
   else if (vueBourse === 'gains') chargerGainsBourse();
   else if (vueBourse === 'dividendes') chargerDividendesBourse();
   else if (vueBourse === 'frais') chargerFraisBourse();
+  else if (vueBourse === 'mouvements') chargerMouvementsBourse();
   else if (vueBourse === 'dashboard') chargerDashboardBourse();
   else if (vueBourse === 'parametres') chargerParametresBourse();
 }
@@ -251,6 +252,52 @@ async function chargerFraisBourse() {
     </tr>`).join('') + '</tbody></table></div>';
 }
 
+/* ---------------- Apports / retraits (banque <-> compte Bourse) ---------------- */
+async function ajouterMouvementBourse() {
+  const montant = lireMontant('bm-montant');
+  if (isNaN(montant) || montant <= 0) return toast('Montant invalide', false);
+
+  await api('/api/bourse/mouvements', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      date_operation: $('bm-date').value, type_mouvement: $('bm-type').value,
+      montant, libelle: $('bm-libelle').value.trim(),
+    }),
+  });
+  $('bm-montant').value = ''; $('bm-libelle').value = '';
+  toast('Mouvement ajouté ✓');
+  chargerMouvementsBourse();
+}
+
+async function supprMouvementBourse(id) {
+  if (!confirm('Supprimer ce mouvement ?')) return;
+  await api(`/api/bourse/mouvements/${id}`, { method: 'DELETE' });
+  toast('Supprimé');
+  chargerMouvementsBourse();
+}
+
+async function chargerMouvementsBourse() {
+  const liste = await api('/api/bourse/mouvements');
+  if (!liste.length) {
+    $('b-liste-mouvements').innerHTML = '<div class="vide">Aucun mouvement — ajoute ton premier apport ci-dessus 👆</div>';
+    return;
+  }
+  const apports = liste.filter(m => m.type_mouvement === 'Apport').reduce((s, m) => s + m.montant, 0);
+  const retraits = liste.filter(m => m.type_mouvement === 'Retrait').reduce((s, m) => s + m.montant, 0);
+  $('b-liste-mouvements').innerHTML =
+    `<p style="color:var(--muted);font-size:13px;margin-bottom:8px">Apports : <b>${fmt(apports)}</b> · Retraits : <b>${fmt(retraits)}</b> · Net investi : <b>${fmt(apports - retraits)}</b></p>` +
+    '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch"><table><thead><tr>' +
+    '<th>Date</th><th>Type</th><th>Libellé</th><th class="num">Montant</th><th></th>' +
+    '</tr></thead><tbody>' + liste.map(m => `
+    <tr>
+      <td style="color:var(--muted);white-space:nowrap">${m.date_operation.slice(8)}/${m.date_operation.slice(5,7)}/${m.date_operation.slice(2,4)}</td>
+      <td>${m.type_mouvement}</td>
+      <td>${m.libelle || ''}</td>
+      <td class="num ${m.type_mouvement === 'Apport' ? 'rev-amt' : 'dep-amt'}">${m.type_mouvement === 'Apport' ? '+' : '−'} ${fmt(m.montant)}</td>
+      <td style="width:30px"><button class="del" onclick="supprMouvementBourse(${m.id})">✕</button></td>
+    </tr>`).join('') + '</tbody></table></div>';
+}
+
 /* ---------------- Dashboard : navigation Global / Mois / Année ---------------- */
 let vueDashBourse = 'global';   // par défaut : tout l'historique, comme au tout début
 let moisCourBourse = auj().slice(0, 7);
@@ -297,6 +344,21 @@ async function chargerDashboardBourse() {
   const cRealise = d.gains_nets_realises >= 0 ? 'var(--green)' : 'var(--red)';
   const cPeriode = d.resultat_net_periode >= 0 ? 'var(--green)' : 'var(--red)';
 
+  const cGlobale = d.performance_globale >= 0 ? 'var(--green)' : 'var(--red)';
+  const cEspeces = d.especes_disponibles >= 0 ? 'var(--text)' : 'var(--red)';
+  const noteEspeces = d.especes_disponibles < 0
+    ? 'négatif : un apport n’a sans doute pas été saisi'
+    : 'non investi, prêt à réinvestir';
+  $('b-kpis-compte').innerHTML = `
+    <div class="kpi"><div class="l">Patrimoine Bourse</div><div class="v" style="color:var(--blue)">${fmt(d.patrimoine_total)}</div>
+      <div class="h">titres + espèces disponibles</div></div>
+    <div class="kpi"><div class="l">Espèces disponibles</div><div class="v" style="color:${cEspeces}">${fmt(d.especes_disponibles)}</div>
+      <div class="h">${noteEspeces}</div></div>
+    <div class="kpi"><div class="l">Apports nets</div><div class="v">${fmt(d.apports_nets)}</div>
+      <div class="h">argent sorti de ta banque (apports − retraits)</div></div>
+    <div class="kpi"><div class="l">Performance globale</div><div class="v" style="color:${cGlobale}">${d.performance_globale >= 0 ? '+' : ''}${fmt(d.performance_globale)}</div>
+      <div class="h">${d.apports_nets > 0 ? (d.performance_globale_pct * 100).toFixed(2) + ' % des apports nets' : 'saisis tes apports pour la calculer'}</div></div>`;
+
   $('b-kpis-actuel').innerHTML = `
     <div class="kpi"><div class="l">Valeur de marché</div><div class="v" style="color:var(--blue)">${fmt(d.valeur_marche)}</div>
       <div class="h">coût d'acquisition : ${fmt(d.cout_acquisition)}</div></div>
@@ -311,7 +373,9 @@ async function chargerDashboardBourse() {
       <div class="h">déjà déduits du gain net ci-dessus — pour info</div></div>
     <div class="kpi"><div class="l">Frais de compte</div><div class="v" style="color:var(--accent)">${fmt(d.frais_compte_totaux)}</div></div>
     <div class="kpi"><div class="l">Résultat net de la période</div><div class="v" style="color:${cPeriode}">${fmt(d.resultat_net_periode)}</div>
-      <div class="h">gains nets + dividendes − frais de compte</div></div>`;
+      <div class="h">gains nets + dividendes − frais de compte</div></div>
+    <div class="kpi"><div class="l">Apports / retraits</div><div class="v">${fmt(d.apports_periode - d.retraits_periode)}</div>
+      <div class="h">apports : ${fmt(d.apports_periode)} · retraits : ${fmt(d.retraits_periode)}</div></div>`;
 }
 
 /* ---------------- Paramètres ---------------- */

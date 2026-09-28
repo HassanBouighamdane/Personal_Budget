@@ -883,6 +883,7 @@ function basculerTheme() {
   $('b-date').value = auj();
   $('bd-date').value = auj();
   $('bf-date').value = auj();
+  $('bm-date').value = auj();
   $('jour').textContent = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   try {
     await api('/api/me');    // session valide ?

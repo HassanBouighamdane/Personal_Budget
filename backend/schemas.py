@@ -132,6 +132,15 @@ class DashboardBourse(BaseModel):
     frais_transactions_totaux: float
     frais_compte_totaux: float
     resultat_net_periode: float
+    # Mouvements banque ↔ compte Bourse sur la période sélectionnée
+    apports_periode: float
+    retraits_periode: float
+    # Compte Bourse dans son ensemble — toujours calculé sur tout l'historique
+    especes_disponibles: float      # argent sur le compte, non investi en titres
+    apports_nets: float             # apports − retraits (argent réellement sorti de ta poche)
+    patrimoine_total: float         # valeur de marché des titres + espèces disponibles
+    performance_globale: float      # patrimoine − apports nets (en DH)
+    performance_globale_pct: float  # ratio, affiché en % par le frontend
 
 
 # ---------------------------------------------------------------- Dividendes
@@ -162,3 +171,20 @@ class FraisBourseOut(BaseModel):
     date_operation: date
     libelle: str
     montant: float
+
+# ---------------------------------------------------------------- Mouvements banque ↔ compte Bourse
+class MouvementBourseCreate(BaseModel):
+    """Apport (banque → compte Bourse) ou retrait (compte Bourse → banque) : un transfert,
+    ni une dépense ni un revenu du Budget."""
+    date_operation: date
+    type_mouvement: Literal["Apport", "Retrait"]
+    montant: float = Field(gt=0)
+    libelle: str = ""
+
+
+class MouvementBourseOut(BaseModel):
+    id: int
+    date_operation: date
+    type_mouvement: str
+    montant: float
+    libelle: str

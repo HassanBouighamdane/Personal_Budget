@@ -234,6 +234,18 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_bourse_frais_date ON bourse_frais (date_operation);
 
+        -- Mouvements d'argent entre la banque (Budget) et le compte Bourse :
+        -- un apport ou un retrait est un TRANSFERT, ni une dépense ni un revenu.
+        CREATE TABLE IF NOT EXISTS bourse_mouvements (
+            id                SERIAL PRIMARY KEY,
+            date_operation    DATE NOT NULL,
+            type_mouvement    VARCHAR(10) NOT NULL CHECK (type_mouvement IN ('Apport', 'Retrait')),
+            montant           NUMERIC(14,4) NOT NULL CHECK (montant > 0),
+            libelle           VARCHAR(200) NOT NULL DEFAULT '',
+            cree_le           TIMESTAMP NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_bourse_mvt_date ON bourse_mouvements (date_operation);
+
         """)
 
         # ------------------------------------------------------------------

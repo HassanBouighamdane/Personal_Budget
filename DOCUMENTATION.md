@@ -36,7 +36,8 @@ Personal_Budget/
 │   │   └── supprimer_bourse.py  Supprime toutes les tables du module Bourse (script manuel, pas un test)
 │   ├── tests/
 │   │   ├── test_bourse.py     PRU chronologique, frais, arrondi de performance, garde-fou de vente
-│   │   └── test_budget.py     Cascade de renommage (catégories/sources/paiements), erreurs 404
+│   │   ├── test_budget.py     Cascade de renommage (catégories/sources/paiements), erreurs 404
+│   │   └── test_mouvements.py Apports/retraits, espèces disponibles, performance globale
 │   └── routes/
 │       ├── auth.py            /api/login, /logout, /me, /mot_de_passe
 │       ├── configuration.py   catégories, sources de revenus, types de paiement, objectif
@@ -283,6 +284,7 @@ Index : `depenses(date)`, `revenus(date)`.
 | `bourse_titres` | `code` UNIQUE, `nom`, `secteur`, `actif` | référentiel BVC |
 | `bourse_dividendes` | `date_operation`, `titre`, `montant` (net) | |
 | `bourse_frais` | `date_operation`, `libelle`, `montant` | abonnement courtier, tenue de compte, droits de garde… |
+| `bourse_mouvements` | `date_operation`, `type_mouvement` (Apport / Retrait), `montant`, `libelle` | transferts banque ↔ compte Bourse ; ni dépense ni revenu du Budget |
 
 Le module Bourse utilise de vrais types `DATE` et `NUMERIC`. Le module Budget utilise `TEXT` pour les dates et `DOUBLE PRECISION` pour les montants.
 
@@ -317,6 +319,7 @@ Toutes les routes sauf `/api/login` et `/api/logout` exigent le cookie `session`
 | PUT | `/api/bourse/prix/{titre}` | `{cours_actuel}` | `{titre, cours_actuel}` |
 | GET / POST / DELETE | `/api/bourse/dividendes[/{id}]` | `?mois=&annee=` / `{date_operation, titre, montant}` | |
 | GET / POST / DELETE | `/api/bourse/frais[/{id}]` | `?mois=&annee=` / `{date_operation, libelle, montant}` | |
+| GET / POST / DELETE | `/api/bourse/mouvements[/{id}]` | `?mois=&annee=` / `{date_operation, type_mouvement, montant, libelle}` | `[MouvementBourseOut]` |
 | GET | `/api/bourse/positions` | — | `[PositionBourse]` |
 | GET | `/api/bourse/gains` | `?mois=&annee=` | `[GainRealise]` |
 | GET | `/api/bourse/dashboard` | `?mois=&annee=` | `DashboardBourse` |
@@ -354,7 +357,13 @@ Toutes les routes sauf `/api/login` et `/api/logout` exigent le cookie `session`
 | TPCVM | gain brut × taux (15 % par défaut), seulement si le gain est positif |
 | Gain net | gain brut − TPCVM |
 | Résultat net de la période | gains nets + dividendes − frais de compte (les frais de transaction sont déjà comptés dans `gains nets` et dans le PRU des achats — les resoustraire doublerait leur effet) |
+| **Espèces disponibles** | apports − retraits − Σ achats nets + Σ (ventes nettes − TPCVM) + dividendes − frais de compte, sur tout l'historique. La TPCVM est considérée comme retenue à la source par l'intermédiaire sur le produit de la vente. |
+| Apports nets | apports − retraits (l'argent réellement sorti de ta banque) |
+| Patrimoine Bourse | valeur de marché des titres + espèces disponibles |
+| **Performance globale** | patrimoine − apports nets ; en % : ÷ apports nets. Elle vaut aussi gains nets réalisés + plus-value latente + dividendes − frais de compte : les gains et dividendes réinvestis sont donc bien comptés, une seule fois. |
 | Validation à la vente | refusée si elle ferait passer la quantité détenue sous zéro **à un instant quelconque de l'historique** (utile pour une vente antidatée insérée après coup) |
+
+**Règle de gestion des transferts** : un virement de la banque vers le compte Bourse est un **apport** (onglet Bourse > Apports / Retraits), pas une dépense. Il ne se saisit pas dans l'onglet Saisie, sinon l'épargne du Budget baisse à tort. Un gain ou un dividende laissé sur le compte ne se saisit pas non plus comme revenu : il s'ajoute automatiquement aux espèces disponibles, et le réinvestir revient simplement à saisir un nouvel achat. Seul un retrait vers la banque se saisit, en « Retrait ».
 
 ---
 

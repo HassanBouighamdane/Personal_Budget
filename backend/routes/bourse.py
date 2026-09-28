@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Module Bourse — achats, ventes, dividendes, frais de compte, positions, gains.
+Module Bourse — achats, ventes, dividendes, frais de compte, positions, gains,
+et mouvements d'argent entre la banque et le compte Bourse (apports / retraits).
 
 Simplifié : aucun frais n'est calculé automatiquement sur les transactions ni
 sur les dividendes. L'utilisateur saisit directement le prix net (achat/vente)
@@ -37,6 +38,7 @@ from schemas import (
     ParametresBourse, TransactionBourseCreate, TransactionBourseOut,
     PrixMaj, PositionBourse, GainRealise, DashboardBourse, TitreBourse, TitreBourseIn,
     DividendeCreate, DividendeOut, FraisBourseCreate, FraisBourseOut,
+    MouvementBourseCreate, MouvementBourseOut,
 )
 
 router = APIRouter(prefix="/api/bourse", tags=["bourse"],
@@ -331,6 +333,46 @@ def supprimer_frais(frais_id: int):
             raise HTTPException(status_code=404, detail="Frais introuvable")
 
 
+# ---------------------------------------------------------------- mouvements banque <-> compte Bourse
+MVT_COLONNES = "id, date_operation, type_mouvement, montant, libelle"
+
+
+def _mouvements(mois: Optional[str] = None, annee: Optional[int] = None) -> list:
+    clause, params = _clause_periode(mois, annee)
+    with db() as conn:
+        rows = conn.execute(
+            f"SELECT {MVT_COLONNES} FROM bourse_mouvements WHERE true{clause} ORDER BY date_operation DESC, id DESC",
+            params,
+        ).fetchall()
+    return [{**dict(r), "montant": _r(r["montant"])} for r in rows]
+
+
+@router.get("/mouvements", response_model=List[MouvementBourseOut])
+def lister_mouvements(mois: Optional[str] = None, annee: Optional[int] = None):
+    _valider_periode(mois, annee)
+    return _mouvements(mois, annee)
+
+
+@router.post("/mouvements", response_model=MouvementBourseOut, status_code=201)
+def creer_mouvement(m: MouvementBourseCreate):
+    with db() as conn:
+        row = conn.execute(
+            f"""INSERT INTO bourse_mouvements (date_operation, type_mouvement, montant, libelle)
+                VALUES (%s,%s,%s,%s)
+                RETURNING {MVT_COLONNES}""",
+            (m.date_operation, m.type_mouvement, m.montant, m.libelle.strip()),
+        ).fetchone()
+    return {**dict(row), "montant": _r(row["montant"])}
+
+
+@router.delete("/mouvements/{mouvement_id}", status_code=204)
+def supprimer_mouvement(mouvement_id: int):
+    with db() as conn:
+        res = conn.execute("DELETE FROM bourse_mouvements WHERE id = %s", (mouvement_id,))
+        if res.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Mouvement introuvable")
+
+
 # ---------------------------------------------------------------- calcul positions / gains (logique commune)
 def _positions_et_gains():
     """Coût moyen pondéré (mobile) par titre + gain/perte et TPCVM par vente.
@@ -458,6 +500,30 @@ def obtenir_dashboard(mois: Optional[str] = None, annee: Optional[int] = None):
 
     resultat_periode = gains_nets + dividendes_nets - frais_compte
 
+    # ---- Compte Bourse dans son ensemble (tout l'historique, indépendant du filtre)
+    # Espèces = apports − retraits − achats + ventes − TPCVM + dividendes − frais de compte.
+    # La TPCVM est retenue à la source par l'intermédiaire sur le produit de la vente :
+    # l'argent réellement crédité sur le compte est donc montant_net − tpcvm.
+    mouvements = _mouvements()
+    apports = sum(_d(m["montant"]) for m in mouvements if m["type_mouvement"] == "Apport")
+    retraits = sum(_d(m["montant"]) for m in mouvements if m["type_mouvement"] == "Retrait")
+    tpcvm_par_vente = {g.id: _d(g.tpcvm) for g in gains}
+    achats = sum(t["_net_decimal"] for t in calc if t["type_operation"] == "Achat")
+    ventes = sum(t["_net_decimal"] - tpcvm_par_vente.get(t["id"], Decimal(0))
+                 for t in calc if t["type_operation"] == "Vente")
+    dividendes_tout = sum(_d(x["montant"]) for x in _dividendes())
+    frais_tout = sum(_d(f["montant"]) for f in _frais_compte())
+    especes = apports - retraits - achats + ventes + dividendes_tout - frais_tout
+
+    apports_nets = apports - retraits
+    patrimoine = valeur_marche + especes
+    perf_globale = patrimoine - apports_nets
+    perf_globale_pct = (perf_globale / apports_nets) if apports_nets > 0 else Decimal(0)
+
+    mvts_periode = [m for m in mouvements if _dans_periode(m["date_operation"], mois, annee)]
+    apports_periode = sum(_d(m["montant"]) for m in mvts_periode if m["type_mouvement"] == "Apport")
+    retraits_periode = sum(_d(m["montant"]) for m in mvts_periode if m["type_mouvement"] == "Retrait")
+
     return DashboardBourse(
         cout_acquisition=_r(cout_acquisition), valeur_marche=_r(valeur_marche),
         plus_value_latente=_r(plus_value_latente), performance_latente=_r4(perf),
@@ -465,4 +531,8 @@ def obtenir_dashboard(mois: Optional[str] = None, annee: Optional[int] = None):
         gains_nets_realises=_r(gains_nets), dividendes_nets=_r(dividendes_nets),
         frais_transactions_totaux=_r(frais_transactions), frais_compte_totaux=_r(frais_compte),
         resultat_net_periode=_r(resultat_periode),
+        apports_periode=_r(apports_periode), retraits_periode=_r(retraits_periode),
+        especes_disponibles=_r(especes), apports_nets=_r(apports_nets),
+        patrimoine_total=_r(patrimoine), performance_globale=_r(perf_globale),
+        performance_globale_pct=_r4(perf_globale_pct),
     )

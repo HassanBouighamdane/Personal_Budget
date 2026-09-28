@@ -19,6 +19,7 @@ Application web personnelle pour gérer et suivre son budget au quotidien, avec 
 - Positions : PRU (prix de revient unitaire), valeur de marché, plus-value latente
 - Gains réalisés, avec calcul de la TPCVM (taxe sur les plus-values de cession)
 - Dividendes nets et frais de compte (y compris les droits de garde, saisis manuellement)
+- Apports et retraits entre la banque et le compte Bourse : espèces disponibles, patrimoine total et performance globale (gains réinvestis inclus)
 - Tableau de bord global, par mois ou par année
 
 **Autres**
