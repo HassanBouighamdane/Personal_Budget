@@ -82,6 +82,10 @@ let cats = [], sources = [], paiements = [], paySel = null;
 let charts = {};
 
 const $ = id => document.getElementById(id);
+// Échappe une valeur avant de l'insérer dans du HTML (contenu ou attribut) : empêche
+// qu'une saisie comme <img onerror=...> ou un guillemet soit interprétée comme du code.
+const esc = v => String(v ?? '').replace(/[&<>"']/g, c =>
+  ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 // Affichage : jusqu'à 2 décimales (les centimes ne s'affichent que s'ils existent)
 const fmt = v => (+v).toLocaleString('fr-FR', { maximumFractionDigits: 2 }) + ' DH';
 // Lecture d'un montant saisi : accepte virgule ou point, arrondit à 2 décimales
@@ -196,14 +200,14 @@ async function chargerCats() {
   const sel = $('d-cat');
   const valCat = sel.value;
   sel.innerHTML = '<option value="" disabled selected>— Choisir une catégorie —</option>' +
-    cats.map(c => `<option value="${c.nom}">${c.nom}</option>`).join('');
+    cats.map(c => `<option value="${esc(c.nom)}">${esc(c.nom)}</option>`).join('');
   if (valCat && cats.some(c => c.nom === valCat)) sel.value = valCat;
 
   // Liste déroulante des sources de revenu + option "Autre" avec champ libre
   const selS = $('r-source');
   const valSrc = selS.value;
   selS.innerHTML = '<option value="" disabled selected>— Choisir une source —</option>' +
-    sources.map(s => `<option value="${s.nom}">${s.nom}</option>`).join('') +
+    sources.map(s => `<option value="${esc(s.nom)}">${esc(s.nom)}</option>`).join('') +
     '<option value="__autre__">Autre…</option>';
   if (valSrc && (valSrc === '__autre__' || sources.some(s => s.nom === valSrc))) selS.value = valSrc;
   basculerSourceAutre();
@@ -291,7 +295,7 @@ async function chargerTransactions() {
   }
   $('liste-trans').innerHTML = '<table><tbody>' + lignes.map(l =>
     `<tr><td style="color:var(--muted);white-space:nowrap">${l.date.slice(8)}/${l.date.slice(5, 7)}</td>
-     <td>${l.lbl}</td><td class="num ${l.cls}">${l.sg} ${fmt(l.montant)}</td>
+     <td>${esc(l.lbl)}</td><td class="num ${l.cls}">${l.sg} ${fmt(l.montant)}</td>
      <td style="width:30px"><button class="del" onclick="suppr('${l.type}',${l.id})">✕</button></td></tr>`
   ).join('') + '</tbody></table>';
 }
@@ -395,7 +399,7 @@ async function chargerDash() {
 
   $('bars').innerHTML = r.budget_vs_reel.map(b => {
     const c = b.pct <= 80 ? 'var(--green)' : (b.pct <= 100 ? '#e8b93c' : 'var(--red)');
-    return `<div class="bar-row"><div class="bar-head"><span>${b.cat}</span>
+    return `<div class="bar-row"><div class="bar-head"><span>${esc(b.cat)}</span>
       <span>${fmt(b.reel)} / ${fmt(b.budget)} · ${b.pct}%</span></div>
       <div class="bar-bg"><div class="bar-fill" style="width:${Math.min(b.pct, 100)}%;background:${c}"></div></div></div>`;
   }).join('') || '<div class="vide">Aucune donnée</div>';
@@ -444,8 +448,8 @@ async function chargerDash() {
 
   $('top').innerHTML = r.top.length
     ? '<table><thead><tr><th>Date</th><th>Catégorie</th><th>Description</th><th style="text-align:right">Montant</th></tr></thead><tbody>' +
-      r.top.map(t => `<tr><td>${t.date.slice(8)}/${t.date.slice(5, 7)}</td><td>${t.categorie}</td>
-        <td>${t.description || ''}</td><td class="num dep-amt">${fmt(t.montant)}</td></tr>`).join('') +
+      r.top.map(t => `<tr><td>${t.date.slice(8)}/${t.date.slice(5, 7)}</td><td>${esc(t.categorie)}</td>
+        <td>${esc(t.description)}</td><td class="num dep-amt">${fmt(t.montant)}</td></tr>`).join('') +
       '</tbody></table>'
     : '<div class="vide">Aucune dépense ce mois</div>';
 }
@@ -490,7 +494,7 @@ async function chargerDashJour() {
   ];
   $('j-trans').innerHTML = lignes.length
     ? '<table><tbody>' + lignes.map(l =>
-        `<tr><td>${l.lbl}</td><td style="color:var(--muted);font-size:11px">${l.extra}</td>
+        `<tr><td>${esc(l.lbl)}</td><td style="color:var(--muted);font-size:11px">${esc(l.extra)}</td>
          <td class="num ${l.cls}">${l.sg} ${fmt(l.m)}</td></tr>`).join('') + '</tbody></table>'
     : '<div class="vide">Aucune transaction ce jour</div>';
 }
@@ -543,7 +547,7 @@ async function chargerDashSemaine() {
   $('s-top').innerHTML = r.top.length
     ? '<table><tbody>' + r.top.map(t =>
         `<tr><td style="color:var(--muted);white-space:nowrap">${t.date.slice(8)}/${t.date.slice(5, 7)}</td>
-         <td>${t.categorie}${t.description ? ' — ' + t.description : ''}</td>
+         <td>${esc(t.categorie)}${t.description ? ' — ' + esc(t.description) : ''}</td>
          <td class="num dep-amt">${fmt(t.montant)}</td></tr>`).join('') + '</tbody></table>'
     : '<div class="vide">Aucune dépense cette semaine</div>';
 }
@@ -737,8 +741,8 @@ async function chargerDashGlobal() {
 
   $('g-top').innerHTML = r.top.length
     ? '<table><thead><tr><th>Date</th><th>Catégorie</th><th>Description</th><th style="text-align:right">Montant</th></tr></thead><tbody>' +
-      r.top.map(t => `<tr><td style="white-space:nowrap">${t.date.slice(8)}/${t.date.slice(5, 7)}/${t.date.slice(2, 4)}</td><td>${t.categorie}</td>
-        <td>${t.description || ''}</td><td class="num dep-amt">${fmt(t.montant)}</td></tr>`).join('') +
+      r.top.map(t => `<tr><td style="white-space:nowrap">${t.date.slice(8)}/${t.date.slice(5, 7)}/${t.date.slice(2, 4)}</td><td>${esc(t.categorie)}</td>
+        <td>${esc(t.description)}</td><td class="num dep-amt">${fmt(t.montant)}</td></tr>`).join('') +
       '</tbody></table>'
     : '<div class="vide">Aucune dépense enregistrée</div>';
 }
@@ -748,7 +752,7 @@ async function chargerParams() {
   await chargerCats();
   $('p-cats').innerHTML = cats.map(c => `
     <div class="cat-row">
-      <input type="text" value="${c.nom}" id="pc-nom-${c.id}">
+      <input type="text" value="${esc(c.nom)}" id="pc-nom-${c.id}">
       <input type="number" value="${c.budget}" min="0" id="pc-bud-${c.id}">
       <button class="btn-sm" onclick="sauverCat(${c.id})">💾</button>
       <button class="btn-sm" onclick="supprCat(${c.id})" style="color:var(--red)">✕</button>
@@ -756,14 +760,14 @@ async function chargerParams() {
 
   $('p-sources').innerHTML = sources.map(s => `
     <div class="cat-row">
-      <input type="text" value="${s.nom}" id="ps-nom-${s.id}">
+      <input type="text" value="${esc(s.nom)}" id="ps-nom-${s.id}">
       <button class="btn-sm" onclick="sauverSource(${s.id})">💾</button>
       <button class="btn-sm" onclick="supprSource(${s.id})" style="color:var(--red)">✕</button>
     </div>`).join('') || '<div class="vide">Aucune source configurée</div>';
 
   $('p-paies').innerHTML = paiements.map(p => `
     <div class="cat-row">
-      <input type="text" value="${p.nom}" id="pp-nom-${p.id}">
+      <input type="text" value="${esc(p.nom)}" id="pp-nom-${p.id}">
       <button class="btn-sm" onclick="sauverPaiement(${p.id})">💾</button>
       <button class="btn-sm" onclick="supprPaiement(${p.id})" style="color:var(--red)">✕</button>
     </div>`).join('') || '<div class="vide">Aucun type configuré</div>';

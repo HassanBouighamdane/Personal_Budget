@@ -27,6 +27,16 @@ ADMIN_UTILISATEUR = os.environ.get("ADMIN_UTILISATEUR")
 ADMIN_MOT_DE_PASSE = os.environ.get("ADMIN_MOT_DE_PASSE")
 DUREE_SESSION_JOURS = 1
 
+# Origines autorisées à appeler l'API depuis un AUTRE domaine (séparées par des virgules).
+# Vide par défaut : le frontend est servi par ce même serveur, aucune autorisation n'est
+# nécessaire. À renseigner seulement si le frontend est un jour hébergé ailleurs.
+CORS_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
+
+# Anti force brute sur /api/login : après LOGIN_MAX_ECHECS échecs pour un même nom
+# d'utilisateur en LOGIN_FENETRE_MIN minutes, les tentatives sont bloquées pendant cette durée.
+LOGIN_MAX_ECHECS = 10
+LOGIN_FENETRE_MIN = 15
+
 CATEGORIES_DEFAUT = [
     ("Alimentation & Courses", 1500), ("Restaurants & Cafés", 200),
     ("Transport & Carburant", 400), ("Loyer", 300),

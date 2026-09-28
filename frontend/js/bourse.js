@@ -81,7 +81,7 @@ async function chargerTransactionsBourse() {
     '</tr></thead><tbody>' + liste.map(t => `
     <tr>
       <td style="color:var(--muted);white-space:nowrap">${t.date_operation.slice(8)}/${t.date_operation.slice(5,7)}</td>
-      <td>${t.titre}</td>
+      <td>${esc(t.titre)}</td>
       <td style="color:var(--muted);font-size:11px">${t.type_instrument}</td>
       <td style="color:${t.type_operation === 'Achat' ? 'var(--blue)' : 'var(--accent)'}">${t.type_operation}</td>
       <td class="num">${t.quantite}</td>
@@ -138,12 +138,12 @@ async function chargerPositionsBourse() {
     '<th class="num">Valeur marché</th><th class="num">+/- value latente</th><th class="num">Perf.</th>' +
     '</tr></thead><tbody>' + liste.map(p => `
     <tr>
-      <td>${p.titre}</td>
-      <td style="color:var(--muted);font-size:11px">${p.secteur}</td>
+      <td>${esc(p.titre)}</td>
+      <td style="color:var(--muted);font-size:11px">${esc(p.secteur)}</td>
       <td class="num">${p.quantite_detenue}</td>
       <td class="num">${fmt(p.pru)}</td>
       <td class="num"><input type="text" inputmode="decimal" value="${p.cours_actuel || ''}"
-             style="width:80px;text-align:right" onchange="majCoursBourse('${p.titre}', this.value)"></td>
+             style="width:80px;text-align:right" onchange="majCoursBourse(${esc(JSON.stringify(p.titre))}, this.value)"></td>
       <td class="num">${fmt(p.valeur_marche)}</td>
       <td class="num" style="color:${p.plus_value_latente >= 0 ? 'var(--green)' : 'var(--red)'}">${fmt(p.plus_value_latente)}</td>
       <td class="num" style="color:${p.performance_latente >= 0 ? 'var(--green)' : 'var(--red)'}">${(p.performance_latente*100).toFixed(2)} %</td>
@@ -163,7 +163,7 @@ async function chargerGainsBourse() {
     '</tr></thead><tbody>' + liste.map(g => `
     <tr>
       <td style="color:var(--muted);white-space:nowrap">${g.date_operation.slice(8)}/${g.date_operation.slice(5,7)}</td>
-      <td>${g.titre}</td>
+      <td>${esc(g.titre)}</td>
       <td style="color:var(--muted);font-size:11px">${g.type_instrument}</td>
       <td class="num">${g.quantite}</td>
       <td class="num">${fmt(g.gain_brut)}</td>
@@ -207,7 +207,7 @@ async function chargerDividendesBourse() {
     '</tr></thead><tbody>' + liste.map(d => `
     <tr>
       <td style="color:var(--muted);white-space:nowrap">${d.date_operation.slice(8)}/${d.date_operation.slice(5,7)}</td>
-      <td>${d.titre}</td>
+      <td>${esc(d.titre)}</td>
       <td class="num rev-amt">${fmt(d.montant)}</td>
       <td style="width:30px"><button class="del" onclick="supprDividendeBourse(${d.id})">✕</button></td>
     </tr>`).join('') + '</tbody></table></div>';
@@ -246,7 +246,7 @@ async function chargerFraisBourse() {
     '</tr></thead><tbody>' + liste.map(f => `
     <tr>
       <td style="color:var(--muted);white-space:nowrap">${f.date_operation.slice(8)}/${f.date_operation.slice(5,7)}</td>
-      <td>${f.libelle || ''}</td>
+      <td>${esc(f.libelle)}</td>
       <td class="num dep-amt">${fmt(f.montant)}</td>
       <td style="width:30px"><button class="del" onclick="supprFraisBourse(${f.id})">✕</button></td>
     </tr>`).join('') + '</tbody></table></div>';
@@ -292,7 +292,7 @@ async function chargerMouvementsBourse() {
     <tr>
       <td style="color:var(--muted);white-space:nowrap">${m.date_operation.slice(8)}/${m.date_operation.slice(5,7)}/${m.date_operation.slice(2,4)}</td>
       <td>${m.type_mouvement}</td>
-      <td>${m.libelle || ''}</td>
+      <td>${esc(m.libelle)}</td>
       <td class="num ${m.type_mouvement === 'Apport' ? 'rev-amt' : 'dep-amt'}">${m.type_mouvement === 'Apport' ? '+' : '−'} ${fmt(m.montant)}</td>
       <td style="width:30px"><button class="del" onclick="supprMouvementBourse(${m.id})">✕</button></td>
     </tr>`).join('') + '</tbody></table></div>';
@@ -401,7 +401,7 @@ async function sauverParametresBourse() {
 /* ---------------- Référentiel des titres (Bourse de Casablanca) ---------------- */
 async function chargerTitresBourse() {
   const liste = await api('/api/bourse/titres');
-  $('b-titres-liste').innerHTML = liste.map(t => `<option value="${t.code}">${t.code} — ${t.nom}</option>`).join('');
+  $('b-titres-liste').innerHTML = liste.map(t => `<option value="${esc(t.code)}">${esc(t.code)} — ${esc(t.nom)}</option>`).join('');
 }
 
 /* ---- Gestion des titres (Paramètres > Bourse) ---- */
@@ -409,9 +409,9 @@ async function chargerTitresManagement() {
   const liste = await api('/api/bourse/titres');
   $('p-titres').innerHTML = liste.map(t => `
     <div class="cat-row">
-      <input type="text" value="${t.code}" id="pt-code-${t.id}" style="flex:1">
-      <input type="text" value="${t.nom}" id="pt-nom-${t.id}" style="flex:2">
-      <input type="text" value="${t.secteur}" id="pt-secteur-${t.id}" style="flex:1">
+      <input type="text" value="${esc(t.code)}" id="pt-code-${t.id}" style="flex:1">
+      <input type="text" value="${esc(t.nom)}" id="pt-nom-${t.id}" style="flex:2">
+      <input type="text" value="${esc(t.secteur)}" id="pt-secteur-${t.id}" style="flex:1">
       <button class="btn-sm" onclick="sauverTitreBourse(${t.id})">💾</button>
       <button class="btn-sm" onclick="supprTitreBourse(${t.id})" style="color:var(--red)">✕</button>
     </div>`).join('') || '<div class="vide">Aucun titre configuré</div>';

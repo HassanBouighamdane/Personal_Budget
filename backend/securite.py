@@ -2,12 +2,13 @@
 """Sécurité : hachage des mots de passe (PBKDF2) et sessions (cookie HttpOnly)."""
 import hashlib
 import secrets
+import threading
 from datetime import datetime, timedelta
 
 from fastapi import HTTPException, Cookie
 
 from database import db
-from config import DUREE_SESSION_JOURS
+from config import DUREE_SESSION_JOURS, LOGIN_MAX_ECHECS, LOGIN_FENETRE_MIN
 
 def hacher_mdp(mdp: str) -> str:
     """Hache un mot de passe : PBKDF2-SHA256, 200 000 itérations, sel aléatoire."""
@@ -47,3 +48,44 @@ def utilisateur_courant(session: str | None = Cookie(default=None)) -> dict:
     if not row:
         raise HTTPException(401, "Session expirée")
     return row
+
+# ------------------------------------------------------------------ anti force brute
+class LimiteurEchecs:
+    """Compte les échecs de mot de passe par clé (ex : nom d'utilisateur) et bloque la clé
+    après `max_echecs` échecs dans une fenêtre glissante de `fenetre_min` minutes.
+
+    En mémoire : remis à zéro au redémarrage, et propre à chaque processus si le serveur
+    en lance plusieurs. C'est suffisant pour rendre une attaque par force brute inutile
+    (quelques dizaines d'essais par heure au lieu de milliers), sans table en base."""
+
+    def __init__(self, max_echecs: int, fenetre_min: int):
+        self.max_echecs = max_echecs
+        self.fenetre = timedelta(minutes=fenetre_min)
+        self._echecs: dict[str, list[datetime]] = {}
+        self._verrou = threading.Lock()   # les routes synchrones tournent dans plusieurs threads
+
+    def _recents(self, cle: str, maintenant: datetime) -> list:
+        return [t for t in self._echecs.get(cle, []) if maintenant - t < self.fenetre]
+
+    def verifier(self, cle: str):
+        """Lève une 429 si la clé est bloquée."""
+        maintenant = datetime.now()
+        with self._verrou:
+            recents = self._recents(cle, maintenant)
+            if len(recents) >= self.max_echecs:
+                reste = int((recents[0] + self.fenetre - maintenant).total_seconds() // 60) + 1
+                raise HTTPException(429, f"Trop de tentatives échouées. Réessaie dans {reste} min.")
+
+    def echec(self, cle: str):
+        maintenant = datetime.now()
+        with self._verrou:
+            self._echecs[cle] = self._recents(cle, maintenant) + [maintenant]
+            if len(self._echecs) > 10_000:   # garde-fou mémoire : oublie les clés inactives
+                self._echecs = {k: v for k, v in self._echecs.items() if self._recents(k, maintenant)}
+
+    def reussite(self, cle: str):
+        with self._verrou:
+            self._echecs.pop(cle, None)
+
+
+limiteur_login = LimiteurEchecs(LOGIN_MAX_ECHECS, LOGIN_FENETRE_MIN)

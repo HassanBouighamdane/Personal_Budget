@@ -27,7 +27,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from config import FRONT_DIR, DATABASE_URL, PORT
+from config import FRONT_DIR, DATABASE_URL, PORT, CORS_ORIGINS
 from database import init_db, _pool
 from routes import auth, configuration, transactions, rapports, bourse
 
@@ -35,12 +35,16 @@ init_db()
 
 app = FastAPI(title="Mon Budget — API", version="2.2")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],   # frontend servi par ce même serveur ; restreindre si hébergé ailleurs
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS fermé par défaut : le frontend est servi par ce même serveur (même origine), il n'en
+# a pas besoin. N'ouvre l'API qu'aux origines listées explicitement dans CORS_ORIGINS.
+if CORS_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=CORS_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 app.include_router(auth.router)
 app.include_router(configuration.router)

@@ -94,6 +94,7 @@ ADMIN_UTILISATEUR=hassan
 ADMIN_MOT_DE_PASSE=un_mot_de_passe_solide
 PORT=8500               # optionnel, 8500 par défaut (Render fournit PORT automatiquement)
 COOKIE_SECURE=false     # true en production derrière HTTPS
+CORS_ORIGINS=           # optionnel, vide par défaut : seulement si le frontend est hébergé sur un autre domaine
 ```
 
 `ADMIN_UTILISATEUR` et `ADMIN_MOT_DE_PASSE` ne servent qu'au **premier démarrage**, pour créer le compte quand la table `utilisateurs` est vide.
@@ -173,8 +174,8 @@ Ces modèles valident automatiquement les données. Si la validation échoue, Fa
 |---|---|---|
 | `LoginIn` | connexion | — |
 | `MdpIn` | changement de mot de passe | `nouveau` ≥ 6 caractères |
-| `DepenseIn` | nouvelle dépense | `montant > 0` ; `date` est une simple `str`, sans validation de format |
-| `RevenuIn` | nouveau revenu | `montant > 0` |
+| `DepenseIn` | nouvelle dépense | `montant > 0` ; `date` au format `AAAA-MM-JJ` (type `DateISO`, stocké en texte) |
+| `RevenuIn` | nouveau revenu | `montant > 0` ; `date` au format `AAAA-MM-JJ` (`DateISO`) |
 | `CategorieIn` | catégorie | `nom` non vide, `budget ≥ 0` |
 | `ObjectifIn`, `NomIn` | objectif, source, paiement | — |
 | `ParametresBourse` | paramètres Bourse | taux compris entre 0 et 1 |
@@ -186,7 +187,7 @@ Ces modèles valident automatiquement les données. Si la validation échoue, Fa
 
 1. Ajoute `backend/` au `sys.path`, pour que `python backend/app.py` fonctionne depuis n'importe quel dossier.
 2. Appelle `init_db()`.
-3. Crée l'application FastAPI et active CORS pour toutes les origines (`*`).
+3. Crée l'application FastAPI. CORS n'est activé que si `CORS_ORIGINS` est renseigné, et seulement pour ces origines.
 4. Branche les 5 routeurs.
 5. Monte `frontend/` sur `/` **après** les routes API, pour que `/api/...` reste prioritaire. Avec `html=True`, `/` sert `index.html`.
 6. Si le fichier est lancé directement, démarre `uvicorn` sur `0.0.0.0:PORT`.
@@ -469,21 +470,23 @@ Les champs `b-date`, `bd-date` et `bf-date` n'étaient pas initialisés dans `in
 Si `ADMIN_UTILISATEUR` ou `ADMIN_MOT_DE_PASSE` manquait, `init_db()` échouait avec une erreur peu claire (`NOT NULL` violée, ou `None.encode()`). Si `DATABASE_URL` manquait, `psycopg` échouait avant même le `print` de app.py.
 *Correction appliquée* : `config.py` lève un `RuntimeError` explicite si `DATABASE_URL` manque ; `init_db()` fait de même pour `ADMIN_UTILISATEUR`/`ADMIN_MOT_DE_PASSE`, mais seulement au moment où ils sont réellement nécessaires (premier démarrage, table `utilisateurs` vide) pour ne pas gêner un redémarrage normal.
 
-### 🟡 Sécurité
+### 🟡 Sécurité — ✅ corrigées le 29/09/2026
 
-**9. Risque de XSS : des données saisies sont injectées via `innerHTML` sans échappement**
-Descriptions, noms de catégories et de sources, titres et libellés de frais sont concernés. Par exemple, une description `<img src=x onerror=alert(1)>` s'exécute. Dans l'onglet Paramètres, un nom contenant `"` casse l'attribut `value="${c.nom}"`. L'application n'a qu'un utilisateur, donc le risque est faible, mais le code est fragile.
-*Correction* : ajouter une fonction `esc()` (qui remplace `& < > " '`) et l'appliquer à chaque valeur insérée.
+Corrections choisies pour n'avoir **aucun effet sur les données existantes** : rien ne change dans la base, ni dans le format des dates stockées.
 
-**10. Aucune limite de tentatives de connexion**
-Le mot de passe peut être attaqué par force brute. PBKDF2 à 200 000 itérations ralentit chaque essai, mais n'empêche pas l'attaque.
+**9. ~~Risque de XSS : des données saisies étaient injectées via `innerHTML` sans échappement~~**
+Une description `<img src=x onerror=alert(1)>` s'exécutait, et un nom contenant `"` cassait l'attribut `value="${c.nom}"` dans Paramètres.
+*Correction appliquée* : fonction `esc()` dans [app.js](frontend/js/app.js), qui remplace `& < > " '`. Elle est appliquée à chaque donnée saisie insérée dans le HTML (catégories, sources, paiements, descriptions, titres, secteurs, libellés), dans app.js et bourse.js. Pour le titre passé à `majCoursBourse(...)` dans un attribut `onchange`, la valeur passe par `JSON.stringify` puis `esc()`, ce qui donne une chaîne JavaScript valide quel que soit son contenu.
 
-**11. Validation des dates incomplète dans le module Budget**
-`DepenseIn.date` et `RevenuIn.date` sont des `str` libres. Une date mal formée serait enregistrée et fausserait les filtres `LIKE`.
-*Correction* : typer ces champs en `datetime.date`.
+**10. ~~Aucune limite de tentatives de connexion~~**
+*Correction appliquée* : classe `LimiteurEchecs` dans [securite.py](backend/securite.py). Après **10 échecs en 15 minutes** pour un même nom d'utilisateur (casse et espaces ignorés), `/api/login` répond **429** pendant 15 minutes, même avec le bon mot de passe. Une connexion réussie remet le compteur à zéro. Le même mécanisme protège `/api/mot_de_passe` (vérification du mot de passe actuel). Les seuils sont réglables dans [config.py](backend/config.py) (`LOGIN_MAX_ECHECS`, `LOGIN_FENETRE_MIN`).
+Limites assumées : le compteur est en mémoire, remis à zéro au redémarrage et propre à chaque processus. Un attaquant qui connaît ton nom d'utilisateur peut bloquer ta connexion pendant 15 minutes : c'est le prix d'un blocage par nom plutôt que par adresse IP, peu fiable derrière le proxy de l'hébergeur.
 
-**12. CORS ouvert à toutes les origines (`allow_origins=["*"]`)**
-C'est sans conséquence tant que `allow_credentials` n'est pas activé et que le frontend est servi par le même serveur, mais ce réglage est à restreindre si le frontend est un jour hébergé ailleurs.
+**11. ~~Validation des dates incomplète dans le module Budget~~**
+*Correction appliquée* : `DepenseIn.date` et `RevenuIn.date` utilisent le type `DateISO` de [schemas.py](backend/schemas.py). Il exige une vraie date au format `AAAA-MM-JJ` (refuse `18/09/2026`, `2026-02-30`, `2026-9-1`…), mais **reste une chaîne** : le stockage en texte, dont dépendent les filtres `LIKE` du Budget, est inchangé.
+
+**12. ~~CORS ouvert à toutes les origines (`allow_origins=["*"]`)~~**
+*Correction appliquée* : CORS est désactivé par défaut. Le frontend est servi par le même serveur, il n'en a pas besoin. Pour héberger un jour le frontend ailleurs, renseigne la variable d'environnement `CORS_ORIGINS` (origines séparées par des virgules, ex : `https://mon-front.example`).
 
 ### 🔵 Qualité et performance
 
@@ -506,5 +509,5 @@ C'est sans conséquence tant que `allow_credentials` n'est pas activé et que le
 1. ~~Corriger les calculs Bourse (points 1 à 4), qui faussaient directement les chiffres affichés, et les couvrir par des tests.~~ ✅ fait le 26/09/2026.
 2. ~~Préremplir les dates Bourse et améliorer l'affichage des erreurs 422 (point 5) ; gérer le renommage des catégories (point 6) ; 404 sur le module Budget (point 7) ; erreurs de démarrage explicites (point 8).~~ ✅ fait le 26/09/2026.
 3. ~~Pool de connexions (13), filtres SQL (14), colonnes mortes (16), script de suppression (17), lanceur Windows (20).~~ ✅ fait le 26/09/2026.
-4. Restant : échapper le HTML (point 9, sécurité), limiter les tentatives de connexion (10), valider les dates du Budget en `datetime.date` (11), restreindre CORS si le frontend est un jour hébergé ailleurs (12).
+4. ~~Sécurité : échapper le HTML (9), limiter les tentatives de connexion (10), valider les dates du Budget (11), fermer CORS (12).~~ ✅ fait le 29/09/2026.
 5. Types de colonnes du Budget (15) : à ne reprendre qu'avec une suite de tests complète sur `rapports.py` au préalable — voir la justification du point 15.

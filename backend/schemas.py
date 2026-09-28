@@ -1,9 +1,26 @@
 # -*- coding: utf-8 -*-
 """Modèles Pydantic : validation des entrées de l'API."""
 
-from datetime import date
-from typing import Literal, Optional
-from pydantic import BaseModel, Field
+from datetime import date, datetime
+from typing import Annotated, Literal, Optional
+from pydantic import AfterValidator, BaseModel, Field
+
+
+def _valider_date_iso(v: str) -> str:
+    """Exige une vraie date au format AAAA-MM-JJ (ex : refuse 2026-02-30 ou 18/09/2026).
+    La valeur reste une chaîne, stockée telle quelle : les requêtes du Budget filtrent
+    les dates en texte (`date LIKE '2026-09-%'`, `substr(date,1,7)`)."""
+    try:
+        if datetime.strptime(v, "%Y-%m-%d").strftime("%Y-%m-%d") != v:
+            raise ValueError
+    except ValueError:
+        raise ValueError("Date attendue au format AAAA-MM-JJ")
+    return v
+
+
+# Date du module Budget : chaîne validée (et non `date`, pour garder un stockage texte identique)
+DateISO = Annotated[str, AfterValidator(_valider_date_iso)]
+
 
 class LoginIn(BaseModel):
     utilisateur: str
@@ -14,14 +31,14 @@ class MdpIn(BaseModel):
     nouveau: str = Field(min_length=6)
 
 class DepenseIn(BaseModel):
-    date: str
+    date: DateISO
     categorie: str
     description: str = ""
     montant: float = Field(gt=0)
     paiement: str = ""
 
 class RevenuIn(BaseModel):
-    date: str
+    date: DateISO
     source: str = ""
     montant: float = Field(gt=0)
 
