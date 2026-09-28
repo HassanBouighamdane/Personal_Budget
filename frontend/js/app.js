@@ -112,7 +112,14 @@ function toast(msg, ok = true) {
 }
 
 async function api(path, opts) {
-  const r = await fetch(API_URL + path, opts);
+  let r;
+  try {
+    r = await fetch(API_URL + path, opts);
+  } catch (e) {
+    // Pas de réponse du tout (réseau coupé, DNS…) : message clair au lieu d'une erreur muette
+    toast('Connexion impossible — vérifie ta connexion internet', false);
+    throw e;
+  }
   if (r.status === 401) {
     afficherLogin(true);
     throw new Error('Non authentifié');

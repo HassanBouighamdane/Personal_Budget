@@ -14,6 +14,12 @@ from config import (DATABASE_URL, CATEGORIES_DEFAUT, SOURCES_DEFAUT,
 _pool = ConnectionPool(
     conninfo=DATABASE_URL, min_size=1, max_size=10,
     kwargs={"row_factory": dict_row}, open=True,
+    # L'hébergeur de la base coupe les connexions restées inactives : sans vérification,
+    # le pool prêterait une connexion morte et la requête échouerait en 500. `check`
+    # teste chaque connexion avant de la prêter et la remplace si elle est cassée.
+    check=ConnectionPool.check_connection,
+    # Ferme d'elle-même une connexion inactive depuis 5 min, avant que le serveur ne la coupe.
+    max_idle=300,
 )
 
 # Sociétés cotées à la Bourse de Casablanca (BVC) — (code, nom, secteur)

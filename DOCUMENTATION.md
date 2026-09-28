@@ -2,7 +2,7 @@
 
 Application web personnelle pour suivre son budget (dépenses, revenus, épargne) et un portefeuille boursier à la Bourse de Casablanca. Toutes les valeurs sont en dirhams (DH).
 
-- **Backend** : Python, FastAPI, PostgreSQL (driver `psycopg` v3)
+- **Backend** : Python, FastAPI, PostgreSQL (driver `psycopg` v3, pool `psycopg_pool`)
 - **Frontend** : HTML/CSS/JavaScript vanilla, sans framework ni build, avec Chart.js pour les graphiques
 - **Déploiement** : un seul serveur. FastAPI sert à la fois l'API (`/api/...`) et les fichiers statiques du frontend (`/`).
 
@@ -17,7 +17,7 @@ Application web personnelle pour suivre son budget (dépenses, revenus, épargne
 5. [Référence de l'API](#5-référence-de-lapi)
 6. [Calculs métier](#6-calculs-métier)
 7. [Frontend](#7-frontend)
-8. [Problèmes détectés et recommandations](#8-problèmes-détectés-et-recommandations)
+8. [Points restants](#8-points-restants)
 
 ---
 
@@ -27,27 +27,27 @@ Application web personnelle pour suivre son budget (dépenses, revenus, épargne
 Personal_Budget/
 ├── backend/
 │   ├── app.py              Point d'entrée : crée l'app FastAPI, branche les routes, sert le frontend
-│   ├── config.py           Variables d'environnement (.env) et valeurs par défaut
-│   ├── database.py         Connexion PostgreSQL + création/migration du schéma
-│   ├── securite.py         Hachage des mots de passe + sessions par cookie
+│   ├── config.py           Variables d'environnement (.env) et constantes
+│   ├── database.py         Pool de connexions PostgreSQL + création du schéma
+│   ├── securite.py         Mots de passe, sessions, limitation des tentatives de connexion
 │   ├── schemas.py          Modèles Pydantic (validation des entrées et des sorties)
 │   ├── requirements.txt
 │   ├── scripts/
-│   │   └── supprimer_bourse.py  Supprime toutes les tables du module Bourse (script manuel, pas un test)
+│   │   └── supprimer_bourse.py   Supprime toutes les tables du module Bourse (script manuel)
 │   ├── tests/
-│   │   ├── test_bourse.py     PRU chronologique, frais, arrondi de performance, garde-fou de vente
-│   │   ├── test_budget.py     Cascade de renommage (catégories/sources), erreurs 404
-│   │   └── test_mouvements.py Apports/retraits, espèces disponibles, performance globale
+│   │   ├── test_bourse.py        PRU, frais, arrondis, contrôle des ventes
+│   │   ├── test_budget.py        Renommage en cascade, erreurs 404
+│   │   └── test_mouvements.py    Apports/retraits, espèces disponibles, performance globale
 │   └── routes/
-│       ├── auth.py            /api/login, /logout, /me, /mot_de_passe
-│       ├── configuration.py   catégories, sources de revenus, objectif
-│       ├── transactions.py    dépenses et revenus
-│       ├── rapports.py        résumés jour / semaine / mois / année
-│       └── bourse.py          module Bourse (transactions, positions, gains, dividendes, frais)
+│       ├── auth.py               /api/login, /logout, /me, /mot_de_passe
+│       ├── configuration.py      catégories, sources de revenus, objectif d'épargne
+│       ├── transactions.py       dépenses et revenus
+│       ├── rapports.py           résumés jour / semaine / mois / année / global
+│       └── bourse.py             module Bourse
 ├── frontend/
-│   ├── index.html          Page unique (SPA) : tous les onglets y sont, masqués/affichés en JS
+│   ├── index.html          Page unique : tous les onglets y sont, masqués/affichés en JS
 │   ├── css/style.css       Thèmes sombre/clair via variables CSS, responsive
-│   ├── js/app.js           Logique principale : auth, saisie, dashboards, paramètres
+│   ├── js/app.js           Auth, saisie, dashboards, paramètres, utilitaires communs
 │   ├── js/bourse.js        Onglet Bourse
 │   ├── js/chart.umd.min.js Chart.js embarqué (pas de CDN)
 │   └── assets/             Favicons
@@ -67,15 +67,16 @@ FastAPI (app.py)
    ▼
 Fonction de route → with db() as c: requêtes SQL → commit automatique
    ▼
-Réponse JSON  → le JS génère le HTML (innerHTML) et les graphiques Chart.js
+Réponse JSON  → le JS génère le HTML (échappé par esc()) et les graphiques Chart.js
 ```
 
 ### Choix de conception
 
-- **Pas d'ORM** : le code écrit ses requêtes SQL à la main, toujours paramétrées avec `%s`, donc protégées contre l'injection SQL.
-- **Pool de connexions** : `db()` tire une connexion d'un `psycopg_pool.ConnectionPool` partagé (1 à 10 connexions), la valide (commit) puis la remet dans le pool — en cas d'exception, le pool fait un rollback avant réutilisation. Avant, chaque `with db()` ouvrait une connexion TCP dédiée ; un seul appel au dashboard Bourse en ouvrait 3 à 4.
-- **Suppression douce** : les catégories et sources ne sont jamais supprimées. On met `actif=0`, et l'historique reste intact. Les renommer met aussi à jour les dépenses/revenus déjà saisis sous l'ancien nom (`categorie`/`source` stockés par nom, pas par id).
-- **Migrations « additives »** : il n'y a ni Alembic ni outil équivalent. `init_db()` s'exécute à chaque démarrage et utilise `CREATE TABLE IF NOT EXISTS` / `ADD COLUMN IF NOT EXISTS` — et, depuis le nettoyage du 26/09/2026, `DROP COLUMN IF EXISTS` pour les colonnes définitivement mortes (toutes ces opérations sont idempotentes, sans risque à rejouer à chaque démarrage).
+- **Pas d'ORM** : les requêtes SQL sont écrites à la main, toujours paramétrées avec `%s`, donc protégées contre l'injection SQL.
+- **Pool de connexions** : `db()` emprunte une connexion à un pool partagé (1 à 10 connexions), la valide (commit) puis la rend. En cas d'exception, le pool annule la transaction (rollback) avant de réutiliser la connexion. Chaque connexion est testée avant d'être prêtée et remplacée si l'hébergeur l'a coupée ; une connexion inactive depuis 5 minutes est fermée.
+- **Suppression douce** : les catégories, sources et titres ne sont jamais supprimés. On met `actif=0`, et l'historique reste intact.
+- **Noms stockés en texte** : une dépense référence sa catégorie par son nom, un revenu sa source, une transaction son code de titre. Renommer l'un d'eux met donc à jour en cascade les lignes déjà saisies.
+- **Schéma idempotent** : il n'y a pas d'outil de migration. `init_db()` s'exécute à chaque démarrage avec `CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS` et `DROP COLUMN IF EXISTS`, sans risque à rejouer.
 - **Nommage en français** dans tout le code (fonctions, variables, colonnes).
 
 ---
@@ -83,7 +84,7 @@ Réponse JSON  → le JS génère le HTML (innerHTML) et les graphiques Chart.js
 ## 2. Installation et lancement
 
 ### Prérequis
-- Python 3.10 ou plus récent (le code utilise la syntaxe `str | None`)
+- Python 3.10 ou plus récent
 - Une base PostgreSQL accessible
 
 ### Fichier `backend/.env`
@@ -94,10 +95,11 @@ ADMIN_UTILISATEUR=hassan
 ADMIN_MOT_DE_PASSE=un_mot_de_passe_solide
 PORT=8500               # optionnel, 8500 par défaut (Render fournit PORT automatiquement)
 COOKIE_SECURE=false     # true en production derrière HTTPS
-CORS_ORIGINS=           # optionnel, vide par défaut : seulement si le frontend est hébergé sur un autre domaine
+CORS_ORIGINS=           # optionnel : seulement si le frontend est hébergé sur un autre domaine
 ```
 
-`ADMIN_UTILISATEUR` et `ADMIN_MOT_DE_PASSE` ne servent qu'au **premier démarrage**, pour créer le compte quand la table `utilisateurs` est vide.
+- `DATABASE_URL` est obligatoire : sans elle, le démarrage échoue avec un message explicite.
+- `ADMIN_UTILISATEUR` et `ADMIN_MOT_DE_PASSE` ne servent qu'au **premier démarrage**, pour créer le compte quand la table `utilisateurs` est vide.
 
 ### Commandes
 
@@ -110,10 +112,18 @@ python app.py
 - Interface : http://localhost:8500
 - Documentation interactive de l'API (Swagger) : http://localhost:8500/docs
 
-Les lanceurs `lancer_budget.bat` et `lancer_budget.sh` ouvrent le navigateur puis démarrent le serveur. Le `.sh` utilise `.venv/bin/python`. Le `.bat` utilise le `python` du système, pas le venv.
+Les lanceurs `lancer_budget.bat` et `lancer_budget.sh` ouvrent le navigateur puis démarrent le serveur avec le Python du venv `.venv` (le `.bat` se rabat sur le Python du système s'il n'existe pas).
 
-`gunicorn` figure dans `requirements.txt` pour la production, par exemple :
-`gunicorn app:app -k uvicorn.workers.UvicornWorker`.
+En production : `gunicorn app:app -k uvicorn.workers.UvicornWorker`.
+
+### Tests
+
+```bash
+cd backend
+pytest tests -v
+```
+
+⚠️ Les tests utilisent la base configurée dans `.env` : ils y créent puis suppriment des données préfixées `ZZTEST`. **Ne les lance jamais avec la configuration de production**, uniquement sur une base de développement.
 
 ---
 
@@ -121,139 +131,128 @@ Les lanceurs `lancer_budget.bat` et `lancer_budget.sh` ouvrent le navigateur pui
 
 ### 3.1 `config.py` — configuration
 
-- Charge `backend/.env` via `python-dotenv`. Si la bibliothèque n'est pas installée, seules les variables système sont lues.
-- Définit `BASE_DIR` et `FRONT_DIR` (le dossier `frontend/`, servi en statique).
-- Lit `DATABASE_URL`, `PORT`, `COOKIE_SECURE`, `ADMIN_UTILISATEUR` et `ADMIN_MOT_DE_PASSE`.
-- `DATABASE_URL` manquant fait échouer l'import avec un message explicite (`RuntimeError`), au lieu de laisser `psycopg` échouer plus loin avec une erreur peu claire. `ADMIN_UTILISATEUR`/`ADMIN_MOT_DE_PASSE` ne sont vérifiés que dans `database.py`, au moment où `init_db()` en a réellement besoin (premier démarrage, table `utilisateurs` vide) — les valider ici serait une fausse alerte pour un redémarrage normal où ces variables ont été retirées du `.env` après la création du compte.
-- `DUREE_SESSION_JOURS = 1` : une session expire au bout de 24 h.
-- Valeurs insérées au premier démarrage :
-  - `CATEGORIES_DEFAUT` : 11 catégories de dépense, chacune avec un budget mensuel (Alimentation 1500, Loyer 300, etc.)
-  - `SOURCES_DEFAUT` : Salaire, Prime, Freelance, Remboursement
+- Charge `backend/.env` via `python-dotenv` (sinon, seules les variables système sont lues).
+- Définit `FRONT_DIR`, le dossier `frontend/` servi en statique.
+- Lit `DATABASE_URL`, `PORT`, `COOKIE_SECURE`, `ADMIN_UTILISATEUR`, `ADMIN_MOT_DE_PASSE` et `CORS_ORIGINS`.
+- Constantes :
+  - `DUREE_SESSION_JOURS = 1` : une session expire au bout de 24 h ;
+  - `LOGIN_MAX_ECHECS = 10` et `LOGIN_FENETRE_MIN = 15` : seuils de blocage des connexions (voir [§3.3](#33-securitepy--authentification)) ;
+  - `CATEGORIES_DEFAUT` (11 catégories avec budget mensuel) et `SOURCES_DEFAUT` (Salaire, Prime, Freelance, Remboursement), insérées au premier démarrage.
 
 ### 3.2 `database.py` — base de données
 
-**`TITRES_BVC_DEFAUT`** : liste d'environ 80 sociétés cotées à la BVC, sous la forme `(code, nom, secteur)`, insérée une fois au premier démarrage (table vide). Elle alimente la table `bourse_titres`, qui sert à l'autocomplétion du champ « Titre » et au regroupement par secteur des positions. Gérable ensuite depuis l'onglet Bourse > Paramètres (ajout, modification, désactivation) — voir `/api/bourse/titres` au [§5](#5-référence-de-lapi). Renommer un `code` répercute le changement sur `bourse_transactions.titre`, `bourse_dividendes.titre` et `bourse_prix.titre`, comme le fait `modifier_categorie` pour les dépenses (même raisonnement : ces colonnes stockent un texte libre, pas une clé étrangère).
+**`TITRES_BVC_DEFAUT`** : environ 80 sociétés cotées à la BVC, sous la forme `(code, nom, secteur)`, insérées au premier démarrage dans `bourse_titres`. Cette table sert à l'autocomplétion du champ « Titre » et au regroupement des positions par secteur. Elle se gère ensuite depuis Bourse → Paramètres.
 
-**`_pool`** est un `psycopg_pool.ConnectionPool` créé une fois au chargement du module (1 à 10 connexions, `row_factory=dict_row`). **`db()`** est un gestionnaire de contexte (`@contextmanager`) qui tire une connexion du pool :
+**`db()`** est un gestionnaire de contexte qui emprunte une connexion au pool `_pool` :
 ```python
 with db() as c:
     c.execute("...", (params,))
-# → commit automatique si aucune exception ; rollback + retour au pool sinon
+# → commit automatique si aucune exception ; rollback sinon
 ```
-`row_factory=dict_row` fait que chaque ligne renvoyée est un `dict` (`row["montant"]`), directement sérialisable en JSON par FastAPI. `app.py` ferme le pool sur l'évènement `shutdown` de FastAPI.
+`row_factory=dict_row` fait que chaque ligne est un `dict` (`row["montant"]`), directement sérialisable en JSON. `app.py` ferme le pool à l'arrêt du serveur.
 
-**`init_db()`** est appelée une fois au démarrage, depuis `app.py`. Elle :
-1. crée toutes les tables et tous les index s'ils n'existent pas (voir [§4](#4-schéma-de-la-base-de-données)) ;
-2. applique les migrations du module Bourse :
-   - ajoute la colonne `taux_retenue_source_dividendes` si elle manque (nécessaire à l'étape suivante) ;
-   - si l'ancienne colonne `bourse_dividendes.montant_brut` existe, calcule le montant net (`brut × (1 − taux de retenue)`) puis supprime les anciennes colonnes. Les dividendes sont désormais saisis en net ;
-   - supprime (`DROP COLUMN IF EXISTS`, idempotent) les anciennes colonnes de taux figés dans `bourse_parametres` et `bourse_transactions`, devenues mortes depuis la simplification du module Bourse ;
-3. insère les valeurs par défaut quand les tables sont vides : catégories, sources, objectif d'épargne (5000), compte administrateur (échoue avec un message explicite si `ADMIN_UTILISATEUR`/`ADMIN_MOT_DE_PASSE` manquent), ligne de paramètres Bourse, titres BVC ;
+**`init_db()`**, appelée au démarrage :
+1. crée les tables et les index manquants (voir [§4](#4-schéma-de-la-base-de-données)) ;
+2. applique les ajustements de schéma du module Bourse, tous idempotents ;
+3. insère les valeurs par défaut dans les tables vides : catégories, sources, objectif d'épargne (5000), compte administrateur, paramètres Bourse, titres BVC ;
 4. affiche un avertissement si le mot de passe administrateur vaut `"admin"`.
-
-`hacher_mdp` est importé à l'intérieur de la fonction. Un import en tête de fichier créerait une boucle, car `securite.py` importe déjà `database.py`.
 
 ### 3.3 `securite.py` — authentification
 
-| Fonction | Rôle |
+| Élément | Rôle |
 |---|---|
 | `hacher_mdp(mdp)` | PBKDF2-HMAC-SHA256, 200 000 itérations, sel aléatoire de 16 octets. Format stocké : `"<sel_hex>$<hash_hex>"`. |
-| `verifier_mdp(mdp, stocke)` | Recalcule le hash avec le même sel et compare avec `secrets.compare_digest`, une comparaison en temps constant qui protège contre les attaques temporelles. |
-| `creer_session(uid)` | Génère un jeton aléatoire (`token_urlsafe(32)`), l'enregistre dans `sessions` avec une date d'expiration et supprime au passage les sessions expirées. |
+| `verifier_mdp(mdp, stocke)` | Recalcule le hash avec le même sel et compare en temps constant (`secrets.compare_digest`). |
+| `creer_session(uid)` | Génère un jeton aléatoire, l'enregistre dans `sessions` avec sa date d'expiration et purge les sessions expirées. |
 | `supprimer_session(token)` | Déconnexion. |
-| `utilisateur_courant(session=Cookie)` | **Dépendance FastAPI** qui protège toutes les routes. Elle lit le cookie `session`, fait la jointure avec `utilisateurs` et renvoie `{id, nom}`. Si le cookie manque ou a expiré, elle lève une erreur **401**. |
+| `utilisateur_courant(session=Cookie)` | **Dépendance FastAPI** qui protège toutes les routes : vérifie le cookie `session` en base et renvoie `{id, nom}`, sinon erreur **401**. |
+| `LimiteurEchecs` / `limiteur_login` | Anti force brute : après **10 échecs en 15 minutes** pour un même nom d'utilisateur (casse et espaces ignorés), les tentatives sont refusées (**429**) pendant 15 minutes, même avec le bon mot de passe. Une réussite remet le compteur à zéro. Protège aussi la vérification du mot de passe actuel lors d'un changement. |
 
-Le cookie est `HttpOnly` (inaccessible au JavaScript, donc à l'abri d'un vol par XSS) et `SameSite=Lax` (protection de base contre le CSRF). Il est `Secure` si `COOKIE_SECURE=true`.
+Le cookie de session est `HttpOnly` (inaccessible au JavaScript), `SameSite=Lax` (protection de base contre le CSRF), et `Secure` si `COOKIE_SECURE=true`.
 
 ### 3.4 `schemas.py` — modèles Pydantic
 
-Ces modèles valident automatiquement les données. Si la validation échoue, FastAPI renvoie une erreur 422.
+Ces modèles valident automatiquement les données reçues. En cas d'échec, FastAPI renvoie une erreur 422.
 
 | Modèle | Utilisation | Contraintes |
 |---|---|---|
 | `LoginIn` | connexion | — |
 | `MdpIn` | changement de mot de passe | `nouveau` ≥ 6 caractères |
-| `DepenseIn` | nouvelle dépense | `montant > 0` ; `date` au format `AAAA-MM-JJ` (type `DateISO`, stocké en texte) |
-| `RevenuIn` | nouveau revenu | `montant > 0` ; `date` au format `AAAA-MM-JJ` (`DateISO`) |
+| `DepenseIn` | nouvelle dépense | `date` au format `AAAA-MM-JJ` (`DateISO`), `montant > 0` |
+| `RevenuIn` | nouveau revenu | `date` au format `AAAA-MM-JJ` (`DateISO`), `montant > 0` |
 | `CategorieIn` | catégorie | `nom` non vide, `budget ≥ 0` |
 | `ObjectifIn`, `NomIn` | objectif, source | — |
-| `ParametresBourse` | paramètres Bourse | taux compris entre 0 et 1 |
+| `ParametresBourse` | paramètres Bourse | `taux_tpcvm` entre 0 et 1 |
+| `TitreBourseIn` / `TitreBourse` | référentiel des titres | `code`, `nom`, `secteur` |
 | `TransactionBourseCreate` / `Out` | achat/vente | `type_instrument` ∈ {Action, Obligation, OPCVM, IPO}, `type_operation` ∈ {Achat, Vente}, `quantite > 0` |
-| `PositionBourse`, `GainRealise`, `DashboardBourse` | sorties calculées | — |
 | `DividendeCreate` / `Out`, `FraisBourseCreate` / `Out` | dividendes et frais de compte | `montant > 0` |
+| `MouvementBourseCreate` / `Out` | apports et retraits | `type_mouvement` ∈ {Apport, Retrait}, `montant > 0` |
+| `PositionBourse`, `GainRealise`, `DashboardBourse` | sorties calculées | — |
+
+`DateISO` vérifie qu'il s'agit d'une vraie date (refuse `18/09/2026` ou `2026-02-30`) mais la garde sous forme de chaîne : les dates du Budget sont stockées en texte.
 
 ### 3.5 `app.py` — point d'entrée
 
-1. Ajoute `backend/` au `sys.path`, pour que `python backend/app.py` fonctionne depuis n'importe quel dossier.
+1. Ajoute `backend/` au `sys.path`, pour que l'application se lance depuis n'importe quel dossier.
 2. Appelle `init_db()`.
 3. Crée l'application FastAPI. CORS n'est activé que si `CORS_ORIGINS` est renseigné, et seulement pour ces origines.
 4. Branche les 5 routeurs.
-5. Monte `frontend/` sur `/` **après** les routes API, pour que `/api/...` reste prioritaire. Avec `html=True`, `/` sert `index.html`.
-6. Si le fichier est lancé directement, démarre `uvicorn` sur `0.0.0.0:PORT`.
+5. Monte `frontend/` sur `/` **après** les routes API, pour que `/api/...` reste prioritaire.
+6. Lancé directement, démarre `uvicorn` sur `0.0.0.0:PORT`.
 
 ### 3.6 `routes/auth.py`
 
-- `POST /api/login` : vérifie les identifiants, crée la session et pose le cookie. Le message d'erreur (« Identifiants incorrects ») est volontairement le même que l'utilisateur existe ou non.
+- `POST /api/login` : vérifie les identifiants (avec limitation des tentatives), crée la session et pose le cookie. Le message d'erreur est le même que l'utilisateur existe ou non.
 - `POST /api/logout` : supprime la session et le cookie.
 - `GET /api/me` : renvoie le nom de l'utilisateur. Le frontend s'en sert au chargement pour savoir s'il faut afficher l'écran de connexion.
-- `PUT /api/mot_de_passe` : vérifie l'ancien mot de passe, enregistre le nouveau hash et **supprime toutes les sessions** de l'utilisateur, ce qui déconnecte tous ses appareils.
+- `PUT /api/mot_de_passe` : vérifie l'ancien mot de passe, enregistre le nouveau et **supprime toutes les sessions** de l'utilisateur, ce qui le déconnecte de tous ses appareils.
 
 ### 3.7 `routes/configuration.py`
 
-Tout le routeur est protégé par `dependencies=[Depends(utilisateur_courant)]`.
-
-- `GET /api/categories` renvoie **en une seule requête** les catégories, les sources et l'objectif d'épargne.
-- Les routes `POST` utilisent `ON CONFLICT (nom) DO UPDATE SET actif=1`. Si on recrée une catégorie qui avait été désactivée, elle est réactivée au lieu de provoquer une erreur d'unicité.
-- Les routes `PUT` (renommer) répercutent le nouveau nom sur les lignes déjà saisies : `modifier_categorie` met à jour `depenses.categorie`, `modifier_source` met à jour `revenus.source` — sinon ces lignes resteraient rattachées à l'ancien nom (catégorie « fantôme » à budget 0 dans les rapports). Elles renvoient **404** si l'id n'existe pas.
-- Les routes `DELETE` font une désactivation douce (`actif=0`) et renvoient **404** si l'id n'existe pas (`rowcount == 0`).
+- `GET /api/categories` renvoie en une seule requête les catégories, les sources et l'objectif d'épargne.
+- Les `POST` réactivent un élément désactivé du même nom au lieu de provoquer une erreur d'unicité.
+- Les `PUT` (renommer) mettent à jour les lignes déjà saisies : `depenses.categorie` ou `revenus.source`.
+- Les `DELETE` désactivent l'élément (`actif=0`).
+- `PUT` et `DELETE` renvoient **404** si l'id n'existe pas.
 
 ### 3.8 `routes/transactions.py`
 
-Création et suppression des dépenses et revenus — les suppressions renvoient **404** si la ligne n'existe pas. `GET /api/transactions?mois=AAAA-MM` liste les deux types pour un mois donné. Le filtre utilise `date LIKE '2026-09-%'`, ce qui marche parce que les dates sont stockées en texte au format ISO.
+Création et suppression des dépenses et revenus (404 si la ligne n'existe pas). `GET /api/transactions?mois=AAAA-MM` liste les deux types pour un mois, avec un filtre `date LIKE '2026-09-%'`.
 
 ### 3.9 `routes/rapports.py` — tableaux de bord
 
-Fonctions utilitaires : `_valider_mois`, `_valider_date`, `_somme(c, table, where, params)` (une somme SQL générique), `_objectif`, `_budget_total`.
-
 | Route | Contenu calculé |
 |---|---|
-| `GET /api/resume_jour?date=` | totaux du jour, dépenses de la veille, répartition par catégorie (donut), liste des transactions, **moyenne quotidienne du mois** jusqu'à ce jour, **budget journalier** = budget mensuel ÷ 30,44 |
-| `GET /api/resume_semaine?date=` | semaine du lundi au dimanche contenant la date ; totaux, comparaison avec la semaine précédente, détail jour par jour, donut, top 8 ; **budget hebdomadaire** = budget mensuel × 12 ÷ 52 |
-| `GET /api/resume?mois=` | vue mensuelle complète (détail ci-dessous) |
-| `GET /api/resume_annuel?annee=` | 12 mois : revenus/dépenses/épargne par mois, meilleur et pire mois, nombre de mois où l'objectif est atteint, épargne cumulée, totaux par catégorie comparés au budget annuel (budget × 12), **grille catégorie × mois** pour la carte de chaleur |
-| `GET /api/resume_global` | tout l'historique : totaux, moyennes par mois actif, meilleur et pire mois, objectif atteint, évolution **mois par mois** (mois sans mouvement inclus, à 0) et épargne cumulée, **bilan par année**, répartition par catégorie, top 10 des dépenses |
+| `GET /api/resume_jour?date=` | totaux du jour, dépenses de la veille, répartition par catégorie, transactions, moyenne quotidienne du mois, budget journalier |
+| `GET /api/resume_semaine?date=` | semaine du lundi au dimanche : totaux, comparaison avec la semaine précédente, détail par jour, répartition, top 8, budget hebdomadaire |
+| `GET /api/resume?mois=` | budget prévu comparé au réel par catégorie, dépenses cumulées jour par jour, évolution sur 6 mois, top 10, comparaison avec le mois précédent, projection de fin de mois (mois en cours) |
+| `GET /api/resume_annuel?annee=` | revenus/dépenses/épargne par mois, meilleur et pire mois, mois où l'objectif est atteint, épargne cumulée, totaux par catégorie comparés au budget annuel, grille catégorie × mois |
+| `GET /api/resume_global` | tout l'historique : totaux et moyennes par mois actif, évolution mois par mois (mois vides inclus), épargne cumulée, bilan par année, répartition par catégorie, top 10 |
 
-Détail de `/api/resume` :
-- `budget_vs_reel` : pour chaque catégorie active, dépense réelle ÷ budget en %, triée de la plus consommée à la moins consommée. Les dépenses rattachées à des catégories inactives ou renommées apparaissent aussi, avec un budget de 0.
-- `cumul_quotidien` : dépenses cumulées jour après jour, pour le graphique en courbe.
-- `evolution` : revenus et dépenses des 6 derniers mois, obtenus par un `UNION ALL` des deux tables regroupé par `substr(date,1,7)`.
-- `projection_fin_mois` (mois en cours seulement) : `dépenses à ce jour ÷ jour du mois × nombre de jours du mois`.
-- `taux_epargne` = (revenus − dépenses) ÷ revenus × 100.
-- Comparaison avec le mois précédent.
+Dans « budget prévu comparé au réel », les dépenses rattachées à une catégorie désactivée apparaissent aussi, avec un budget de 0.
 
 ### 3.10 `routes/bourse.py` — module Bourse
 
-Tous les montants passent par `Decimal`, pour éviter les erreurs d'arrondi des `float` :
-- `_d(v)` convertit n'importe quelle valeur en `Decimal` (et `None` en 0) ;
-- `_r(x)` arrondit à 2 décimales (`ROUND_HALF_UP`) pour les montants, puis convertit en `float` pour le JSON ;
-- `_r4(x)` arrondit à 4 décimales, réservé aux ratios (`performance_latente`) pour ne pas tronquer le pourcentage affiché.
+**Précision des calculs** : tous les montants passent par `Decimal`.
+- `_d(v)` convertit une valeur en `Decimal` (`None` → 0) ;
+- `_r(x)` arrondit un montant à 2 décimales ;
+- `_r4(x)` arrondit un ratio (performance) à 4 décimales, pour ne pas tronquer le pourcentage affiché.
 
-Le filtre de période (`mois=AAAA-MM` ou `annee=AAAA`) est construit en SQL par `_clause_periode()` (`date_operation >= ... AND date_operation < ...`) pour `lister_transactions`, `_dividendes()` et `_frais_compte()` — ces listes n'ont besoin que des lignes de la période, la base ne renvoie donc que celles-là. Exception assumée : le résultat de `_positions_et_gains()` (gains réalisés, frais de transaction dans le dashboard) reste filtré **en Python** après coup, car cette fonction doit de toute façon charger tout l'historique des transactions pour calculer un PRU chronologique correct — les lignes sont déjà en mémoire, les refiltrer ici n'ajoute aucune requête.
+**Filtre de période** : les paramètres optionnels `mois=AAAA-MM` ou `annee=AAAA` sont traduits en SQL par `_clause_periode()` pour les listes (transactions, dividendes, frais, mouvements). Les gains réalisés sont filtrés après calcul, car le PRU exige de parcourir tout l'historique.
 
-La logique centrale se trouve dans `_positions_et_gains()` :
-1. charge **toutes** les transactions triées par date, les cours actuels et le taux de TPCVM ;
-2. `_calc_transaction` calcule `montant_brut = qté × cours`, puis `montant_net = brut + frais` pour un achat et `brut − frais` pour une vente ;
-3. regroupe par titre, puis parcourt **chronologiquement** les transactions de chaque titre en tenant un état courant (quantité détenue, coût restant) : un achat ajoute la quantité et le coût, une vente calcule le gain avec le PRU **courant** avant de réduire le coût restant d'autant — un achat postérieur à une vente n'influence donc jamais son PRU ;
-4. calcule les **positions** : PRU (du stock détenu à l'instant présent), quantité détenue, valeur comptable, valeur de marché, plus-value latente, performance ;
-5. calcule les **gains réalisés** pour chaque vente, avec la TPCVM — calculée vente par vente, sans compensation des pertes sur l'année (voir la docstring de `_positions_et_gains()` et [§8 point 19](#-qualité-et-performance)).
+**`_positions_et_gains()`**, la logique centrale :
+1. charge toutes les transactions triées par date, les cours actuels et le taux de TPCVM ;
+2. calcule pour chaque transaction `montant_net = qté × cours ± frais` (+ pour un achat, − pour une vente) ;
+3. parcourt chronologiquement les transactions de chaque titre, en suivant la quantité détenue et le coût restant : un achat les augmente, une vente calcule son gain avec le PRU **du moment** puis réduit le coût restant ;
+4. en déduit les **positions** (PRU, quantité, valeur comptable, valeur de marché, plus-value latente, performance) et les **gains réalisés** avec leur TPCVM.
 
-`_valider_vente()` reconstitue la chronologie complète d'un titre (transaction à insérer comprise) et refuse toute vente qui ferait passer la quantité détenue sous zéro à un instant quelconque — y compris pour une vente antidatée.
+**`_valider_vente()`** refuse une vente qui ferait passer la quantité détenue sous zéro à n'importe quel moment de l'historique, y compris pour une vente antidatée.
 
-Routes : `parametres` (GET/PUT), `titres` (GET/POST/PUT/DELETE), `transactions` (GET/POST/DELETE), `prix/{titre}` (PUT, insertion ou mise à jour du cours actuel), `dividendes`, `frais`, `positions`, `gains`, `dashboard`. Les formules sont détaillées au [§6](#6-calculs-métier).
+**Dashboard** (`/api/bourse/dashboard`) : valorisation actuelle du portefeuille, résultat de la période (gains, dividendes, frais) et état du compte Bourse (espèces disponibles, apports nets, patrimoine, performance globale). Formules au [§6.2](#62-bourse).
 
 ### 3.11 `scripts/supprimer_bourse.py`
 
-Script manuel (pas un test, malgré l'ancien fichier `test.py` qui portait ce nom par erreur — supprimé). Supprime `bourse_transactions`, `bourse_dividendes`, `bourse_frais`, `bourse_prix`, `bourse_parametres` et `bourse_titres` après avoir demandé de taper « oui ». Lancement : `python scripts/supprimer_bourse.py` depuis `backend/`.
+Script manuel et **destructif** : supprime toutes les tables du module Bourse et leurs données, après confirmation (taper « oui »). Les tables sont recréées vides au démarrage suivant. Lancement depuis `backend/` : `python scripts/supprimer_bourse.py`.
 
 ---
 
@@ -264,13 +263,13 @@ Script manuel (pas un test, malgré l'ancien fichier `test.py` qui portait ce no
 | Table | Colonnes principales | Remarques |
 |---|---|---|
 | `categories` | `id`, `nom` UNIQUE, `budget`, `actif` | budget mensuel en DH |
-| `depenses` | `id`, `date` **TEXT**, `categorie` **TEXT**, `description`, `montant`, `paiement` (inutilisée), `cree_le` | catégorie stockée **par son nom**, sans clé étrangère — un renommage côté `categories` met donc à jour cette colonne en cascade (voir [§3.7](#37-routesconfigurationpy)). `paiement` : plus lue ni écrite depuis le retrait des types de paiement, conservée pour l'historique |
-| `revenus` | `id`, `date` TEXT, `source`, `montant`, `cree_le` | `source` idem : mise à jour en cascade au renommage |
+| `depenses` | `id`, `date` TEXT, `categorie` TEXT, `description`, `montant`, `paiement`, `cree_le` | catégorie stockée par son nom ; `paiement` n'est plus utilisée (conservée pour l'historique) |
+| `revenus` | `id`, `date` TEXT, `source`, `montant`, `cree_le` | source stockée par son nom |
 | `sources_revenus` | `id`, `nom` UNIQUE, `actif` | |
-| `paiements` | `id`, `nom` UNIQUE, `actif` | **inutilisée** depuis le 29/09/2026 (types de paiement retirés), conservée pour l'historique |
-| `params` | `cle` PK, `valeur` | ne contient pour l'instant que `objectif_epargne` |
+| `paiements` | `id`, `nom` UNIQUE, `actif` | n'est plus utilisée (conservée pour l'historique) |
+| `params` | `cle` PK, `valeur` | contient `objectif_epargne` |
 | `utilisateurs` | `id`, `nom` UNIQUE, `mdp_hash` | |
-| `sessions` | `token` PK, `utilisateur_id` FK (ON DELETE CASCADE), `expire` | |
+| `sessions` | `token` PK, `utilisateur_id` FK, `expire` | |
 
 Index : `depenses(date)`, `revenus(date)`.
 
@@ -278,15 +277,15 @@ Index : `depenses(date)`, `revenus(date)`.
 
 | Table | Colonnes principales | Remarques |
 |---|---|---|
-| `bourse_parametres` | `taux_tpcvm` | une seule ligne ; les anciennes colonnes de taux (courtage, TVA, OPCVM, IPO…) et celles des droits de garde (`taux_droit_garde_annuel`, `droit_garde_min_trimestriel`, désormais saisis manuellement) ont été supprimées le 26/09/2026 |
-| `bourse_transactions` | `date_operation` DATE, `titre`, `isin`, `type_instrument`, `type_operation`, `quantite`, `cours_unitaire`, `autres_frais` | contraintes `CHECK` sur les types et les quantités ; anciennes colonnes de taux figés supprimées le 26/09/2026 |
+| `bourse_parametres` | `taux_tpcvm` | une seule ligne |
+| `bourse_transactions` | `date_operation` DATE, `titre`, `isin`, `type_instrument`, `type_operation`, `quantite`, `cours_unitaire`, `autres_frais` | contraintes `CHECK` sur les types et les quantités |
 | `bourse_prix` | `titre` PK, `cours_actuel`, `maj_le` | un seul cours par titre, sans historique |
 | `bourse_titres` | `code` UNIQUE, `nom`, `secteur`, `actif` | référentiel BVC |
-| `bourse_dividendes` | `date_operation`, `titre`, `montant` (net) | |
+| `bourse_dividendes` | `date_operation`, `titre`, `montant` | montant net reçu |
 | `bourse_frais` | `date_operation`, `libelle`, `montant` | abonnement courtier, tenue de compte, droits de garde… |
-| `bourse_mouvements` | `date_operation`, `type_mouvement` (Apport / Retrait), `montant`, `libelle` | transferts banque ↔ compte Bourse ; ni dépense ni revenu du Budget |
+| `bourse_mouvements` | `date_operation`, `type_mouvement` (Apport / Retrait), `montant`, `libelle` | transferts banque ↔ compte Bourse |
 
-Le module Bourse utilise de vrais types `DATE` et `NUMERIC`. Le module Budget utilise `TEXT` pour les dates et `DOUBLE PRECISION` pour les montants.
+Le module Bourse utilise les types `DATE` et `NUMERIC`. Le module Budget utilise `TEXT` pour les dates et `DOUBLE PRECISION` pour les montants.
 
 ---
 
@@ -296,7 +295,7 @@ Toutes les routes sauf `/api/login` et `/api/logout` exigent le cookie `session`
 
 | Méthode | Route | Corps / paramètres | Réponse |
 |---|---|---|---|
-| POST | `/api/login` | `{utilisateur, mot_de_passe}` | `{ok}` + cookie |
+| POST | `/api/login` | `{utilisateur, mot_de_passe}` | `{ok}` + cookie ; 429 si trop d'échecs |
 | POST | `/api/logout` | — | `{ok}` |
 | GET | `/api/me` | — | `{utilisateur}` |
 | PUT | `/api/mot_de_passe` | `{actuel, nouveau}` | `{ok, message}` |
@@ -312,13 +311,13 @@ Toutes les routes sauf `/api/login` et `/api/logout` exigent le cookie `session`
 | GET | `/api/resume?mois=` | — | résumé du mois |
 | GET | `/api/resume_annuel?annee=` | — | résumé de l'année |
 | GET | `/api/resume_global` | — | résumé de tout l'historique |
-| GET / PUT | `/api/bourse/parametres` | `ParametresBourse` | `ParametresBourse` |
-| GET / POST / PUT / DELETE | `/api/bourse/titres[/{id}]` | `TitreBourseIn` (`{code, nom, secteur}`) | `TitreBourse` / `[TitreBourse]` |
+| GET / PUT | `/api/bourse/parametres` | `{taux_tpcvm}` | `ParametresBourse` |
+| GET / POST / PUT / DELETE | `/api/bourse/titres[/{id}]` | `{code, nom, secteur}` | `TitreBourse` / `[TitreBourse]` |
 | GET / POST | `/api/bourse/transactions` | `?mois=&annee=` / `TransactionBourseCreate` | `[TransactionBourseOut]` |
 | DELETE | `/api/bourse/transactions/{id}` | — | 204 |
 | PUT | `/api/bourse/prix/{titre}` | `{cours_actuel}` | `{titre, cours_actuel}` |
-| GET / POST / DELETE | `/api/bourse/dividendes[/{id}]` | `?mois=&annee=` / `{date_operation, titre, montant}` | |
-| GET / POST / DELETE | `/api/bourse/frais[/{id}]` | `?mois=&annee=` / `{date_operation, libelle, montant}` | |
+| GET / POST / DELETE | `/api/bourse/dividendes[/{id}]` | `?mois=&annee=` / `{date_operation, titre, montant}` | `[DividendeOut]` |
+| GET / POST / DELETE | `/api/bourse/frais[/{id}]` | `?mois=&annee=` / `{date_operation, libelle, montant}` | `[FraisBourseOut]` |
 | GET / POST / DELETE | `/api/bourse/mouvements[/{id}]` | `?mois=&annee=` / `{date_operation, type_mouvement, montant, libelle}` | `[MouvementBourseOut]` |
 | GET | `/api/bourse/positions` | — | `[PositionBourse]` |
 | GET | `/api/bourse/gains` | `?mois=&annee=` | `[GainRealise]` |
@@ -335,35 +334,44 @@ Toutes les routes sauf `/api/login` et `/api/logout` exigent le cookie `session`
 | Épargne | revenus − dépenses |
 | Taux d'épargne | épargne ÷ revenus × 100 |
 | Reste à dépenser (mois) | somme des budgets des catégories actives − dépenses |
-| Budget journalier | budget mensuel ÷ 30,44 (durée moyenne d'un mois) |
+| Budget journalier | budget mensuel ÷ 30,44 |
 | Budget hebdomadaire | budget mensuel × 12 ÷ 52 |
 | Projection fin de mois | dépenses à ce jour ÷ jour actuel × nombre de jours du mois |
-| Badge ▲/▼ (frontend) | (actuel − précédent) ÷ précédent × 100 ; affiche « ＝ » si l'écart est inférieur à 0,5 % |
+| Badge ▲/▼ | (actuel − précédent) ÷ précédent × 100 ; « ＝ » si l'écart est inférieur à 0,5 % |
 | Couleur « budget vs réel » | vert ≤ 80 %, jaune ≤ 100 %, rouge au-delà |
 
 ### 6.2 Bourse
 
 | Indicateur | Formule |
 |---|---|
-| Montant net d'un achat | qté × cours + autres frais |
-| Montant net d'une vente | qté × cours − autres frais |
-| **PRU** (coût moyen mobile) | recalculé **chronologiquement, titre par titre** : à chaque achat, ajoute la quantité et le coût au stock détenu ; à chaque vente, utilise le PRU courant du stock à cet instant, puis retire `PRU courant × qté vendue` du coût restant. Un achat postérieur à une vente n'influence jamais le PRU utilisé pour cette vente. |
+| Montant net d'un achat | qté × cours + frais de la transaction |
+| Montant net d'une vente | qté × cours − frais de la transaction |
+| **PRU** (coût moyen mobile) | recalculé chronologiquement, titre par titre : un achat ajoute sa quantité et son coût au stock ; une vente utilise le PRU du moment, puis retire `PRU × qté vendue` du coût restant |
 | Quantité détenue | Σ achats − Σ ventes |
-| Valeur comptable | PRU (du stock actuellement détenu) × quantité détenue |
+| Valeur comptable | PRU × quantité détenue |
 | Valeur de marché | cours actuel × quantité détenue |
 | Plus-value latente | valeur de marché − valeur comptable |
-| Performance latente | plus-value latente ÷ valeur comptable, arrondie à 4 décimales (pas 2, pour ne pas tronquer le pourcentage affiché) |
-| Gain brut d'une vente | montant net de la vente − PRU courant × qté vendue |
+| Performance latente | plus-value latente ÷ valeur comptable |
+| Gain brut d'une vente | montant net de la vente − PRU × qté vendue |
 | TPCVM | gain brut × taux (15 % par défaut), seulement si le gain est positif |
 | Gain net | gain brut − TPCVM |
-| Résultat net de la période | gains nets + dividendes − frais de compte (les frais de transaction sont déjà comptés dans `gains nets` et dans le PRU des achats — les resoustraire doublerait leur effet) |
-| **Espèces disponibles** | apports − retraits − Σ achats nets + Σ (ventes nettes − TPCVM) + dividendes − frais de compte, sur tout l'historique. La TPCVM est considérée comme retenue à la source par l'intermédiaire sur le produit de la vente. |
-| Apports nets | apports − retraits (l'argent réellement sorti de ta banque) |
+| Résultat net de la période | gains nets + dividendes − frais de compte (les frais de transaction sont déjà inclus dans les gains nets) |
+| **Espèces disponibles** | apports − retraits − Σ achats nets + Σ (ventes nettes − TPCVM) + dividendes − frais de compte, sur tout l'historique |
+| Apports nets | apports − retraits |
 | Patrimoine Bourse | valeur de marché des titres + espèces disponibles |
-| **Performance globale** | patrimoine − apports nets ; en % : ÷ apports nets. Elle vaut aussi gains nets réalisés + plus-value latente + dividendes − frais de compte : les gains et dividendes réinvestis sont donc bien comptés, une seule fois. |
-| Validation à la vente | refusée si elle ferait passer la quantité détenue sous zéro **à un instant quelconque de l'historique** (utile pour une vente antidatée insérée après coup) |
+| **Performance globale** | patrimoine − apports nets ; en % : ÷ apports nets. Équivaut à gains nets + plus-value latente + dividendes − frais de compte : les gains réinvestis sont comptés une seule fois |
 
-**Règle de gestion des transferts** : un virement de la banque vers le compte Bourse est un **apport** (onglet Bourse > Apports / Retraits), pas une dépense. Il ne se saisit pas dans l'onglet Saisie, sinon l'épargne du Budget baisse à tort. Un gain ou un dividende laissé sur le compte ne se saisit pas non plus comme revenu : il s'ajoute automatiquement aux espèces disponibles, et le réinvestir revient simplement à saisir un nouvel achat. Seul un retrait vers la banque se saisit, en « Retrait ».
+### 6.3 Règle de gestion des transferts
+
+| Situation | Où la saisir |
+|---|---|
+| Virement banque → compte Bourse | **Apport** dans Bourse → Apports / Retraits (pas une dépense) |
+| Achat de titres | Bourse → Transactions |
+| Vente ou dividende laissé sur le compte | Bourse → Transactions / Dividendes ; s'ajoute automatiquement aux espèces |
+| Réinvestissement | Un nouvel achat, sans nouvel apport |
+| Argent rapatrié vers la banque | **Retrait** dans Bourse → Apports / Retraits (pas un revenu) |
+
+Un transfert n'est ni une dépense ni un revenu du Budget : le saisir dans l'onglet Saisie fausserait l'épargne.
 
 ---
 
@@ -372,141 +380,76 @@ Toutes les routes sauf `/api/login` et `/api/logout` exigent le cookie `session`
 ### 7.1 `index.html`
 
 Une seule page contient :
-- l'écran de connexion (`#ecran-login`) ;
-- l'en-tête avec la date, le bouton de thème jour/nuit et le bouton de déconnexion ;
-- quatre sections qui correspondent aux onglets de la barre de navigation du bas :
-  - **Saisie** (`#tab-saisie`) : formulaires de dépense et de revenu, transactions du mois en cours ;
-  - **Dashboard** (`#tab-dash`) : cinq vues (Jour / Semaine / Mois / Année / Global) avec des flèches ‹ › pour naviguer (masquées en vue Global, qui couvre tout l'historique) ;
-  - **Bourse** (`#tab-bourse`) : sept sous-vues (Transactions, Positions, Gains, Dividendes, Frais, Dashboard, Paramètres) ;
-  - **Paramètres** (`#tab-params`) : objectif d'épargne, catégories et budgets, sources de revenus, mot de passe.
+- l'écran de connexion ;
+- l'en-tête (date, bouton de thème jour/nuit, déconnexion) ;
+- quatre onglets, accessibles depuis la barre de navigation du bas :
+  - **Saisie** : formulaires de dépense et de revenu, transactions du mois en cours ;
+  - **Dashboard** : cinq vues (Jour / Semaine / Mois / Année / Global), avec des flèches ‹ › pour changer de période (masquées en vue Global) ;
+  - **Bourse** : huit sous-vues (Transactions, Positions, Gains, Dividendes, Frais, Apports / Retraits, Dashboard, Paramètres) ;
+  - **Paramètres** : objectif d'épargne, catégories et budgets, sources de revenus, mot de passe.
 
-La navigation se fait **sans routeur** : on bascule `style.display` entre `''` et `'none'`. Les boutons appellent des fonctions globales via `onclick="..."`.
-
-`app.js` et `bourse.js` sont chargés avec `?v=3`, pour forcer le navigateur à recharger les fichiers après une mise à jour.
+La navigation se fait sans routeur, en affichant ou masquant les sections. Les scripts sont chargés avec un numéro de version (`app.js?v=14`), à incrémenter à chaque mise à jour du JavaScript pour que les navigateurs rechargent les fichiers.
 
 ### 7.2 `js/app.js`
 
-**Utilitaires**
+**Utilitaires** (partagés avec `bourse.js`)
 - `$(id)` : raccourci pour `getElementById`.
-- `fmt(v)` : formate un montant en `1 234,5 DH` (locale fr-FR, 2 décimales au maximum).
-- `lireMontant(id)` : accepte la virgule ou le point, retire les espaces, arrondit aux centimes.
-- `auj()` : date du jour en heure **locale**. Le code évite volontairement `toISOString()`, qui passe en UTC et peut donner la date de la veille ou du lendemain.
-- `toast(msg, ok)` : notification verte ou rouge pendant 1,8 s.
-- `api(path, opts)` : enveloppe de `fetch`. Sur une réponse 401, elle affiche l'écran de connexion. Sur une autre erreur, elle affiche `detail` dans un toast puis lève une exception.
+- `esc(v)` : échappe `& < > " '` avant toute insertion d'une donnée saisie dans le HTML. Toute nouvelle donnée affichée via `innerHTML` doit passer par `esc()`.
+- `fmt(v)` : formate un montant (`1 234,5 DH`).
+- `lireMontant(id)` : lit un montant saisi, avec virgule ou point.
+- `auj()` : date du jour en heure locale (et non UTC).
+- `toast(msg, ok)` : notification verte ou rouge.
+- `api(path, opts)` : enveloppe de `fetch`. Sur 401, affiche l'écran de connexion ; sur une autre erreur, affiche le message du serveur.
+- `dessiner(id, cfg)` : (re)crée un graphique Chart.js en détruisant le précédent.
+- `paletteActuelle()`, `regrouperAutres()`, `optionsDonutPourcentage()` : palette de 8 couleurs, regroupement des petites parts en « Autres », légendes avec pourcentages.
 
 **Cycle de vie**
-1. `init()` (fonction exécutée immédiatement) : applique le thème enregistré, préremplit les dates, appelle `/api/me`.
+1. `init()` applique le thème enregistré, préremplit les dates des formulaires et appelle `/api/me`.
 2. Si la session est valide, `demarrerApp()` ; sinon, écran de connexion.
-3. `montrer(onglet)` affiche l'onglet et charge ses données **à chaque ouverture**. Il n'y a pas de cache.
+3. `montrer(onglet)` affiche un onglet et recharge ses données à chaque ouverture.
 
-**Saisie** : `chargerCats()` remplit les listes déroulantes des catégories et des sources. L'option « Autre… » dans les sources affiche un champ libre.
+**Dashboards** : `chargerDashJour()`, `chargerDashSemaine()`, `chargerDash()` (mois), `chargerDashAnnee()` et `chargerDashGlobal()`. Les vues Mois, Année et Global ajoutent deux indicateurs Bourse via `resumeBourseSilencieux()`, qui ne remonte jamais d'erreur, pour qu'un problème Bourse ne casse pas le dashboard Budget.
 
-**Dashboards** : `chargerDash()` (mois), `chargerDashJour()`, `chargerDashSemaine()` et `chargerDashAnnee()`. Les vues mois et année appellent aussi `resumeBourseSilencieux()` en parallèle (`Promise.all`) pour ajouter deux indicateurs Bourse. Cet appel ne remonte jamais d'erreur, pour qu'un problème Bourse ne casse pas le dashboard Budget.
-
-`dessiner(id, cfg)` détruit le graphique existant avant d'en créer un nouveau, ce qui évite les fuites mémoire et les superpositions. Si Chart.js n'est pas chargé, l'application fonctionne sans graphiques.
-
-**Thème** : `appliquerTheme()` pose `data-theme` sur `<html>`, enregistre le choix dans `localStorage`, adapte les couleurs par défaut de Chart.js et redessine le dashboard s'il est affiché.
+**Thème** : `appliquerTheme()` pose `data-theme` sur `<html>`, mémorise le choix et adapte les graphiques.
 
 ### 7.3 `js/bourse.js`
 
-Il réutilise les utilitaires globaux d'`app.js`, qui doit donc être chargé avant lui.
-- `changerVueBourse(v)` : bascule entre les sept sous-vues et charge celle qui est active.
-- Le cours actuel se modifie **directement dans le tableau des positions** : un `<input>` avec `onchange` appelle `majCoursBourse()`.
+Réutilise les utilitaires d'`app.js`, chargé avant lui.
+- `changerVueBourse(v)` : bascule entre les huit sous-vues.
+- Le cours actuel d'un titre se modifie directement dans le tableau des positions.
 - Le dashboard Bourse a trois modes (Global / Mois / Année) et sa propre navigation ‹ ›.
-- Les paramètres sont affichés en % (`pct()` multiplie par 100) et renvoyés en fraction (÷ 100).
-- `chargerTitresBourse()` remplit un `<datalist>` HTML5 pour l'autocomplétion des codes BVC. `chargerTitresManagement()` (onglet Paramètres) affiche la liste éditable (code/nom/secteur) ; les deux sont rafraîchies après tout ajout/modification/suppression d'un titre.
+- Paramètres : taux de TPCVM (affiché en %) et gestion du référentiel des titres.
+- `chargerTitresBourse()` alimente l'autocomplétion des codes BVC.
 
 ### 7.4 `css/style.css`
 
-- Variables CSS dans `:root` (thème sombre par défaut), redéfinies dans `[data-theme="light"]`.
-- Couleurs métier : safran `--accent` pour les dépenses, bleu `--blue` pour les revenus, vert `--green` pour l'épargne, rouge `--red`.
-- Mise en page responsive : `.grid2` passe sur une colonne sous 820 px, et d'autres ajustements s'appliquent sous 560 px.
-- Respecte `prefers-reduced-motion` (animations réduites si l'utilisateur l'a demandé).
+- Variables CSS dans `:root` (thème sombre par défaut), redéfinies dans `[data-theme="light"]` pour les fonds, bordures et textes.
+- Couleurs métier identiques dans les deux thèmes : orange pour les dépenses, bleu pour les revenus, vert pour l'épargne, rouge pour les alertes.
+- Responsive : `.grid2` passe sur une colonne sous 820 px, d'autres ajustements s'appliquent sous 560 px.
+- Respecte `prefers-reduced-motion`.
 
 ---
 
-## 8. Problèmes détectés et recommandations
+## 8. Points restants
 
-Classés par gravité. Les numéros de ligne renvoient à l'état actuel du code.
+**1. Types de colonnes du Budget**
+Le module Budget stocke les dates en `TEXT` et les montants en `DOUBLE PRECISION`, alors que le module Bourse utilise `DATE` et `NUMERIC`. Les montants en `float` peuvent accumuler de petites erreurs d'arrondi.
+Une migration toucherait toutes les requêtes de `rapports.py` et `transactions.py`, qui filtrent les dates en texte (`LIKE`, `substr`). Elle n'est à envisager qu'après avoir couvert chaque vue du dashboard Budget par des tests.
 
-### 🔴 Erreurs de calcul (module Bourse) — ✅ corrigées le 26/09/2026
+**2. TPCVM calculée vente par vente**
+Les pertes d'une vente ne compensent pas les gains d'une autre vente de la même année. Le total affiché peut donc surestimer l'impôt dû en cas de ventes gagnantes et perdantes la même année. Un avertissement figure dans Bourse → Paramètres ; la règle fiscale exacte est à confirmer avant de modifier le calcul.
 
-Les 4 points ci-dessous sont **résolus**, couverts par des tests automatisés
-([backend/tests/test_bourse.py](backend/tests/test_bourse.py)). Gardés ici à
-titre d'historique — utile pour comprendre pourquoi le code est écrit ainsi.
+**3. Hypothèse sur la TPCVM dans les espèces disponibles**
+Le calcul des espèces suppose que l'intermédiaire retient la TPCVM à la source sur le produit de chaque vente. Si le prix de vente saisi est déjà net de cette taxe, elle est déduite deux fois et les espèces paraissent trop basses.
 
-**1. ~~Les frais de transaction étaient déduits deux fois du résultat de la période~~**
-Les `autres_frais` sont déjà inclus dans `montant_net`, donc dans le PRU (achats) et dans le gain brut (ventes). `resultat_net_periode` les soustrayait une seconde fois via `frais_transactions`.
-*Exemple* : achat de 10 × 100 avec 10 DH de frais, puis vente de 10 × 120 avec 10 DH de frais. Le gain brut vaut déjà 1190 − 1010 = 180, et le gain net 153. Le dashboard affichait 153 − 20 = 133 au lieu de 153.
-*Correction appliquée* : `frais_transactions` retiré du calcul de `resultat_net_periode` (le KPI reste affiché, à titre d'information uniquement). Voir [backend/routes/bourse.py](backend/routes/bourse.py) (recherche `resultat_periode`).
+**4. Couverture des tests**
+Les tests couvrent les calculs Bourse, le renommage et les 404 du Budget, et les apports/retraits (18 tests). L'authentification, la limitation des connexions et les calculs de `rapports.py` n'ont pas de tests automatisés.
 
-**2. ~~Le PRU était calculé sur tout l'historique, y compris les achats postérieurs à une vente~~**
-*Exemple* : achat de 10 × 100 en janvier, vente de 10 × 120 en février, rachat de 10 × 200 en mars. L'ancien PRU global valait (1000 + 2000) ÷ 20 = 150, donc la vente de février affichait une perte de −300 au lieu d'un gain de +200, et la position de mars une valeur comptable de 1500 au lieu de 2000.
-*Correction appliquée* : `_positions_et_gains()` parcourt maintenant les transactions dans l'ordre chronologique, titre par titre, avec un état courant (quantité détenue, coût restant). À un achat, la quantité et le coût s'ajoutent. À une vente, le gain est calculé avec le PRU **courant**, puis `PRU courant × qté` est retiré du coût restant.
+**5. Limitation des connexions en mémoire**
+Le compteur d'échecs est remis à zéro au redémarrage et propre à chaque processus serveur. Le blocage se fait par nom d'utilisateur (l'adresse IP n'est pas fiable derrière le proxy de l'hébergeur) : quelqu'un qui connaît le nom d'utilisateur peut bloquer la connexion pendant 15 minutes.
 
-**3. ~~La performance latente était arrondie à 2 décimales alors que c'est une fraction~~**
-`_r(0.0534)` donnait `0.05`, et le frontend affichait « 5,00 % » au lieu de « 5,34 % ».
-*Correction appliquée* : nouvelle fonction `_r4()` (arrondi à 4 décimales), utilisée pour `performance_latente` dans les positions et le dashboard.
+**6. Pas d'historique des cours**
+`bourse_prix` ne garde que le dernier cours de chaque titre. La valorisation du portefeuille est donc toujours celle d'aujourd'hui, quelle que soit la période choisie dans le dashboard.
 
-**4. ~~Rien n'empêchait de vendre plus que ce qu'on détient~~**
-*Correction appliquée* : `_valider_vente()` reconstitue l'historique chronologique du titre (avec la nouvelle transaction insérée à sa date) et refuse la vente (HTTP 400) si la quantité détenue passerait sous zéro à un instant quelconque — y compris pour une vente antidatée insérée entre deux transactions existantes.
-
-### 🟠 Bugs fonctionnels — ✅ corrigés le 26/09/2026
-
-**5. ~~Les dates des formulaires Bourse n'étaient jamais préremplies~~**
-Les champs `b-date`, `bd-date` et `bf-date` n'étaient pas initialisés dans `init()`, contrairement à `d-date` et `r-date`. Si l'utilisateur oubliait de choisir une date, l'API répondait 422 et le toast affichait `[object Object]`, car `detail` est un tableau pour les erreurs de validation Pydantic.
-*Correction appliquée* : `init()` initialise maintenant ces trois champs avec `auj()` ; `api()` détecte un `detail` tableau (422 Pydantic) et affiche les messages joints plutôt que `[object Object]`.
-
-**6. ~~Renommer une catégorie « détachait » ses anciennes dépenses~~**
-`depenses.categorie` stocke le nom, pas l'identifiant. Après un renommage, les anciennes dépenses apparaissaient dans « Budget vs Réel » sous l'ancien nom avec un budget de 0. Il en allait de même pour les sources et les paiements.
-*Correction appliquée* : `modifier_categorie`/`modifier_source`/`modifier_paiement` mettent à jour respectivement `depenses.categorie`, `revenus.source` et `depenses.paiement` quand le nom change. Testé par [test_budget.py](backend/tests/test_budget.py). (Les types de paiement ont depuis été retirés, le 29/09/2026.)
-
-**7. ~~Aucune erreur 404 sur les modifications et suppressions du module Budget~~**
-`DELETE /api/depenses/999` renvoyait `{ok: true}`, même si la ligne n'existait pas.
-*Correction appliquée* : toutes les routes de `configuration.py` et `transactions.py` vérifient maintenant `rowcount`/l'existence de la ligne et lèvent une 404, comme le fait déjà le module Bourse.
-
-**8. ~~Plantage au démarrage si le fichier `.env` était incomplet~~**
-Si `ADMIN_UTILISATEUR` ou `ADMIN_MOT_DE_PASSE` manquait, `init_db()` échouait avec une erreur peu claire (`NOT NULL` violée, ou `None.encode()`). Si `DATABASE_URL` manquait, `psycopg` échouait avant même le `print` de app.py.
-*Correction appliquée* : `config.py` lève un `RuntimeError` explicite si `DATABASE_URL` manque ; `init_db()` fait de même pour `ADMIN_UTILISATEUR`/`ADMIN_MOT_DE_PASSE`, mais seulement au moment où ils sont réellement nécessaires (premier démarrage, table `utilisateurs` vide) pour ne pas gêner un redémarrage normal.
-
-### 🟡 Sécurité — ✅ corrigées le 29/09/2026
-
-Corrections choisies pour n'avoir **aucun effet sur les données existantes** : rien ne change dans la base, ni dans le format des dates stockées.
-
-**9. ~~Risque de XSS : des données saisies étaient injectées via `innerHTML` sans échappement~~**
-Une description `<img src=x onerror=alert(1)>` s'exécutait, et un nom contenant `"` cassait l'attribut `value="${c.nom}"` dans Paramètres.
-*Correction appliquée* : fonction `esc()` dans [app.js](frontend/js/app.js), qui remplace `& < > " '`. Elle est appliquée à chaque donnée saisie insérée dans le HTML (catégories, sources, paiements, descriptions, titres, secteurs, libellés), dans app.js et bourse.js. Pour le titre passé à `majCoursBourse(...)` dans un attribut `onchange`, la valeur passe par `JSON.stringify` puis `esc()`, ce qui donne une chaîne JavaScript valide quel que soit son contenu.
-
-**10. ~~Aucune limite de tentatives de connexion~~**
-*Correction appliquée* : classe `LimiteurEchecs` dans [securite.py](backend/securite.py). Après **10 échecs en 15 minutes** pour un même nom d'utilisateur (casse et espaces ignorés), `/api/login` répond **429** pendant 15 minutes, même avec le bon mot de passe. Une connexion réussie remet le compteur à zéro. Le même mécanisme protège `/api/mot_de_passe` (vérification du mot de passe actuel). Les seuils sont réglables dans [config.py](backend/config.py) (`LOGIN_MAX_ECHECS`, `LOGIN_FENETRE_MIN`).
-Limites assumées : le compteur est en mémoire, remis à zéro au redémarrage et propre à chaque processus. Un attaquant qui connaît ton nom d'utilisateur peut bloquer ta connexion pendant 15 minutes : c'est le prix d'un blocage par nom plutôt que par adresse IP, peu fiable derrière le proxy de l'hébergeur.
-
-**11. ~~Validation des dates incomplète dans le module Budget~~**
-*Correction appliquée* : `DepenseIn.date` et `RevenuIn.date` utilisent le type `DateISO` de [schemas.py](backend/schemas.py). Il exige une vraie date au format `AAAA-MM-JJ` (refuse `18/09/2026`, `2026-02-30`, `2026-9-1`…), mais **reste une chaîne** : le stockage en texte, dont dépendent les filtres `LIKE` du Budget, est inchangé.
-
-**12. ~~CORS ouvert à toutes les origines (`allow_origins=["*"]`)~~**
-*Correction appliquée* : CORS est désactivé par défaut. Le frontend est servi par le même serveur, il n'en a pas besoin. Pour héberger un jour le frontend ailleurs, renseigne la variable d'environnement `CORS_ORIGINS` (origines séparées par des virgules, ex : `https://mon-front.example`).
-
-### 🔵 Qualité et performance
-
-13. ~~**Pas de pool de connexions.**~~ ✅ corrigé le 26/09/2026 — `database.py` utilise maintenant un `psycopg_pool.ConnectionPool` partagé (1 à 10 connexions) au lieu d'ouvrir une connexion TCP par `with db()`. Un seul appel au dashboard Bourse en ouvrait 3 à 4 auparavant. Testé sous 50 requêtes concurrentes (Bourse + Budget mêlées) et sur le chemin d'erreur (rollback avant réutilisation) sans corruption ni perte de connexion.
-14. ~~**Filtres de période appliqués en Python.**~~ ✅ corrigé le 26/09/2026 pour les listes (`lister_transactions`, `_dividendes`, `_frais_compte`) : filtre `WHERE date_operation >= ... AND < ...` construit par `_clause_periode()`, au lieu de charger toutes les lignes. Reste volontairement en Python pour les gains/frais du dashboard, dérivés de `_positions_et_gains()` qui doit de toute façon parcourir tout l'historique pour un PRU chronologique correct (voir [§3.10](#310-routesboursepy--module-bourse)).
-15. **Types incohérents** : `TEXT` et `DOUBLE PRECISION` dans le module Budget, `DATE` et `NUMERIC` dans le module Bourse. Des montants en `float` accumulent des erreurs d'arrondi.
-    **Non corrigé, délibérément.** `rapports.py` et `transactions.py` s'appuient massivement sur des fonctions texte SQLite-compatibles (`date LIKE '2026-09-%'`, `substr(date,6,2)`, `substr(date,1,7)`) dans **toutes** les vues (jour/semaine/mois/année, cumul, évolution, grille thermique). Migrer `date` en `DATE` casserait chacune de ces requêtes et demanderait de les réécrire une par une ; migrer `montant`/`budget` en `NUMERIC` ferait remonter des `Decimal` qui plantent dès qu'ils sont mélangés à un littéral `float` Python (ex : `budget_total / 30.44`). Le gain (arrondis plus propres) est réel mais mineur à l'échelle d'un budget personnel ; le risque de régression sur une app déjà en usage réel est disproportionné pour un nettoyage de confort. À reprendre uniquement avec une suite de tests couvrant chaque vue du dashboard Budget au préalable.
-16. ~~**Colonnes mortes** dans `bourse_parametres` et `bourse_transactions`.~~ ✅ corrigé le 26/09/2026 — supprimées par une migration additive (`DROP COLUMN IF EXISTS`, idempotente), vérifiée sans impact sur les transactions réelles existantes.
-17. ~~**`test.py` était mal nommé et incomplet.**~~ ✅ corrigé le 26/09/2026 — remplacé par [scripts/supprimer_bourse.py](backend/scripts/supprimer_bourse.py), qui supprime aussi `bourse_dividendes`, `bourse_frais` et `bourse_titres` (oubliés dans l'ancien script).
-18. **Tests automatisés partiels.** [test_bourse.py](backend/tests/test_bourse.py) (PRU chronologique, frais, arrondi de performance, garde-fou de vente) et [test_budget.py](backend/tests/test_budget.py) (cascade de renommage, 404) — 15 tests au total. L'authentification et les calculs de `rapports.py` n'ont toujours aucun test.
-19. **La TPCVM est calculée vente par vente** : les pertes ne viennent pas compenser les gains de la même année.
-    **Documenté, non corrigé** (26/09/2026) — la règle marocaine de compensation annuelle des plus/moins-values de cession n'est pas confirmée avec assez de certitude pour coder une correction fiscale sans risquer de se tromper dans l'autre sens. Avertissement ajouté dans la docstring de `_positions_et_gains()` et dans l'onglet Paramètres > Fiscalité du frontend, invitant à vérifier auprès d'un professionnel en cas de ventes multiples (gagnantes et perdantes) sur la même année.
-20. ~~Le lanceur `lancer_budget.bat` utilisait le Python du système au lieu du venv.~~ ✅ corrigé le 26/09/2026 — utilise `.venv\Scripts\python.exe` s'il existe, sinon le `python` du système.
-21. ~~`README.md` ne contenait que deux lignes.~~ ✅ déjà résolu — renvoie vers ce document et décrit l'installation, le déploiement et la structure du projet.
-
----
-
-### Priorités suggérées
-
-1. ~~Corriger les calculs Bourse (points 1 à 4), qui faussaient directement les chiffres affichés, et les couvrir par des tests.~~ ✅ fait le 26/09/2026.
-2. ~~Préremplir les dates Bourse et améliorer l'affichage des erreurs 422 (point 5) ; gérer le renommage des catégories (point 6) ; 404 sur le module Budget (point 7) ; erreurs de démarrage explicites (point 8).~~ ✅ fait le 26/09/2026.
-3. ~~Pool de connexions (13), filtres SQL (14), colonnes mortes (16), script de suppression (17), lanceur Windows (20).~~ ✅ fait le 26/09/2026.
-4. ~~Sécurité : échapper le HTML (9), limiter les tentatives de connexion (10), valider les dates du Budget (11), fermer CORS (12).~~ ✅ fait le 29/09/2026.
-5. Types de colonnes du Budget (15) : à ne reprendre qu'avec une suite de tests complète sur `rapports.py` au préalable — voir la justification du point 15.
+**7. Données inutilisées**
+La table `paiements` et la colonne `depenses.paiement` ne sont plus utilisées depuis le retrait des types de paiement. Elles peuvent être supprimées une fois l'historique jugé inutile.
