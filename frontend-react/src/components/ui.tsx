@@ -117,7 +117,7 @@ export function Variation({ actuel, precedent, inverse = false }: { actuel: numb
   const Fleche = hausse ? IconArrowUpRight : IconArrowDownRight;
   return (
     <Tooltip label="par rapport à la période précédente">
-      <Badge variant="light" color={bon ? 'menthe' : 'rouge'} size="sm" radius="sm" leftSection={<Fleche size={12} stroke={2.4} />}>
+      <Badge variant="light" color={bon ? 'emeraude' : 'rouge'} size="sm" radius="sm" leftSection={<Fleche size={12} stroke={2.4} />}>
         {Math.abs(delta).toFixed(0)}%
       </Badge>
     </Tooltip>

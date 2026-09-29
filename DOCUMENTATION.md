@@ -414,7 +414,7 @@ Application React d'une seule page, dans `frontend-react/src/`. Il n'y a pas de 
 src/
 ├── main.tsx              Fournisseurs : Mantine, dates (fr, lundi), TanStack Query, fenêtres, notifications
 ├── App.tsx               Connexion, barre latérale (ordinateur) / barre d'onglets du bas (mobile), état de navigation
-├── theme.ts              Thème Mantine (couleurs safran / menthe / océan, échelle sombre, polices)
+├── theme.ts              Thème Mantine « indigo & ardoise » : marque indigo, rose (dépenses), bleu (revenus), émeraude (épargne)
 ├── global.css            Couleurs métier, fond dégradé et trame zellige, grille thermique
 ├── lib/
 │   ├── api.ts            api() : fetch, message d'erreur du serveur, 401 → écran de connexion

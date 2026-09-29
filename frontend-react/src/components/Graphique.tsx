@@ -8,8 +8,8 @@ import { useMediaQuery } from '@mantine/hooks';
 import { fmt, nombreFr } from '../lib/format';
 
 const COULEURS = {
-  light: { texte: '#64708c', grille: 'rgba(27,36,55,.07)', infobulle: '#1b2437' },
-  dark: { texte: '#8d98b4', grille: 'rgba(141,152,180,.12)', infobulle: '#1f2942' },
+  light: { texte: '#6b7280', grille: 'rgba(17,24,39,.07)', infobulle: '#111827' },
+  dark: { texte: '#9aa1ad', grille: 'rgba(154,161,173,.12)', infobulle: '#262a33' },
 };
 
 /** À appeler au rendu de la racine : les graphiques lisent ces valeurs par défaut à leur création */
@@ -21,8 +21,8 @@ export function appliquerThemeGraphiques(schema: 'light' | 'dark') {
   ChartJS.defaults.font.size = 11.5;
   const tip = ChartJS.defaults.plugins.tooltip;
   tip.backgroundColor = c.infobulle;
-  tip.titleColor = '#e8edf7';
-  tip.bodyColor = '#c3cadb';
+  tip.titleColor = '#f3f4f6';
+  tip.bodyColor = '#d1d5db';
   tip.padding = 10;
   tip.cornerRadius = 8;
   tip.boxPadding = 4;

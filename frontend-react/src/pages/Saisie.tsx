@@ -21,7 +21,7 @@ export function Saisie() {
         <Grid.Col span={{ base: 12, md: 5 }}>
           <Carte className="colle" titre="Nouvelle opération" description="Dépense ou revenu, saisi en quelques secondes">
             <SegmentedControl fullWidth mb="md" value={type} onChange={v => setType(v as typeof type)}
-              color={type === 'depense' ? 'safran' : 'ocean'}
+              color={type === 'depense' ? 'rose' : 'bleu'}
               data={[
                 { value: 'depense', label: <Group gap={6} justify="center" wrap="nowrap"><IconMinus size={15} />Dépense</Group> },
                 { value: 'revenu', label: <Group gap={6} justify="center" wrap="nowrap"><IconPlus size={15} />Revenu</Group> },
@@ -71,7 +71,7 @@ function FormDepense() {
         <TextInput label="Description (optionnel)" placeholder="ex : courses Marjane"
                    value={description} onChange={e => setDescription(e.currentTarget.value)} />
       </SimpleGrid>
-      <Button mt="xs" size="md" onClick={ajouter} loading={ecrire.isPending}>Ajouter la dépense</Button>
+      <Button mt="xs" size="md" color="rose" onClick={ajouter} loading={ecrire.isPending}>Ajouter la dépense</Button>
     </Stack>
   );
 }
@@ -112,7 +112,7 @@ function FormRevenu() {
         <TextInput placeholder="Précise la source..." value={autre} onChange={e => setAutre(e.currentTarget.value)} />
       )}
       <ChampDate value={date} onChange={setDate} />
-      <Button mt="xs" size="md" color="ocean" onClick={ajouter} loading={ecrire.isPending}>Ajouter le revenu</Button>
+      <Button mt="xs" size="md" color="bleu" onClick={ajouter} loading={ecrire.isPending}>Ajouter le revenu</Button>
     </Stack>
   );
 }
@@ -168,7 +168,7 @@ function TransactionsDuMois({ mois }: { mois: string }) {
         <Vide icone={IconReceipt}>Aucune transaction ce mois — commence ta saisie !</Vide>
       ) : (
         <Stack gap="md">
-          <Group grow gap="sm" p="sm" style={{ borderRadius: 'var(--mantine-radius-md)', background: 'light-dark(var(--mantine-color-gray-0), rgba(141,152,180,.06))' }}>
+          <Group grow gap="sm" p="sm" style={{ borderRadius: 'var(--mantine-radius-md)', background: 'light-dark(var(--mantine-color-gray-0), rgba(154,161,173,.06))' }}>
             <Resume label="Dépenses" valeur={fmt(totalDep)} couleur={T.dep} />
             <Resume label="Revenus" valeur={fmt(totalRev)} couleur={T.rev} />
             <Resume label="Solde" valeur={fmt(totalRev - totalDep)} couleur={totalRev - totalDep >= 0 ? T.ep : T.neg} />
@@ -181,7 +181,7 @@ function TransactionsDuMois({ mois }: { mois: string }) {
                   const dep = l.type === 'depenses';
                   return (
                     <Group key={l.type + l.id} className="ligne-op" wrap="nowrap" gap="sm" px={6} py={8}>
-                      <Pastille icone={dep ? IconArrowUpRight : IconArrowDownLeft} couleur={dep ? 'safran' : 'ocean'} taille={34} />
+                      <Pastille icone={dep ? IconArrowUpRight : IconArrowDownLeft} couleur={dep ? 'rose' : 'bleu'} taille={34} />
                       <Box style={{ flex: 1, minWidth: 0 }}>
                         <Text fz="sm" fw={600} truncate>{l.titre}</Text>
                         {l.detail && <Text fz="xs" c="dimmed" truncate>{l.detail}</Text>}

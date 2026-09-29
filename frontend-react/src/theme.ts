@@ -1,18 +1,21 @@
-/* Thème Mantine : nuit d'encre · safran (dépenses) · menthe (épargne) · océan (revenus). */
+/* Thème Mantine « indigo & ardoise » : indigo (marque) · rose (dépenses) · bleu (revenus) · émeraude (épargne). */
 import { createTheme, type MantineColorsTuple } from '@mantine/core';
 
-const safran: MantineColorsTuple = ['#fff0e8', '#ffdfd1', '#fbbda2', '#f8996f', '#f57b45', '#f2682b', '#eb6834', '#c44613', '#a83b0f', '#8c300b'];
-const menthe: MantineColorsTuple = ['#e3fbf2', '#d0f4e6', '#a3e8cc', '#72dbb0', '#4ad099', '#31c98a', '#0f9e6e', '#0b8a5f', '#067a53', '#006a46'];
-const ocean: MantineColorsTuple = ['#e2f7ff', '#cdeafb', '#9fd3f3', '#6dbbeb', '#44a7e5', '#2a9ae1', '#0e8bbd', '#0a7aa8', '#006c96', '#005d84'];
-const rouge: MantineColorsTuple = ['#ffeaec', '#fdd4d6', '#f4a7ab', '#ec777e', '#e64f58', '#e2363f', '#d64550', '#c3303a', '#ae2732', '#991b28'];
-const violet: MantineColorsTuple = ['#f0edff', '#dcd7fb', '#b6acf3', '#8d7eeb', '#6b58e5', '#5640e1', '#4a3aa7', '#3f2ec8', '#3628b3', '#2b209e'];
-// Échelle sombre : [0] texte, [2] texte atténué, [4] bordures, [6] cartes, [7] fond de page
-const nuit: MantineColorsTuple = ['#e8edf7', '#c3cadb', '#8d98b4', '#5d6a8a', '#232d47', '#1a2338', '#121a2d', '#0b1120', '#080d19', '#050912'];
+// Couleur de marque : indigo (boutons, navigation, logo)
+const marque: MantineColorsTuple = ['#eef2ff', '#e0e7ff', '#c7d2fe', '#a5b4fc', '#818cf8', '#6f73f4', '#6366f1', '#4f46e5', '#4338ca', '#3730a3'];
+// Couleurs métier : dépenses, revenus, épargne, négatif, avertissement
+const rose: MantineColorsTuple = ['#fff1f2', '#ffe4e6', '#fecdd3', '#fda4af', '#fb7185', '#f75672', '#f43f5e', '#e11d48', '#be123c', '#9f1239'];
+const bleu: MantineColorsTuple = ['#eff6ff', '#dbeafe', '#bfdbfe', '#93c5fd', '#60a5fa', '#4b8ff8', '#3b82f6', '#2563eb', '#1d4ed8', '#1e40af'];
+const emeraude: MantineColorsTuple = ['#ecfdf5', '#d1fae5', '#a7f3d0', '#6ee7b7', '#34d399', '#1fc88e', '#10b981', '#059669', '#047857', '#065f46'];
+const rouge: MantineColorsTuple = ['#fef2f2', '#fee2e2', '#fecaca', '#fca5a5', '#f87171', '#f35656', '#ef4444', '#dc2626', '#b91c1c', '#991b1b'];
+const ambre: MantineColorsTuple = ['#fffbeb', '#fef3c7', '#fde68a', '#fcd34d', '#fbbf24', '#f8ad15', '#f59e0b', '#d97706', '#b45309', '#92400e'];
+// Échelle ardoise (sombre) : [0] texte, [2] texte atténué, [4] bordures, [6] cartes, [7] fond de page
+const ardoise: MantineColorsTuple = ['#e6e8ec', '#c4c8d0', '#9aa1ad', '#6b7280', '#2a2e37', '#21252d', '#171a21', '#0f1115', '#0b0d10', '#07080a'];
 
 export const theme = createTheme({
-  primaryColor: 'safran',
+  primaryColor: 'marque',
   primaryShade: { light: 6, dark: 6 },
-  colors: { safran, menthe, ocean, rouge, violet, dark: nuit },
+  colors: { marque, rose, bleu, emeraude, rouge, ambre, dark: ardoise },
   fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif",
   fontFamilyMonospace: "'Space Grotesk', monospace",
   headings: {

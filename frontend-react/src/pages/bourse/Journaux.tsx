@@ -77,7 +77,7 @@ export function JournalTransactions() {
   return (
     <>
       <Grille2>
-        <Carte titre="Achat / Vente" description="Enregistre une opération de ton relevé de courtage" icone={<Pastille icone={IconArrowsExchange} couleur="safran" />}>
+        <Carte titre="Achat / Vente" description="Enregistre une opération de ton relevé de courtage" icone={<Pastille icone={IconArrowsExchange} couleur="marque" />}>
           <Stack gap="sm">
             <ChampDate value={date} onChange={setDate} />
             <Select label="Type d'instrument" value={instrument} onChange={v => v && setInstrument(v)} allowDeselect={false}
@@ -180,12 +180,12 @@ export function JournalDividendes() {
   return (
     <>
       <Grille2>
-        <Carte titre="Dividende reçu" description="Montant net crédité sur ton compte" icone={<Pastille icone={IconCoins} couleur="ocean" />}>
+        <Carte titre="Dividende reçu" description="Montant net crédité sur ton compte" icone={<Pastille icone={IconCoins} couleur="bleu" />}>
           <Stack gap="sm">
             <ChampDate value={date} onChange={setDate} />
             <ChampTitre value={titre} onChange={setTitre} />
             <ChampMontant label="Montant net reçu (DH)" value={montant} onChange={setMontant} />
-            <Button mt="xs" color="ocean" onClick={ajouter} loading={ecrire.isPending}>Ajouter le dividende</Button>
+            <Button mt="xs" color="bleu" onClick={ajouter} loading={ecrire.isPending}>Ajouter le dividende</Button>
           </Stack>
         </Carte>
         <Aide titre="Saisie manuelle">
@@ -240,7 +240,7 @@ export function JournalFrais() {
   return (
     <>
       <Grille2>
-        <Carte titre="Frais de compte" description="Abonnement, tenue de compte, droits de garde…" icone={<Pastille icone={IconReceiptTax} couleur="safran" />}>
+        <Carte titre="Frais de compte" description="Abonnement, tenue de compte, droits de garde…" icone={<Pastille icone={IconReceiptTax} couleur="rose" />}>
           <Stack gap="sm">
             <ChampDate value={date} onChange={setDate} />
             <TextInput label="Libellé" placeholder="ex : Abonnement Wafabourse" value={libelle} onChange={e => setLibelle(e.currentTarget.value)} />
@@ -305,7 +305,7 @@ export function JournalMouvements() {
   return (
     <>
       <Grille2>
-        <Carte titre="Apport / Retrait" description="Virement entre ta banque et le compte Bourse" icone={<Pastille icone={IconBuildingBank} couleur="ocean" />}>
+        <Carte titre="Apport / Retrait" description="Virement entre ta banque et le compte Bourse" icone={<Pastille icone={IconBuildingBank} couleur="bleu" />}>
           <Stack gap="sm">
             <ChampDate value={date} onChange={setDate} />
             <Select label="Type" value={type} onChange={v => v && setType(v)} allowDeselect={false}
@@ -314,7 +314,7 @@ export function JournalMouvements() {
             <ChampMontant label="Montant (DH)" value={montant} onChange={setMontant} />
             <TextInput label="Libellé (optionnel)" placeholder="ex : Virement vers Wafabourse"
                        value={libelle} onChange={e => setLibelle(e.currentTarget.value)} />
-            <Button mt="xs" color="ocean" onClick={ajouter} loading={ecrire.isPending}>Ajouter le mouvement</Button>
+            <Button mt="xs" color="bleu" onClick={ajouter} loading={ecrire.isPending}>Ajouter le mouvement</Button>
           </Stack>
         </Carte>
         <Aide titre="Comment ça marche">

@@ -178,31 +178,31 @@ export function DashboardBourse({ nav }: { nav: NavBourse }) {
         <>
           <TitreSection>Compte Bourse</TitreSection>
           <GrilleKpi>
-            <Kpi label="Patrimoine Bourse" icone={IconBuildingBank} teinte="ocean" valeur={fmt(d.patrimoine_total)} couleur={T.rev} aide="titres + espèces disponibles" />
+            <Kpi label="Patrimoine Bourse" icone={IconBuildingBank} teinte="bleu" valeur={fmt(d.patrimoine_total)} couleur={T.rev} aide="titres + espèces disponibles" />
             <Kpi label="Espèces disponibles" icone={IconCash} teinte="gray" valeur={fmt(d.especes_disponibles)} couleur={d.especes_disponibles >= 0 ? undefined : T.neg}
                  aide={d.especes_disponibles < 0 ? 'négatif : un apport n’a sans doute pas été saisi' : 'non investi, prêt à réinvestir'} />
             <Kpi label="Apports nets" icone={IconArrowsExchange} teinte="gray" valeur={fmt(d.apports_nets)} aide="argent sorti de ta banque (apports − retraits)" />
-            <Kpi label="Performance globale" icone={IconTrendingUp} teinte="menthe" couleur={signe(d.performance_globale)}
+            <Kpi label="Performance globale" icone={IconTrendingUp} teinte="emeraude" couleur={signe(d.performance_globale)}
                  valeur={(d.performance_globale >= 0 ? '+' : '') + fmt(d.performance_globale)}
                  aide={d.apports_nets > 0 ? pctFr(d.performance_globale_pct) + ' des apports nets' : 'saisis tes apports pour la calculer'} />
           </GrilleKpi>
 
           <TitreSection>Portefeuille actuel</TitreSection>
           <GrilleKpi>
-            <Kpi label="Valeur de marché" icone={IconChartDonut} teinte="ocean" valeur={fmt(d.valeur_marche)} couleur={T.rev} aide={`coût d'acquisition : ${fmt(d.cout_acquisition)}`} />
-            <Kpi label="Plus/moins-value latente" icone={IconChartLine} teinte="menthe" valeur={fmt(d.plus_value_latente)} couleur={signe(d.plus_value_latente)}
+            <Kpi label="Valeur de marché" icone={IconChartDonut} teinte="bleu" valeur={fmt(d.valeur_marche)} couleur={T.rev} aide={`coût d'acquisition : ${fmt(d.cout_acquisition)}`} />
+            <Kpi label="Plus/moins-value latente" icone={IconChartLine} teinte="emeraude" valeur={fmt(d.plus_value_latente)} couleur={signe(d.plus_value_latente)}
                  aide={pctFr(d.performance_latente)} />
           </GrilleKpi>
 
           <TitreSection>Résultat — {libelle}</TitreSection>
           <GrilleKpi>
-            <Kpi label="Gains nets réalisés" icone={IconReportMoney} teinte="menthe" valeur={fmt(d.gains_nets_realises)} couleur={signe(d.gains_nets_realises)}
+            <Kpi label="Gains nets réalisés" icone={IconReportMoney} teinte="emeraude" valeur={fmt(d.gains_nets_realises)} couleur={signe(d.gains_nets_realises)}
                  aide={`TPCVM : ${fmt(d.tpcvm_total)}`} />
-            <Kpi label="Dividendes nets" icone={IconCoins} teinte="menthe" valeur={fmt(d.dividendes_nets)} couleur={T.ep} />
-            <Kpi label="Frais de transactions" icone={IconReceipt} teinte="safran" valeur={fmt(d.frais_transactions_totaux)} couleur={T.dep}
+            <Kpi label="Dividendes nets" icone={IconCoins} teinte="emeraude" valeur={fmt(d.dividendes_nets)} couleur={T.ep} />
+            <Kpi label="Frais de transactions" icone={IconReceipt} teinte="rose" valeur={fmt(d.frais_transactions_totaux)} couleur={T.dep}
                  aide="déjà déduits du gain net ci-dessus — pour info" />
-            <Kpi label="Frais de compte" icone={IconReceiptTax} teinte="safran" valeur={fmt(d.frais_compte_totaux)} couleur={T.dep} />
-            <Kpi label="Résultat net de la période" icone={IconScale} teinte="violet" valeur={fmt(d.resultat_net_periode)} couleur={signe(d.resultat_net_periode)}
+            <Kpi label="Frais de compte" icone={IconReceiptTax} teinte="rose" valeur={fmt(d.frais_compte_totaux)} couleur={T.dep} />
+            <Kpi label="Résultat net de la période" icone={IconScale} teinte="marque" valeur={fmt(d.resultat_net_periode)} couleur={signe(d.resultat_net_periode)}
                  aide="gains nets + dividendes − frais de compte" />
             <Kpi label="Apports / retraits" icone={IconBuildingBank} teinte="gray" valeur={fmt(d.apports_periode - d.retraits_periode)}
                  aide={`apports : ${fmt(d.apports_periode)} · retraits : ${fmt(d.retraits_periode)}`} />

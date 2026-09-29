@@ -1,22 +1,23 @@
 /* Couleurs métier (identiques dans les deux thèmes) et surfaces */
 :root {
-  --c-dep: #eb6834;    /* dépenses */
-  --c-rev: #0e8bbd;    /* revenus */
-  --c-ep: #0f9e6e;     /* épargne / positif */
-  --c-neg: #d64550;    /* négatif */
-  --c-warn: #e8a33c;   /* avertissement */
-  --bg-glow-1: rgba(235, 104, 52, .07);
-  --bg-glow-2: rgba(14, 139, 189, .05);
-  --surface-navbar: #0d1426;
-  --bordure-douce: rgba(141, 152, 180, .14);
+  --c-brand: #6366f1;  /* marque : indigo */
+  --c-dep: #f43f5e;    /* dépenses : rose */
+  --c-rev: #3b82f6;    /* revenus : bleu */
+  --c-ep: #10b981;     /* épargne / positif : émeraude */
+  --c-neg: #ef4444;    /* négatif : rouge */
+  --c-warn: #f59e0b;   /* avertissement : ambre */
+  --bg-glow-1: rgba(99, 102, 241, .08);
+  --bg-glow-2: rgba(59, 130, 246, .04);
+  --surface-navbar: #121419;
+  --bordure-douce: rgba(154, 161, 173, .13);
 }
 
 :root[data-mantine-color-scheme='light'] {
-  --mantine-color-body: #f4f6fa;
-  --bg-glow-1: rgba(235, 104, 52, .06);
-  --bg-glow-2: rgba(14, 139, 189, .05);
+  --mantine-color-body: #f7f8fa;
+  --bg-glow-1: rgba(99, 102, 241, .06);
+  --bg-glow-2: rgba(59, 130, 246, .03);
   --surface-navbar: #ffffff;
-  --bordure-douce: rgba(27, 36, 55, .08);
+  --bordure-douce: rgba(17, 24, 39, .08);
 }
 
 html { overflow-x: hidden; }
@@ -34,7 +35,7 @@ body {
 
 /* Bordures de cartes plus discrètes */
 .mantine-Card-root { border-color: var(--bordure-douce) !important; }
-:root[data-mantine-color-scheme='light'] .mantine-Card-root { box-shadow: 0 1px 2px rgba(27, 36, 55, .04), 0 4px 16px rgba(27, 36, 55, .04); }
+:root[data-mantine-color-scheme='light'] .mantine-Card-root { box-shadow: 0 1px 2px rgba(17, 24, 39, .04), 0 4px 16px rgba(17, 24, 39, .04); }
 
 /* Chiffres : Space Grotesk, alignés en colonnes */
 .chiffre { font-family: 'Space Grotesk', 'Inter', sans-serif; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
@@ -57,7 +58,7 @@ th.num > button > div { justify-content: flex-end; }
 
 /* Ligne de transaction (liste Saisie) */
 .ligne-op { border-radius: var(--mantine-radius-md); transition: background .12s; }
-.ligne-op:hover { background: light-dark(rgba(27, 36, 55, .035), rgba(141, 152, 180, .06)); }
+.ligne-op:hover { background: light-dark(rgba(17, 24, 39, .035), rgba(154, 161, 173, .06)); }
 .ligne-op .suppr { opacity: 0; transition: opacity .12s; }
 .ligne-op:hover .suppr, .ligne-op:focus-within .suppr { opacity: 1; }
 @media (hover: none) { .ligne-op .suppr { opacity: .7; } }

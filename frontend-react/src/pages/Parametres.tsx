@@ -92,7 +92,7 @@ export function Parametres({ onMdpChange }: { onMdpChange: () => void }) {
   }
 
   const objectifCarte = (
-      <Carte titre="Objectif d'épargne mensuel" description="Sert à colorer l'épargne et à compter les mois réussis" icone={<Pastille icone={IconTarget} couleur="menthe" />}>
+      <Carte titre="Objectif d'épargne mensuel" description="Sert à colorer l'épargne et à compter les mois réussis" icone={<Pastille icone={IconTarget} couleur="emeraude" />}>
         <Group gap="xs" wrap="nowrap">
           <NumberInput value={objectif} onChange={setObjectif} min={0} allowNegative={false} decimalSeparator="," thousandSeparator=" "
                        rightSection="DH" style={{ flex: 1 }} aria-label="Objectif d'épargne mensuel" />
@@ -105,7 +105,7 @@ export function Parametres({ onMdpChange }: { onMdpChange: () => void }) {
   );
 
   const categoriesCarte = (
-      <Carte titre="Catégories et budgets mensuels" description="Budget en DH par mois ; désactiver garde les dépenses existantes" icone={<Pastille icone={IconCategory} couleur="safran" />}>
+      <Carte titre="Catégories et budgets mensuels" description="Budget en DH par mois ; désactiver garde les dépenses existantes" icone={<Pastille icone={IconCategory} couleur="marque" />}>
         {isPending ? <Chargement /> : (
           <Stack gap="xs">
             {/* key incluant les valeurs : la ligne se réinitialise après un rechargement */}
@@ -124,7 +124,7 @@ export function Parametres({ onMdpChange }: { onMdpChange: () => void }) {
   );
 
   const sourcesCarte = (
-      <Carte titre="Sources de revenus" description="Proposées dans le formulaire de revenu" icone={<Pastille icone={IconBriefcase} couleur="ocean" />}>
+      <Carte titre="Sources de revenus" description="Proposées dans le formulaire de revenu" icone={<Pastille icone={IconBriefcase} couleur="bleu" />}>
         {isPending ? <Chargement /> : !config?.sources.length ? <Vide>Aucune source configurée</Vide> : (
           <Stack gap="xs">
             {config.sources.map(s => <LigneSource key={`${s.id}|${s.nom}`} s={s} />)}

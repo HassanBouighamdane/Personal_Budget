@@ -40,7 +40,7 @@ export function Bourse({ nav }: { nav: NavBourse }) {
       <Stack gap="sm">
         <EnTetePage titre="Bourse" description="Portefeuille à la Bourse de Casablanca" />
         <ScrollArea type="never" offsetScrollbars={false}>
-          <Tabs value={nav.vue} onChange={v => v && nav.setVue(v as VueBourse)} variant="default" color="safran">
+          <Tabs value={nav.vue} onChange={v => v && nav.setVue(v as VueBourse)} variant="default" color="marque">
             <Tabs.List style={{ flexWrap: 'nowrap' }}>
               {VUES.map(({ value, label, Icone }) => (
                 <Tabs.Tab key={value} value={value} leftSection={<Icone size={16} stroke={1.7} />} fw={500} fz={13.5}

@@ -65,7 +65,7 @@ export function ParametresBourse() {
 
   return (
     <>
-      <Carte titre="Titres BVC" description="Autocomplétion du champ « Titre » et regroupement par secteur" icone={<Pastille icone={IconBuildingSkyscraper} couleur="ocean" />}>
+      <Carte titre="Titres BVC" description="Autocomplétion du champ « Titre » et regroupement par secteur" icone={<Pastille icone={IconBuildingSkyscraper} couleur="bleu" />}>
         {isPending ? <Chargement /> : !titres?.length ? <Vide>Aucun titre configuré</Vide> : (
           <ScrollArea.Autosize mah={340} type="auto" offsetScrollbars>
             <Stack gap="xs">
@@ -89,7 +89,7 @@ export function ParametresBourse() {
         </Stack>
       </Carte>
 
-      <Carte titre="Fiscalité" icone={<Pastille icone={IconReceiptTax} couleur="violet" />}>
+      <Carte titre="Fiscalité" icone={<Pastille icone={IconReceiptTax} couleur="marque" />}>
         <Stack gap="xs">
           <TextInput label="Taux TPCVM — plus-values de cession (%)" inputMode="decimal" maw={320}
                      value={tpcvm} onChange={e => setTpcvm(e.currentTarget.value)} rightSection="%" />

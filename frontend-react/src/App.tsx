@@ -70,7 +70,7 @@ export default function App() {
     setEtat('deconnecte');
   }
 
-  if (etat === 'verification') return <Center h="100vh"><Loader color="safran" type="dots" /></Center>;
+  if (etat === 'verification') return <Center h="100vh"><Loader color="marque" type="dots" /></Center>;
   if (etat === 'deconnecte') return <Connexion onConnecte={demarrer} />;
 
   const jour = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
@@ -114,7 +114,7 @@ export default function App() {
           <Stack gap={4}>
             {ONGLETS.map(({ id, label, aide, Icone }) => (
               <NavLink key={id} className="nav-lien" label={label} description={aide} active={onglet === id}
-                       onClick={() => setOnglet(id)} variant="light" color="safran"
+                       onClick={() => setOnglet(id)} variant="light" color="marque"
                        leftSection={<Icone size={20} stroke={1.7} />} aria-current={onglet === id ? 'page' : undefined} />
             ))}
           </Stack>
@@ -124,7 +124,7 @@ export default function App() {
           <Text fz="xs" c="dimmed" tt="capitalize" px={6} mb="sm">{jour}</Text>
           <Group justify="space-between" wrap="nowrap" px={2}>
             <Group gap={10} wrap="nowrap" style={{ minWidth: 0 }}>
-              <Avatar color="safran" radius="xl" size={34}>{utilisateur.slice(0, 2).toUpperCase()}</Avatar>
+              <Avatar color="marque" radius="xl" size={34}>{utilisateur.slice(0, 2).toUpperCase()}</Avatar>
               <Box style={{ minWidth: 0 }}>
                 <Text fz="sm" fw={600} truncate>{utilisateur}</Text>
                 <Text fz="xs" c="dimmed">Connecté</Text>
@@ -156,12 +156,12 @@ export default function App() {
               <UnstyledButton key={id} onClick={() => setOnglet(id)} aria-current={actif ? 'page' : undefined}
                 style={{
                   borderRadius: 'var(--mantine-radius-md)', padding: '6px 0', textAlign: 'center',
-                  color: actif ? 'var(--c-dep)' : 'var(--mantine-color-dimmed)',
+                  color: actif ? 'var(--c-brand)' : 'var(--mantine-color-dimmed)',
                   transition: 'color .15s',
                 }}>
                 <Box mx="auto" w={48} py={3} style={{
                   borderRadius: 999, transition: 'background .15s',
-                  background: actif ? 'color-mix(in srgb, var(--c-dep) 14%, transparent)' : undefined,
+                  background: actif ? 'color-mix(in srgb, var(--c-brand) 14%, transparent)' : undefined,
                 }}>
                   <Icone size={21} stroke={actif ? 2.1 : 1.6} style={{ display: 'block', margin: '0 auto' }} />
                 </Box>
