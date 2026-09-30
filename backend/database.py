@@ -262,6 +262,11 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_bourse_mvt_date ON bourse_mouvements (date_operation);
 
+        -- TPCVM saisie manuellement sur chaque vente (montant du relevé de courtage).
+        -- NULL = vente antérieure à cette colonne : remplie une seule fois au démarrage
+        -- avec l'ancienne valeur calculée (cf. routes/bourse.py, remplir_tpcvm_manquantes).
+        ALTER TABLE bourse_transactions ADD COLUMN IF NOT EXISTS tpcvm NUMERIC(14,4);
+
         """)
 
         # ------------------------------------------------------------------

@@ -110,7 +110,7 @@ export function Gains() {
   const th = { tri, basculer };
 
   return (
-    <Carte titre="Gains réalisés & TPCVM" description="Calculés vente par vente, PRU en coût moyen pondéré">
+    <Carte titre="Gains réalisés & TPCVM" description="PRU en coût moyen pondéré, TPCVM saisie sur chaque vente">
       {isPending ? <Chargement /> : !data?.length ? <Vide>Aucune vente enregistrée pour le moment.</Vide> : (
         <Tableau minWidth={640}>
           <Table.Thead>

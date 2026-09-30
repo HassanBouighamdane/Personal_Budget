@@ -19,7 +19,7 @@ from fastapi import HTTPException
 
 from database import db
 from schemas import TransactionBourseCreate
-from routes.bourse import _positions_et_gains, obtenir_dashboard, creer_transaction
+from routes.bourse import _positions_et_gains, obtenir_dashboard, creer_transaction, remplir_tpcvm_manquantes
 
 TITRE_TEST = "ZZTEST"
 
@@ -44,10 +44,10 @@ def _acheter(date, qte, prix, frais=0):
     ))
 
 
-def _vendre(date, qte, prix, frais=0):
+def _vendre(date, qte, prix, frais=0, tpcvm=0):
     creer_transaction(TransactionBourseCreate(
         date_operation=date, titre=TITRE_TEST, type_instrument="Action",
-        type_operation="Vente", quantite=qte, cours_unitaire=prix, autres_frais=frais,
+        type_operation="Vente", quantite=qte, cours_unitaire=prix, autres_frais=frais, tpcvm=tpcvm,
     ))
 
 
@@ -98,9 +98,9 @@ def test_pru_intact_sans_vente():
 def test_gain_net_compte_les_frais_une_seule_fois():
     """Achat 10x100 +10 DH frais, vente 10x120 +10 DH frais.
     Net achat = 1010, net vente = 1190. Gain brut = 1190-1010 = 180.
-    TPCVM 15% = 27. Gain net = 153 (et non 133 comme avec le double comptage)."""
+    TPCVM saisie = 27. Gain net = 153 (et non 133 comme avec le double comptage)."""
     _acheter("2026-01-10", 10, 100, frais=10)
-    _vendre("2026-02-10", 10, 120, frais=10)
+    _vendre("2026-02-10", 10, 120, frais=10, tpcvm=27)
 
     _, gains, _ = _positions_et_gains()
     gain = _gain_test(gains)
@@ -113,11 +113,61 @@ def test_resultat_periode_ne_double_compte_pas_les_frais():
     moins les frais de transaction une deuxième fois (133)."""
     avant = obtenir_dashboard(mois=None, annee=None)
     _acheter("2026-01-10", 10, 100, frais=10)
-    _vendre("2026-02-10", 10, 120, frais=10)
+    _vendre("2026-02-10", 10, 120, frais=10, tpcvm=27)
     apres = obtenir_dashboard(mois=None, annee=None)
 
     delta = round(apres.resultat_net_periode - avant.resultat_net_periode, 2)
     assert delta == 153.0
+
+
+# ---------------------------------------------------------------------------
+# TPCVM saisie manuellement
+# ---------------------------------------------------------------------------
+def test_tpcvm_saisie_utilisee_telle_quelle():
+    """Gain brut 200 : la TPCVM saisie (31,50) est reprise sans recalcul (15 % donnerait 30),
+    et déduite une seule fois des espèces encaissées."""
+    avant = obtenir_dashboard(mois=None, annee=None)
+    _acheter("2026-01-10", 10, 100)
+    _vendre("2026-02-10", 10, 120, tpcvm=31.5)
+    apres = obtenir_dashboard(mois=None, annee=None)
+
+    _, gains, _ = _positions_et_gains()
+    gain = _gain_test(gains)
+    assert gain.tpcvm == 31.5
+    assert gain.gain_net == 168.5
+    # espèces : −1000 (achat) + 1200 − 31,50 (vente encaissée)
+    assert round(apres.especes_disponibles - avant.especes_disponibles, 2) == 168.5
+
+
+def test_tpcvm_ignoree_sur_un_achat():
+    _acheter("2026-01-10", 10, 100)
+    with db() as c:
+        c.execute("UPDATE bourse_transactions SET tpcvm = NULL WHERE titre = %s", (TITRE_TEST,))
+    creer_transaction(TransactionBourseCreate(
+        date_operation="2026-01-11", titre=TITRE_TEST, type_instrument="Action",
+        type_operation="Achat", quantite=1, cours_unitaire=100, tpcvm=50,
+    ))
+    with db() as c:
+        vals = [r["tpcvm"] for r in c.execute(
+            "SELECT tpcvm FROM bourse_transactions WHERE titre = %s AND date_operation = '2026-01-11'",
+            (TITRE_TEST,)).fetchall()]
+    assert vals == [0]
+
+
+def test_remplissage_des_ventes_anciennes():
+    """Une vente enregistrée avant la saisie manuelle (tpcvm NULL) reçoit une seule fois
+    l'ancienne valeur calculée : taux 15 % × gain brut 200 = 30."""
+    _acheter("2026-01-10", 10, 100)
+    _vendre("2026-02-10", 10, 120)
+    with db() as c:
+        c.execute("UPDATE bourse_transactions SET tpcvm = NULL WHERE titre = %s AND type_operation = 'Vente'",
+                  (TITRE_TEST,))
+        taux = float(c.execute("SELECT taux_tpcvm FROM bourse_parametres LIMIT 1").fetchone()["taux_tpcvm"])
+    remplir_tpcvm_manquantes()
+    with db() as c:
+        val = c.execute("SELECT tpcvm FROM bourse_transactions WHERE titre = %s AND type_operation = 'Vente'",
+                        (TITRE_TEST,)).fetchone()["tpcvm"]
+    assert float(val) == round(200 * taux, 2)
 
 
 # ---------------------------------------------------------------------------

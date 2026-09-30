@@ -32,6 +32,7 @@ from database import init_db, _pool
 from routes import auth, configuration, transactions, rapports, bourse
 
 init_db()
+bourse.remplir_tpcvm_manquantes()
 
 app = FastAPI(title="Mon Budget — API", version="2.2")
 

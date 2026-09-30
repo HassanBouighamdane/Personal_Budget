@@ -10,11 +10,12 @@ se saisissent manuellement, soit ponctuellement sur une transaction (« Autres
 frais »), soit via le journal séparé des frais de compte (abonnement courtier,
 tenue de compte...).
 
-Restent calculés automatiquement (ce sont des calculs indépendants des frais
-de transaction, qu'on ne peut pas simplement « lire » sur un relevé) :
+La TPCVM (taxe sur les profits de cession) est elle aussi saisie
+manuellement sur chaque vente, telle qu'elle figure sur l'avis d'opéré.
+
+Restent calculés automatiquement (on ne peut pas les « lire » sur un relevé) :
     - le PRU (coût moyen pondéré) et les plus/moins-values latentes ;
-    - le gain/perte réalisé à la vente et la TPCVM (taxe sur les profits de
-      cession de valeurs mobilières).
+    - le gain/perte réalisé à la vente (gain net = gain brut − TPCVM saisie).
 
 Les droits de garde ne sont plus estimés automatiquement : à saisir
 manuellement dans le journal des frais de compte (montant réel facturé par
@@ -100,15 +101,18 @@ def _clause_periode(mois: Optional[str], annee: Optional[int]) -> tuple:
 
 
 def _calc_transaction(t: dict) -> dict:
-    """Prix déjà net (aucun frais calculé automatiquement) : montant_net = brut ± autres_frais."""
+    """Prix déjà net (aucun frais calculé automatiquement) : montant_net = brut ± autres_frais.
+    La TPCVM saisie n'est pas incluse dans montant_net : elle est retirée du gain (gain net)
+    et des espèces encaissées, pas du produit de cession qui sert au calcul du gain brut."""
     qte, cours = _d(t["quantite"]), _d(t["cours_unitaire"])
     autres = _d(t["autres_frais"])
     brut = qte * cours
     net = brut + autres if t["type_operation"] == "Achat" else brut - autres
     return {
         **t, "montant_brut": _r(brut), "autres_frais": _r(autres),
-        "total_frais": _r(autres), "montant_net": _r(net),
+        "total_frais": _r(autres), "tpcvm": _r(_d(t["tpcvm"])), "montant_net": _r(net),
         "_net_decimal": net,   # gardé en interne pour les calculs de position/gains
+        "_tpcvm_saisie": t["tpcvm"],   # None = vente ancienne pas encore remplie (cf. remplir_tpcvm_manquantes)
     }
 
 
@@ -177,7 +181,7 @@ def desactiver_titre(titre_id: int):
 
 
 # ---------------------------------------------------------------- transactions
-TX_COLONNES = "id, date_operation, titre, isin, type_instrument, type_operation, quantite, cours_unitaire, autres_frais"
+TX_COLONNES = "id, date_operation, titre, isin, type_instrument, type_operation, quantite, cours_unitaire, autres_frais, tpcvm"
 
 
 @router.get("/transactions", response_model=List[TransactionBourseOut])
@@ -223,11 +227,12 @@ def creer_transaction(t: TransactionBourseCreate):
             _valider_vente(conn, t.titre.strip().upper(), t.date_operation, _d(t.quantite))
         row = conn.execute(
             f"""INSERT INTO bourse_transactions
-                    (date_operation, titre, isin, type_instrument, type_operation, quantite, cours_unitaire, autres_frais)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+                    (date_operation, titre, isin, type_instrument, type_operation, quantite, cours_unitaire, autres_frais, tpcvm)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 RETURNING {TX_COLONNES}""",
             (t.date_operation, t.titre.strip().upper(), t.isin, t.type_instrument,
-             t.type_operation, t.quantite, t.cours_unitaire, t.autres_frais),
+             t.type_operation, t.quantite, t.cours_unitaire, t.autres_frais,
+             t.tpcvm if t.type_operation == "Vente" else 0),
         ).fetchone()
     return _calc_transaction(dict(row))
 
@@ -375,7 +380,7 @@ def supprimer_mouvement(mouvement_id: int):
 
 # ---------------------------------------------------------------- calcul positions / gains (logique commune)
 def _positions_et_gains():
-    """Coût moyen pondéré (mobile) par titre + gain/perte et TPCVM par vente.
+    """Coût moyen pondéré (mobile) par titre + gain/perte par vente (TPCVM saisie).
 
     Chaque titre est traité indépendamment, dans l'ordre chronologique de SES
     transactions : le PRU courant sert à calculer le gain d'une vente, puis le
@@ -384,14 +389,10 @@ def _positions_et_gains():
     lieu avant lui (contrairement à une simple moyenne pondérée sur tout
     l'historique, qui mélangerait les cycles achat→vente→rachat).
 
-    Simplification fiscale assumée : la TPCVM est calculée vente par vente
-    (15 % du gain si positif, 0 si la vente est en perte) — les pertes d'une
-    vente ne viennent PAS compenser les gains d'une autre vente sur la même
-    année, contrairement à la compensation annuelle que prévoit la
-    réglementation marocaine sur les profits de cession de valeurs mobilières.
-    À vérifier/ajuster auprès d'un professionnel si tu as plusieurs ventes
-    (gagnantes et perdantes) sur la même année fiscale : le total affiché ici
-    peut alors surestimer l'impôt réellement dû."""
+    La TPCVM de chaque vente est celle saisie sur la transaction. Seules les ventes
+    antérieures à cette saisie (tpcvm NULL) utilisent encore l'ancien calcul
+    (taux_tpcvm × gain brut si positif), le temps que remplir_tpcvm_manquantes()
+    enregistre cette valeur en base au démarrage."""
     with db() as conn:
         params = _parametres_dict(conn)
         txs = [dict(r) for r in conn.execute(
@@ -426,12 +427,16 @@ def _positions_et_gains():
                 pru_courant = cout_restant / qte_detenue if qte_detenue > 0 else Decimal(0)
                 net = t["_net_decimal"]
                 gain_brut = net - (pru_courant * qte)
-                tpcvm = gain_brut * tpcvm_rate if gain_brut > 0 else Decimal(0)
+                if t["_tpcvm_saisie"] is not None:
+                    tpcvm = _d(t["_tpcvm_saisie"])
+                else:
+                    tpcvm = gain_brut * tpcvm_rate if gain_brut > 0 else Decimal(0)
+                taux_effectif = tpcvm / gain_brut if gain_brut > 0 else Decimal(0)
                 gain_net = gain_brut - tpcvm
                 gains.append(GainRealise(
                     id=t["id"], date_operation=t["date_operation"], titre=titre, type_instrument=t["type_instrument"],
                     quantite=_r(qte), cours_vente=_r(_d(t["cours_unitaire"])), pru=_r(pru_courant), montant_net=_r(net),
-                    gain_brut=_r(gain_brut), taux_tpcvm=_r(tpcvm_rate), tpcvm=_r(tpcvm), gain_net=_r(gain_net),
+                    gain_brut=_r(gain_brut), taux_tpcvm=_r4(taux_effectif), tpcvm=_r(tpcvm), gain_net=_r(gain_net),
                 ))
                 cout_restant -= pru_courant * qte
                 qte_detenue -= qte
@@ -451,6 +456,22 @@ def _positions_et_gains():
         ))
 
     return positions, gains, calc
+
+
+def remplir_tpcvm_manquantes():
+    """Migration ponctuelle, appelée au démarrage : enregistre sur chaque vente ancienne
+    (tpcvm NULL) la TPCVM que l'application calculait jusque-là, pour que les totaux
+    restent identiques. Sans effet une fois toutes les ventes remplies."""
+    with db() as conn:
+        if not conn.execute("SELECT 1 FROM bourse_transactions "
+                            "WHERE type_operation = 'Vente' AND tpcvm IS NULL LIMIT 1").fetchone():
+            return
+    _, gains, calc = _positions_et_gains()
+    manquantes = {t["id"] for t in calc if t["type_operation"] == "Vente" and t["_tpcvm_saisie"] is None}
+    with db() as conn:
+        for g in gains:
+            if g.id in manquantes:
+                conn.execute("UPDATE bourse_transactions SET tpcvm = %s WHERE id = %s", (g.tpcvm, g.id))
 
 
 @router.get("/positions", response_model=List[PositionBourse])

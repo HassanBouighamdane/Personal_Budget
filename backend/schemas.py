@@ -70,6 +70,7 @@ class TransactionBourseCreate(BaseModel):
     quantite: float = Field(gt=0)
     cours_unitaire: float = Field(ge=0)
     autres_frais: float = Field(default=0, ge=0)   # frais ponctuel éventuel, saisi manuellement
+    tpcvm: float = Field(default=0, ge=0)          # TPCVM retenue sur une vente, saisie manuellement (ignorée pour un achat)
 
 
 # Schéma de la partie Bourse pour l'API (sortie)
@@ -85,6 +86,7 @@ class TransactionBourseOut(BaseModel):
     montant_brut: float
     autres_frais: float
     total_frais: float
+    tpcvm: float
     montant_net: float
 
 

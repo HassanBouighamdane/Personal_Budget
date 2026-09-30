@@ -17,7 +17,7 @@ Application web personnelle pour gérer et suivre son budget au quotidien, avec 
 **Bourse**
 - Journal des achats et ventes (actions, obligations, OPCVM, IPO), avec autocomplétion des titres cotés à la BVC
 - Positions : PRU (prix de revient unitaire), valeur de marché, plus-value latente
-- Gains réalisés, avec calcul de la TPCVM (taxe sur les plus-values de cession)
+- Gains réalisés, avec la TPCVM (taxe sur les plus-values de cession) saisie sur chaque vente
 - Dividendes nets et frais de compte (y compris les droits de garde, saisis manuellement)
 - Apports et retraits entre la banque et le compte Bourse : espèces disponibles, patrimoine total et performance globale (gains réinvestis inclus)
 - Tableau de bord global, par mois ou par année

@@ -201,7 +201,7 @@ Ces modèles valident automatiquement les données reçues. En cas d'échec, Fas
 | `RevenuIn` | nouveau revenu | `date` au format `AAAA-MM-JJ` (`DateISO`), `montant > 0` |
 | `CategorieIn` | catégorie | `nom` non vide, `budget ≥ 0` |
 | `ObjectifIn`, `NomIn` | objectif, source | — |
-| `ParametresBourse` | paramètres Bourse | `taux_tpcvm` entre 0 et 1 |
+| `ParametresBourse` | paramètres Bourse | `taux_tpcvm` entre 0 et 1 (ne sert plus qu'à remplir la TPCVM des ventes anciennes) |
 | `TitreBourseIn` / `TitreBourse` | référentiel des titres | `code`, `nom`, `secteur` |
 | `TransactionBourseCreate` / `Out` | achat/vente | `type_instrument` ∈ {Action, Obligation, OPCVM, IPO}, `type_operation` ∈ {Achat, Vente}, `quantite > 0` |
 | `DividendeCreate` / `Out`, `FraisBourseCreate` / `Out` | dividendes et frais de compte | `montant > 0` |
@@ -260,7 +260,7 @@ Dans « budget prévu comparé au réel », les dépenses rattachées à une cat
 **Filtre de période** : les paramètres optionnels `mois=AAAA-MM` ou `annee=AAAA` sont traduits en SQL par `_clause_periode()` pour les listes (transactions, dividendes, frais, mouvements). Les gains réalisés sont filtrés après calcul, car le PRU exige de parcourir tout l'historique.
 
 **`_positions_et_gains()`**, la logique centrale :
-1. charge toutes les transactions triées par date, les cours actuels et le taux de TPCVM ;
+1. charge toutes les transactions triées par date (avec la TPCVM saisie sur chaque vente) et les cours actuels ;
 2. calcule pour chaque transaction `montant_net = qté × cours ± frais` (+ pour un achat, − pour une vente) ;
 3. parcourt chronologiquement les transactions de chaque titre, en suivant la quantité détenue et le coût restant : un achat les augmente, une vente calcule son gain avec le PRU **du moment** puis réduit le coût restant ;
 4. en déduit les **positions** (PRU, quantité, valeur comptable, valeur de marché, plus-value latente, performance) et les **gains réalisés** avec leur TPCVM.
@@ -372,7 +372,7 @@ Toutes les routes sauf `/api/login` et `/api/logout` exigent le cookie `session`
 | Plus-value latente | valeur de marché − valeur comptable |
 | Performance latente | plus-value latente ÷ valeur comptable |
 | Gain brut d'une vente | montant net de la vente − PRU × qté vendue |
-| TPCVM | gain brut × taux (15 % par défaut), seulement si le gain est positif |
+| TPCVM | saisie manuellement sur chaque vente (montant de l'avis d'opéré), aucun calcul |
 | Gain net | gain brut − TPCVM |
 | Résultat net de la période | gains nets + dividendes − frais de compte (les frais de transaction sont déjà inclus dans les gains nets) |
 | **Espèces disponibles** | apports − retraits − Σ achats nets + Σ (ventes nettes − TPCVM) + dividendes − frais de compte, sur tout l'historique |
@@ -464,15 +464,12 @@ src/
 Le module Budget stocke les dates en `TEXT` et les montants en `DOUBLE PRECISION`, alors que le module Bourse utilise `DATE` et `NUMERIC`. Les montants en `float` peuvent accumuler de petites erreurs d'arrondi.
 Une migration toucherait toutes les requêtes de `rapports.py` et `transactions.py`, qui filtrent les dates en texte (`LIKE`, `substr`). Elle n'est à envisager qu'après avoir couvert chaque vue du dashboard Budget par des tests.
 
-**2. TPCVM calculée vente par vente**
-Les pertes d'une vente ne compensent pas les gains d'une autre vente de la même année. Le total affiché peut donc surestimer l'impôt dû en cas de ventes gagnantes et perdantes la même année. Un avertissement figure dans Bourse → Paramètres ; la règle fiscale exacte est à confirmer avant de modifier le calcul.
+**2. TPCVM dans les espèces disponibles**
+La TPCVM saisie sur une vente est retirée du montant encaissé : l'application suppose que l'intermédiaire la retient à la source. Le prix de vente doit donc être saisi AVANT TPCVM, sinon elle est déduite deux fois et les espèces paraissent trop basses.
 
-**3. Hypothèse sur la TPCVM dans les espèces disponibles**
-Le calcul des espèces suppose que l'intermédiaire retient la TPCVM à la source sur le produit de chaque vente. Si le prix de vente saisi est déjà net de cette taxe, elle est déduite deux fois et les espèces paraissent trop basses.
-
-**4. Couverture des tests**
+**3. Couverture des tests**
 Les tests couvrent les calculs Bourse, le renommage et les 404 du Budget, et les apports/retraits (18 tests). L'authentification, la limitation des connexions et les calculs de `rapports.py` n'ont pas de tests automatisés.
 
-**5. Limitation des connexions en mémoire**
+**4. Limitation des connexions en mémoire**
 Le compteur d'échecs est remis à zéro au redémarrage et propre à chaque processus serveur. Le blocage se fait par nom d'utilisateur (l'adresse IP n'est pas fiable derrière le proxy de l'hébergeur) : quelqu'un qui connaît le nom d'utilisateur peut bloquer la connexion pendant 15 minutes.
 

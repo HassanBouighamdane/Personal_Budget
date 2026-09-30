@@ -1,11 +1,10 @@
-import { useEffect, useState } from 'react';
-import { Button, Group, ScrollArea, Stack, TextInput, Tooltip, ActionIcon } from '@mantine/core';
+import { useState } from 'react';
+import { Group, ScrollArea, Stack, TextInput, Tooltip, ActionIcon } from '@mantine/core';
 import { IconDeviceFloppy, IconPlus } from '@tabler/icons-react';
 
 import { toast } from '../../lib/api';
-import { lireMontant, tauxEnPct } from '../../lib/format';
 import type { Titre } from '../../lib/types';
-import { useEcriture, useParametresBourse, useTitres } from '../../lib/queries';
+import { useEcriture, useTitres } from '../../lib/queries';
 import { IconBuildingSkyscraper, IconReceiptTax } from '@tabler/icons-react';
 import { BoutonSuppr, Carte, Chargement, confirmer, Info, Pastille, Vide } from '../../components/ui';
 
@@ -40,14 +39,10 @@ function LigneTitre({ t }: { t: Titre }) {
 
 export function ParametresBourse() {
   const { data: titres, isPending } = useTitres();
-  const { data: params } = useParametresBourse();
   const ecrire = useEcriture('bourse');
   const [code, setCode] = useState('');
   const [nom, setNom] = useState('');
   const [secteur, setSecteur] = useState('');
-  const [tpcvm, setTpcvm] = useState('');
-
-  useEffect(() => { if (params) setTpcvm(tauxEnPct(params.taux_tpcvm)); }, [params]);
 
   function ajouterTitre() {
     if (!code.trim() || !nom.trim()) return toast('Code et nom requis', false);
@@ -55,12 +50,6 @@ export function ParametresBourse() {
       { path: '/api/bourse/titres', method: 'POST', succes: 'Titre ajouté ✓', body: { code: code.trim(), nom: nom.trim(), secteur: secteur.trim() } },
       { onSuccess: () => { setCode(''); setNom(''); setSecteur(''); } },
     );
-  }
-
-  function sauverParametres() {
-    const taux = lireMontant(tpcvm);
-    if (isNaN(taux) || taux < 0) return toast('Taux invalide', false);
-    ecrire.mutate({ path: '/api/bourse/parametres', method: 'PUT', body: { taux_tpcvm: taux / 100 }, succes: 'Paramètres enregistrés ✓' });
   }
 
   return (
@@ -90,26 +79,11 @@ export function ParametresBourse() {
       </Carte>
 
       <Carte titre="Fiscalité" icone={<Pastille icone={IconReceiptTax} couleur="marque" />}>
-        <Stack gap="xs">
-          <TextInput label="Taux TPCVM — plus-values de cession (%)" inputMode="decimal" maw={320}
-                     value={tpcvm} onChange={e => setTpcvm(e.currentTarget.value)} rightSection="%" />
-          <Info>
-            Appliqué automatiquement sur le gain réalisé à chaque vente (PRU en coût moyen pondéré). Calculé vente par vente :
-            les pertes d'une vente ne compensent pas les gains d'une autre vente sur la même année — à vérifier auprès d'un
-            professionnel si tu as plusieurs ventes dans l'année.
-          </Info>
-        </Stack>
-      </Carte>
-
-      <Carte>
-        <Stack gap="sm">
-          <Button onClick={sauverParametres} loading={ecrire.isPending} style={{ alignSelf: 'flex-start' }}>Enregistrer les paramètres</Button>
-          <Info>
-            Les prix de transaction, montants de dividendes et frais de compte (y compris les droits de garde, à saisir
-            manuellement dans l'onglet Frais) sont désormais saisis directement (aucun frais de courtage n'est calculé
-            automatiquement). Valeur indicative par défaut : TPCVM 15 %.
-          </Info>
-        </Stack>
+        <Info>
+          Rien n'est calculé automatiquement : le prix, les frais de transaction et la TPCVM de chaque vente se saisissent
+          dans l'onglet des transactions, tels qu'ils figurent sur l'avis d'opéré. Les dividendes (montant net) et les frais
+          de compte, droits de garde compris, se saisissent dans leurs onglets respectifs.
+        </Info>
       </Carte>
     </>
   );

@@ -1,5 +1,6 @@
 /* Bourse — saisie et journaux : transactions, dividendes, frais de compte, apports/retraits.
- * Aucun frais n'est calculé automatiquement : l'utilisateur saisit le prix net et le montant net reçu. */
+ * Aucun frais ni TPCVM n'est calculé automatiquement : l'utilisateur saisit le prix net, les frais,
+ * la TPCVM retenue sur une vente et le montant net reçu. */
 import { useMemo, useState } from 'react';
 import { Autocomplete, Button, Group, NumberInput, Select, Stack, Table, Text, TextInput, type ComboboxItem } from '@mantine/core';
 
@@ -56,22 +57,27 @@ export function JournalTransactions() {
   const [qte, setQte] = useState<string | number>('');
   const [prix, setPrix] = useState('');
   const [frais, setFrais] = useState('');
+  const [tpcvm, setTpcvm] = useState('');
+  const vente = type === 'Vente';
 
   function ajouter() {
     const t = titre.trim().toUpperCase();
     const q = typeof qte === 'number' ? qte : parseFloat(qte);
     const p = lireMontant(prix);
     const f = frais ? lireMontant(frais) : 0;
+    const tx = vente && tpcvm ? lireMontant(tpcvm) : 0;
     if (!t) return toast('Indique le titre', false);
     if (!q || q <= 0) return toast('Quantité invalide', false);
     if (isNaN(p) || p <= 0) return toast('Prix invalide', false);
+    if (isNaN(f) || f < 0) return toast('Frais invalides', false);
+    if (isNaN(tx) || tx < 0) return toast('TPCVM invalide', false);
     ecrire.mutate({
       path: '/api/bourse/transactions', method: 'POST', succes: 'Transaction ajoutée ✓',
       body: {
         date_operation: date, titre: t, type_instrument: instrument, type_operation: type,
-        quantite: q, cours_unitaire: p, autres_frais: isNaN(f) ? 0 : f,
+        quantite: q, cours_unitaire: p, autres_frais: f, tpcvm: tx,
       },
-    }, { onSuccess: () => { setTitre(''); setQte(''); setPrix(''); setFrais(''); } });
+    }, { onSuccess: () => { setTitre(''); setQte(''); setPrix(''); setFrais(''); setTpcvm(''); } });
   }
 
   return (
@@ -89,6 +95,7 @@ export function JournalTransactions() {
             <ChampMontant label={instrument === 'OPCVM' ? 'Valeur liquidative nette (DH)' : 'Prix unitaire net (DH)'}
                           value={prix} onChange={setPrix} />
             <ChampMontant label="Frais de transaction (DH) — optionnel, si non compris dans le prix" value={frais} onChange={setFrais} />
+            {vente && <ChampMontant label="TPCVM retenue (DH) — 0 si vente en perte" value={tpcvm} onChange={setTpcvm} />}
             <Button mt="xs" onClick={ajouter} loading={ecrire.isPending}>Ajouter la transaction</Button>
           </Stack>
         </Carte>
@@ -97,6 +104,8 @@ export function JournalTransactions() {
             net auquel l'opération a réellement eu lieu (celui de ton relevé de
             courtage). Le champ « Frais de transaction » est optionnel, pour une
             commission ponctuelle non comprise dans ce prix.<br /><br />
+            Pour une vente, indique aussi la TPCVM retenue, telle qu'elle figure
+            sur ton avis d'opéré : elle est reprise telle quelle, sans calcul.<br /><br />
             Pour les frais récurrents (abonnement courtier, tenue de compte...),
             utilise plutôt l'onglet <b>Frais</b>.<br /><br />
             Le PRU (prix de revient unitaire) reste calculé automatiquement en
@@ -113,7 +122,7 @@ function TableTransactions() {
   const ecrire = useEcriture('bourse');
   type Cle = 'date' | 'titre' | 'type' | 'qte' | 'net';
   const { triees, tri, basculer } = useTri<NonNullable<typeof data>[number], Cle>(data, (t, c) =>
-    c === 'date' ? t.date_operation : c === 'titre' ? t.titre : c === 'type' ? t.type_operation : c === 'qte' ? t.quantite : t.montant_net,
+    c === 'date' ? t.date_operation : c === 'titre' ? t.titre : c === 'type' ? t.type_operation : c === 'qte' ? t.quantite : t.montant_net - t.tpcvm,
     { cle: 'date', desc: true });
   const th = { tri, basculer };
 
@@ -122,13 +131,13 @@ function TableTransactions() {
       {isPending ? <Chargement /> : !data?.length ? (
         <Vide>Aucune transaction — ajoute ton premier achat ci-dessus 👆</Vide>
       ) : (
-        <Tableau minWidth={720}>
+        <Tableau minWidth={780}>
           <Table.Thead>
             <Table.Tr>
               <ThTri cle="date" {...th}>Date</ThTri><ThTri cle="titre" {...th}>Titre</ThTri><Table.Th>Instrument</Table.Th>
               <ThTri cle="type" {...th}>Type</ThTri><ThTri cle="qte" num {...th}>Qté</ThTri>
               <Table.Th className="num">Prix</Table.Th><Table.Th className="num">Frais</Table.Th>
-              <ThTri cle="net" num {...th}>Net</ThTri><Table.Th />
+              <Table.Th className="num">TPCVM</Table.Th><ThTri cle="net" num {...th}>Net</ThTri><Table.Th />
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
@@ -143,7 +152,8 @@ function TableTransactions() {
                   <Table.Td className="num chiffre">{t.quantite}</Table.Td>
                   <Table.Td className="num chiffre">{fmt(t.cours_unitaire)}</Table.Td>
                   <Table.Td className="num chiffre">{fmt(t.autres_frais)}</Table.Td>
-                  <Montant v={t.montant_net} positif={!achat} signe />
+                  <Table.Td className="num chiffre" c={achat ? 'dimmed' : undefined}>{achat ? '—' : fmt(t.tpcvm)}</Table.Td>
+                  <Montant v={achat ? t.montant_net : t.montant_net - t.tpcvm} positif={!achat} signe />
                   <Table.Td style={{ width: 40 }}>
                     <BoutonSuppr onClick={() => confirmer('Supprimer cette transaction ?', () =>
                       ecrire.mutate({ path: `/api/bourse/transactions/${t.id}`, method: 'DELETE', succes: 'Supprimé' }))} />
