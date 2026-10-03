@@ -12,6 +12,7 @@ Architecture modulaire :
     routes/transactions.py    dépenses, revenus
     routes/rapports.py        résumés jour / semaine / mois / année
     routes/bourse.py          achats, ventes, commissions, TPCVM, positions, gains
+    routes/lectures.py        livres lus, objectifs, bilan annuel
 
 Installation :  pip install -r requirements.txt
 Lancement    :  python app.py
@@ -29,7 +30,7 @@ from fastapi.staticfiles import StaticFiles
 
 from config import FRONT_DIR, DATABASE_URL, PORT, CORS_ORIGINS
 from database import init_db, _pool
-from routes import auth, configuration, transactions, rapports, bourse
+from routes import auth, configuration, transactions, rapports, bourse, lectures
 
 init_db()
 bourse.remplir_tpcvm_manquantes()
@@ -52,6 +53,7 @@ app.include_router(configuration.router)
 app.include_router(transactions.router)
 app.include_router(rapports.router)
 app.include_router(bourse.router)
+app.include_router(lectures.router)
 
 # Frontend statique — monté APRÈS les routes /api pour garder leur priorité
 if FRONT_DIR.exists():

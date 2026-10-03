@@ -1,6 +1,6 @@
 # Mon Budget — Documentation technique
 
-Application web personnelle pour suivre son budget (dépenses, revenus, épargne) et un portefeuille boursier à la Bourse de Casablanca. Toutes les valeurs sont en dirhams (DH).
+Application web personnelle pour suivre son budget (dépenses, revenus, épargne), un portefeuille boursier à la Bourse de Casablanca et ses lectures (livres terminés, bilan annuel). Toutes les valeurs sont en dirhams (DH).
 
 - **Backend** : Python, FastAPI, PostgreSQL (driver `psycopg` v3, pool `psycopg_pool`)
 - **Frontend** : React 19 + TypeScript, compilé avec Vite. Interface Mantine, données via TanStack Query, graphiques Chart.js (react-chartjs-2)
@@ -18,6 +18,7 @@ Application web personnelle pour suivre son budget (dépenses, revenus, épargne
 6. [Calculs métier](#6-calculs-métier)
 7. [Frontend](#7-frontend)
 8. [Points restants](#8-points-restants)
+9. [Module Lectures](#9-module-lectures)
 
 ---
 
@@ -37,13 +38,15 @@ Personal_Budget/
 │   ├── tests/
 │   │   ├── test_bourse.py        PRU, frais, arrondis, contrôle des ventes
 │   │   ├── test_budget.py        Renommage en cascade, erreurs 404
-│   │   └── test_mouvements.py    Apports/retraits, espèces disponibles, performance globale
+│   │   ├── test_mouvements.py    Apports/retraits, espèces disponibles, performance globale
+│   │   └── test_lectures.py      Bilan annuel, objectifs, relectures, genres
 │   └── routes/
 │       ├── auth.py               /api/login, /logout, /me, /mot_de_passe
 │       ├── configuration.py      catégories, sources de revenus, objectif d'épargne
 │       ├── transactions.py       dépenses et revenus
 │       ├── rapports.py           résumés jour / semaine / mois / année / global
-│       └── bourse.py             module Bourse
+│       ├── bourse.py             module Bourse
+│       └── lectures.py           module Lectures (livres lus, objectifs, bilan annuel)
 ├── frontend-react/         Frontend React (voir §7)
 │   ├── src/                Code source TypeScript
 │   ├── public/             Favicons (copiés tels quels dans dist/)
@@ -207,6 +210,8 @@ Ces modèles valident automatiquement les données reçues. En cas d'échec, Fas
 | `DividendeCreate` / `Out`, `FraisBourseCreate` / `Out` | dividendes et frais de compte | `montant > 0` |
 | `MouvementBourseCreate` / `Out` | apports et retraits | `type_mouvement` ∈ {Apport, Retrait}, `montant > 0` |
 | `PositionBourse`, `GainRealise`, `DashboardBourse` | sorties calculées | — |
+| `LivreIn` / `LivreOut` | livre terminé | `titre` non vide, `pages > 0`, `note` entre 1 et 5, `date_debut ≤ date_fin` |
+| `GenreOut`, `ObjectifsLecture` | genres, objectifs de lecture | objectifs entiers ≥ 0 |
 
 `DateISO` vérifie qu'il s'agit d'une vraie date (refuse `18/09/2026` ou `2026-02-30`) mais la garde sous forme de chaîne : les dates du Budget sont stockées en texte.
 
@@ -215,7 +220,7 @@ Ces modèles valident automatiquement les données reçues. En cas d'échec, Fas
 1. Ajoute `backend/` au `sys.path`, pour que l'application se lance depuis n'importe quel dossier.
 2. Appelle `init_db()`.
 3. Crée l'application FastAPI. CORS n'est activé que si `CORS_ORIGINS` est renseigné, et seulement pour ces origines.
-4. Branche les 5 routeurs.
+4. Branche les 6 routeurs.
 5. Monte `FRONT_DIR` sur `/` **après** les routes API, pour que `/api/...` reste prioritaire.
 6. Lancé directement, démarre `uvicorn` sur `0.0.0.0:PORT`.
 
@@ -304,6 +309,15 @@ Index : `depenses(date)`, `revenus(date)`.
 | `bourse_frais` | `date_operation`, `libelle`, `montant` | abonnement courtier, tenue de compte, droits de garde… |
 | `bourse_mouvements` | `date_operation`, `type_mouvement` (Apport / Retrait), `montant`, `libelle` | transferts banque ↔ compte Bourse |
 
+### Lectures
+
+| Table | Colonnes principales | Remarques |
+|---|---|---|
+| `lectures_livres` | `titre`, `auteur`, `genre`, `date_debut` (optionnelle), `date_fin`, `pages`, `note` (1 à 5), `commentaire` | genre stocké par son nom ; `CHECK date_debut ≤ date_fin` |
+| `lectures_genres` | `id`, `nom` UNIQUE, `actif` | suppression douce, comme les catégories |
+
+Les objectifs de lecture sont dans `params` : `objectif_lecture_annuel` (24 par défaut) et `objectif_lecture_mensuel` (2).
+
 Le module Bourse utilise les types `DATE` et `NUMERIC`. Le module Budget utilise `TEXT` pour les dates et `DOUBLE PRECISION` pour les montants.
 
 ---
@@ -341,6 +355,11 @@ Toutes les routes sauf `/api/login` et `/api/logout` exigent le cookie `session`
 | GET | `/api/bourse/positions` | — | `[PositionBourse]` |
 | GET | `/api/bourse/gains` | `?mois=&annee=` | `[GainRealise]` |
 | GET | `/api/bourse/dashboard` | `?mois=&annee=` | `DashboardBourse` |
+| GET / POST / PUT / DELETE | `/api/lectures/livres[/{id}]` | `?annee=` / `LivreIn` | `[LivreOut]` / `LivreOut` / 204 |
+| GET | `/api/lectures/auteurs` | — | `[str]` (autocomplétion) |
+| GET / POST / PUT / DELETE | `/api/lectures/genres[/{id}]` | `{nom}` | `[GenreOut]` / `{ok}` ; 409 si le nouveau nom existe déjà |
+| GET / PUT | `/api/lectures/objectifs` | `{annuel, mensuel}` | `ObjectifsLecture` |
+| GET | `/api/lectures/bilan` | `?annee=` | bilan de l'année (voir §9) |
 
 ---
 
@@ -433,13 +452,14 @@ src/
     ├── Saisie.tsx
     ├── Parametres.tsx
     ├── dashboard/        Dashboard.tsx (navigation ‹ ›, choix de vue) + Vues.tsx (Jour/Semaine/Mois/Année/Global)
-    └── bourse/           Bourse.tsx (sous-onglets) + Journaux, Portefeuille, ParametresBourse
+    ├── bourse/           Bourse.tsx (sous-onglets) + Journaux, Portefeuille, ParametresBourse
+    └── lectures/         Lectures.tsx (sous-onglets, navigation par année) + Journal, Bilan, ParametresLectures
 ```
 
 ### 7.3 Données
 
 - **Lecture** : chaque écran appelle un hook de `queries.ts` (ex. `useResumeMois(mois)`). Les clés commencent par `['budget', …]` ou `['bourse', …]`. Un écran recharge ses données à chaque affichage ; en changeant de période, l'ancien contenu reste visible pendant le chargement.
-- **Écriture** : `useEcriture('budget' | 'bourse')` envoie la requête, affiche la notification de succès puis invalide tout le module, ce qui recharge les écrans concernés (y compris les KPI Bourse du dashboard Budget).
+- **Écriture** : `useEcriture('budget' | 'bourse' | 'lectures')` envoie la requête, affiche la notification de succès puis invalide tout le module, ce qui recharge les écrans concernés (y compris les KPI Bourse du dashboard Budget).
 - **Erreurs** : `api()` affiche le message renvoyé par le serveur (erreurs Pydantic comprises). Un 401 ramène à l'écran de connexion, sauf sur `/api/login`, où il signifie « identifiants incorrects ». Les réponses 204 (suppressions Bourse) sont gérées.
 - **Résumé Bourse du dashboard Budget** : `useResumeBourseSilencieux()` ne notifie jamais d'erreur, pour qu'un problème Bourse ne casse pas le dashboard Budget.
 
@@ -468,8 +488,40 @@ Une migration toucherait toutes les requêtes de `rapports.py` et `transactions.
 La TPCVM saisie sur une vente est retirée du montant encaissé : l'application suppose que l'intermédiaire la retient à la source. Le prix de vente doit donc être saisi AVANT TPCVM, sinon elle est déduite deux fois et les espèces paraissent trop basses.
 
 **3. Couverture des tests**
-Les tests couvrent les calculs Bourse, le renommage et les 404 du Budget, et les apports/retraits (18 tests). L'authentification, la limitation des connexions et les calculs de `rapports.py` n'ont pas de tests automatisés.
+Les tests couvrent les calculs Bourse, le renommage et les 404 du Budget, les apports/retraits et le module Lectures (34 tests). L'authentification, la limitation des connexions et les calculs de `rapports.py` n'ont pas de tests automatisés.
 
 **4. Limitation des connexions en mémoire**
 Le compteur d'échecs est remis à zéro au redémarrage et propre à chaque processus serveur. Le blocage se fait par nom d'utilisateur (l'adresse IP n'est pas fiable derrière le proxy de l'hébergeur) : quelqu'un qui connaît le nom d'utilisateur peut bloquer la connexion pendant 15 minutes.
+
+**5. Dossier `frontend-react/src/lib/`**
+La règle Python `lib/` du `.gitignore` excluait ce dossier, qui n'a jamais été versionné. Il a été reconstruit à partir du build de production, et une exception `!frontend-react/src/lib/` a été ajoutée au `.gitignore`.
+
+---
+
+## 9. Module Lectures
+
+Journal des livres terminés et bilan annuel. Un livre compte pour l'année et le mois de sa **date de fin**. Une relecture se saisit comme un nouveau livre et compte donc deux fois.
+
+### Calculs du bilan (`GET /api/lectures/bilan?annee=`)
+
+| Indicateur | Formule |
+|---|---|
+| Livres lus | nombre de livres dont la date de fin est dans l'année |
+| Pages lues, pages moyennes | somme et moyenne des pages, sur les livres où elles sont renseignées |
+| Avis moyen | moyenne des notes, sur les livres notés |
+| Durée moyenne | (date de fin − date de début + 1 jour), sur les livres avec une date de début |
+| Attendu à date | objectif annuel × part de l'année écoulée (année passée : objectif entier ; année future : 0) |
+| Avance / retard | livres lus − attendu à date, arrondi |
+| Mois réussis | mois écoulés de l'année où les livres terminés ≥ objectif mensuel (0 si l'objectif mensuel vaut 0) |
+| Records | mieux noté, plus long et plus court (à égalité, le plus récent) ; 5 auteurs les plus lus |
+| Historique | nombre de livres et de pages par année, sur tout l'historique |
+
+`calculer_bilan(annee, aujourdhui)` reçoit la date du jour en paramètre, pour que les tests fixent la date de référence.
+
+### Frontend
+
+Onglet **Lectures**, avec trois sous-onglets :
+- **Journal** : formulaire (titre, auteur avec autocomplétion, genre, dates de début et de fin, pages, avis en étoiles, note personnelle) et liste de l'année groupée par mois, avec modification (fenêtre) et suppression ;
+- **Bilan annuel** : KPI des objectifs et de lecture, livres par mois (barres vertes quand l'objectif mensuel est atteint), progression cumulée comparée au rythme de l'objectif, genres, records, tableau triable des livres, historique par année ;
+- **Paramètres** : objectifs annuel et mensuel, genres.
 

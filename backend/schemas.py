@@ -3,7 +3,7 @@
 
 from datetime import date, datetime
 from typing import Annotated, Literal, Optional
-from pydantic import AfterValidator, BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field, model_validator
 
 
 def _valider_date_iso(v: str) -> str:
@@ -206,3 +206,44 @@ class MouvementBourseOut(BaseModel):
     type_mouvement: str
     montant: float
     libelle: str
+
+
+# ---------------------------------------------------------------- Lectures
+class LivreIn(BaseModel):
+    """Livre terminé. Seuls le titre et la date de fin sont obligatoires."""
+    titre: str = Field(min_length=1, max_length=200)
+    auteur: str = Field(default="", max_length=150)
+    genre: str = Field(default="", max_length=100)
+    date_debut: Optional[date] = None
+    date_fin: date
+    pages: Optional[int] = Field(default=None, gt=0)
+    note: Optional[int] = Field(default=None, ge=1, le=5)
+    commentaire: str = ""
+
+    @model_validator(mode="after")
+    def _dates_coherentes(self):
+        if self.date_debut and self.date_debut > self.date_fin:
+            raise ValueError("La date de début doit précéder la date de fin")
+        return self
+
+
+class LivreOut(BaseModel):
+    id: int
+    titre: str
+    auteur: str
+    genre: str
+    date_debut: Optional[date]
+    date_fin: date
+    pages: Optional[int]
+    note: Optional[int]
+    commentaire: str
+
+
+class GenreOut(BaseModel):
+    id: int
+    nom: str
+
+
+class ObjectifsLecture(BaseModel):
+    annuel: int = Field(ge=0)
+    mensuel: int = Field(ge=0)

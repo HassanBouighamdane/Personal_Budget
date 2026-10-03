@@ -17,6 +17,8 @@ downloads/
 eggs/
 .eggs/
 lib/
+# Code source du frontend React (api.ts, queries.ts...) : à versionner malgré la règle Python ci-dessus
+!frontend-react/src/lib/
 lib64/
 parts/
 sdist/

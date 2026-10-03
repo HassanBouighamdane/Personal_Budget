@@ -6,7 +6,7 @@ import {
 import { useMediaQuery } from '@mantine/hooks';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  IconChartPie, IconLogout, IconMoon, IconPencilPlus, IconSettings, IconSun, IconTrendingUp,
+  IconBook2, IconChartPie, IconLogout, IconMoon, IconPencilPlus, IconSettings, IconSun, IconTrendingUp,
 } from '@tabler/icons-react';
 
 import { api, definirSurNonAuthentifie, toast } from './lib/api';
@@ -17,14 +17,16 @@ import { Connexion } from './pages/Connexion';
 import { Saisie } from './pages/Saisie';
 import { Dashboard, useNavDashboard } from './pages/dashboard/Dashboard';
 import { Bourse, useNavBourse } from './pages/bourse/Bourse';
+import { Lectures, useNavLectures } from './pages/lectures/Lectures';
 import { Parametres } from './pages/Parametres';
 
-type Onglet = 'saisie' | 'dash' | 'bourse' | 'params';
+type Onglet = 'saisie' | 'dash' | 'bourse' | 'lectures' | 'params';
 
 const ONGLETS: { id: Onglet; label: string; aide: string; Icone: typeof IconChartPie }[] = [
   { id: 'saisie', label: 'Saisie', aide: 'Dépenses et revenus', Icone: IconPencilPlus },
   { id: 'dash', label: 'Dashboard', aide: 'Analyse du budget', Icone: IconChartPie },
   { id: 'bourse', label: 'Bourse', aide: 'Portefeuille BVC', Icone: IconTrendingUp },
+  { id: 'lectures', label: 'Lectures', aide: 'Livres lus', Icone: IconBook2 },
   { id: 'params', label: 'Paramètres', aide: 'Catégories, compte', Icone: IconSettings },
 ];
 
@@ -35,6 +37,7 @@ export default function App() {
   // État de navigation conservé quand on change d'onglet (comme les variables globales de l'ancien app.js)
   const navDash = useNavDashboard();
   const navBourse = useNavBourse();
+  const navLectures = useNavLectures();
   const qc = useQueryClient();
   const mobile = useMediaQuery('(max-width: 47.99em)') ?? false;
 
@@ -142,6 +145,7 @@ export default function App() {
             {onglet === 'saisie' && <Saisie />}
             {onglet === 'dash' && <Dashboard nav={navDash} />}
             {onglet === 'bourse' && <Bourse nav={navBourse} />}
+            {onglet === 'lectures' && <Lectures nav={navLectures} />}
             {onglet === 'params' && <Parametres onMdpChange={() => setTimeout(() => { qc.clear(); setEtat('deconnecte'); }, 1200)} />}
           </Protection>
         </Container>

@@ -48,3 +48,11 @@ CATEGORIES_DEFAUT = [
     ("Imprévus & Divers", 1000),
 ]
 SOURCES_DEFAUT = [("Salaire",), ("Prime",), ("Freelance",), ("Remboursement",)]
+
+# Module Lectures : genres proposés au premier démarrage, objectifs par défaut (nombre de livres)
+GENRES_DEFAUT = [
+    ("Roman",), ("Développement personnel",), ("Essai",), ("Histoire",), ("Biographie",),
+    ("Philosophie",), ("Science",), ("Économie & Finance",), ("Religion",), ("Poésie",),
+]
+OBJECTIF_LECTURE_ANNUEL_DEFAUT = 24
+OBJECTIF_LECTURE_MENSUEL_DEFAUT = 2

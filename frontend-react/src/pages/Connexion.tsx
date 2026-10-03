@@ -1,12 +1,13 @@
 import { useState, type FormEvent } from 'react';
 import { Box, Button, Card, Center, Group, PasswordInput, Stack, Text, TextInput, ThemeIcon, Title } from '@mantine/core';
-import { IconChartPie, IconLock, IconShieldCheck, IconTrendingUp, IconUser } from '@tabler/icons-react';
+import { IconBook2, IconChartPie, IconLock, IconShieldCheck, IconTrendingUp, IconUser } from '@tabler/icons-react';
 import { api, toast } from '../lib/api';
 import { Logo } from '../components/Logo';
 
 const ATOUTS = [
   { Icone: IconChartPie, texte: 'Budget, épargne et tableaux de bord' },
   { Icone: IconTrendingUp, texte: 'Portefeuille Bourse de Casablanca' },
+  { Icone: IconBook2, texte: 'Journal de lecture et bilan annuel' },
   { Icone: IconShieldCheck, texte: 'Données privées, session sécurisée' },
 ];
 

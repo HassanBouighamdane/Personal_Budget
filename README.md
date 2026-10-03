@@ -1,6 +1,6 @@
 # 💰 Mon Budget
 
-Application web personnelle pour gérer et suivre son budget au quotidien, avec un module de suivi de portefeuille à la Bourse de Casablanca. Tous les montants sont en dirhams (DH).
+Application web personnelle pour gérer et suivre son budget au quotidien, avec un module de suivi de portefeuille à la Bourse de Casablanca et un journal de lecture. Tous les montants sont en dirhams (DH).
 
 ## Fonctionnalités
 
@@ -21,6 +21,11 @@ Application web personnelle pour gérer et suivre son budget au quotidien, avec 
 - Dividendes nets et frais de compte (y compris les droits de garde, saisis manuellement)
 - Apports et retraits entre la banque et le compte Bourse : espèces disponibles, patrimoine total et performance globale (gains réinvestis inclus)
 - Tableau de bord global, par mois ou par année
+
+**Lectures**
+- Journal des livres terminés : titre, auteur, genre, dates de début et de fin, pages, avis en étoiles, note personnelle
+- Objectifs annuel et mensuel, avec avance ou retard sur le rythme de l'année
+- Bilan annuel : livres et pages lus, livres par mois, genres, records, auteurs les plus lus, historique par année
 
 **Autres**
 - Connexion sécurisée : mot de passe haché avec PBKDF2, session dans un cookie HttpOnly
@@ -101,7 +106,7 @@ backend/
   database.py       connexion PostgreSQL et création du schéma
   securite.py       mots de passe et sessions
   schemas.py        modèles Pydantic
-  routes/           auth, configuration, transactions, rapports, bourse
+  routes/           auth, configuration, transactions, rapports, bourse, lectures
 frontend-react/
   src/              code React (pages, composants, appels API)
   dist/             build de production servi par FastAPI

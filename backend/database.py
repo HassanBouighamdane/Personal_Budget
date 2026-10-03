@@ -6,7 +6,8 @@ from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
 from config import (DATABASE_URL, CATEGORIES_DEFAUT, SOURCES_DEFAUT,
-                    ADMIN_UTILISATEUR, ADMIN_MOT_DE_PASSE)
+                    ADMIN_UTILISATEUR, ADMIN_MOT_DE_PASSE, GENRES_DEFAUT,
+                    OBJECTIF_LECTURE_ANNUEL_DEFAUT, OBJECTIF_LECTURE_MENSUEL_DEFAUT)
 
 # Un seul pool pour toute l'application (au lieu d'ouvrir une connexion TCP par
 # requête) : chaque endpoint ouvre plusieurs `with db()` (jusqu'à 3-4 pour le
@@ -267,6 +268,31 @@ def init_db():
         -- avec l'ancienne valeur calculée (cf. routes/bourse.py, remplir_tpcvm_manquantes).
         ALTER TABLE bourse_transactions ADD COLUMN IF NOT EXISTS tpcvm NUMERIC(14,4);
 
+        -- ================================================================
+        -- Lectures — livres terminés. Une relecture est une nouvelle ligne :
+        -- elle compte comme un livre lu de plus.
+        -- ================================================================
+        CREATE TABLE IF NOT EXISTS lectures_livres (
+            id           SERIAL PRIMARY KEY,
+            titre        VARCHAR(200) NOT NULL,
+            auteur       VARCHAR(150) NOT NULL DEFAULT '',
+            genre        VARCHAR(100) NOT NULL DEFAULT '',     -- genre stocké par son nom (comme les catégories)
+            date_debut   DATE,                                 -- optionnelle
+            date_fin     DATE NOT NULL,                        -- détermine le mois et l'année du livre
+            pages        INTEGER CHECK (pages > 0),
+            note         SMALLINT CHECK (note BETWEEN 1 AND 5),   -- appréciation en étoiles
+            commentaire  TEXT NOT NULL DEFAULT '',
+            cree_le      TIMESTAMP NOT NULL DEFAULT now(),
+            CHECK (date_debut IS NULL OR date_debut <= date_fin)
+        );
+        CREATE INDEX IF NOT EXISTS idx_lectures_date_fin ON lectures_livres (date_fin);
+
+        CREATE TABLE IF NOT EXISTS lectures_genres (
+            id    SERIAL PRIMARY KEY,
+            nom   TEXT UNIQUE NOT NULL,
+            actif INTEGER NOT NULL DEFAULT 1
+        );
+
         """)
 
         # ------------------------------------------------------------------
@@ -340,6 +366,11 @@ def init_db():
             if c.execute("SELECT COUNT(*) n FROM sources_revenus").fetchone()["n"] == 0:
                 cur.executemany("INSERT INTO sources_revenus(nom) VALUES(%s)", SOURCES_DEFAUT)
         c.execute("INSERT INTO params(cle,valeur) VALUES('objectif_epargne',5000) ON CONFLICT DO NOTHING")
+        c.execute("INSERT INTO params(cle,valeur) VALUES('objectif_lecture_annuel',%s),('objectif_lecture_mensuel',%s) "
+                  "ON CONFLICT DO NOTHING", (OBJECTIF_LECTURE_ANNUEL_DEFAUT, OBJECTIF_LECTURE_MENSUEL_DEFAUT))
+        if c.execute("SELECT COUNT(*) n FROM lectures_genres").fetchone()["n"] == 0:
+            with c.cursor() as cur:
+                cur.executemany("INSERT INTO lectures_genres(nom) VALUES(%s)", GENRES_DEFAUT)
         if c.execute("SELECT COUNT(*) n FROM utilisateurs").fetchone()["n"] == 0:
             if not ADMIN_UTILISATEUR or not ADMIN_MOT_DE_PASSE:
                 raise RuntimeError(
