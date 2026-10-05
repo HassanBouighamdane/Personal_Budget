@@ -120,11 +120,11 @@ def test_modifier_depense():
 def test_modifier_revenu():
     rid = ajouter_revenu(RevenuIn(date="2026-01-15", source=PREFIXE + "Src", montant=200))["id"]
 
-    modifier_revenu(rid, RevenuIn(date="2026-02-03", source=PREFIXE + "Autre", montant=250))
+    modifier_revenu(rid, RevenuIn(date="2026-02-03", source=PREFIXE + "Autre", montant=250, description=" prime "))
 
     with db() as c:
-        row = c.execute("SELECT date,source,montant FROM revenus WHERE id=%s", (rid,)).fetchone()
-    assert (row["date"], row["source"], row["montant"]) == ("2026-02-03", PREFIXE + "Autre", 250)
+        row = c.execute("SELECT date,source,description,montant FROM revenus WHERE id=%s", (rid,)).fetchone()
+    assert (row["date"], row["source"], row["description"], row["montant"]) ==            ("2026-02-03", PREFIXE + "Autre", "prime", 250)
 
 
 def test_404_sur_categorie_inexistante():

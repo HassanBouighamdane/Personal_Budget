@@ -39,6 +39,7 @@ class DepenseIn(BaseModel):
 class RevenuIn(BaseModel):
     date: DateISO
     source: str = ""
+    description: str = ""
     montant: float = Field(gt=0)
 
 class CategorieIn(BaseModel):

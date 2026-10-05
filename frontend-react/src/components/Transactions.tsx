@@ -1,5 +1,5 @@
 /* Dépenses et revenus : formulaires (ajout, ou modification dans une fenêtre) et liste d'un mois.
- * Partagé par la Saisie (mois en cours) et la vue mensuelle du dashboard (n'importe quel mois). */
+ * Utilisé par la Saisie, avec navigation entre les mois. */
 import { useState } from 'react';
 import { ActionIcon, Box, Button, Group, SegmentedControl, Select, SimpleGrid, Stack, Text, TextInput, Tooltip } from '@mantine/core';
 import { modals } from '@mantine/modals';
@@ -69,6 +69,7 @@ export function FormRevenu({ revenu, onTermine }: { revenu?: Revenu; onTermine?:
   const [source, setSource] = useState<string | null>(revenu?.source || null);
   const [autre, setAutre] = useState('');
   const [montant, setMontant] = useState(texteMontant(revenu?.montant));
+  const [description, setDescription] = useState(revenu?.description ?? '');
 
   function enregistrer() {
     const m = lireMontant(montant);
@@ -79,12 +80,12 @@ export function FormRevenu({ revenu, onTermine }: { revenu?: Revenu; onTermine?:
       if (!s) return toast('Précise la source', false);
     }
     if (isNaN(m) || m <= 0) return toast('Montant invalide', false);
-    const body = { date, source: s, montant: m };
+    const body = { date, source: s, description, montant: m };
     ecrire.mutate(
       revenu
         ? { path: `/api/revenus/${revenu.id}`, method: 'PUT', body, succes: 'Revenu modifié ✓' }
         : { path: '/api/revenus', method: 'POST', body, succes: 'Revenu ajouté ✓' },
-      { onSuccess: () => { if (!revenu) { setMontant(''); setAutre(''); } onTermine?.(); } },
+      { onSuccess: () => { if (!revenu) { setMontant(''); setAutre(''); setDescription(''); } onTermine?.(); } },
     );
   }
 
@@ -101,7 +102,11 @@ export function FormRevenu({ revenu, onTermine }: { revenu?: Revenu; onTermine?:
       {valeur === AUTRE && (
         <TextInput placeholder="Précise la source..." value={autre} onChange={e => setAutre(e.currentTarget.value)} />
       )}
-      <ChampDate value={date} onChange={setDate} />
+      <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
+        <ChampDate value={date} onChange={setDate} />
+        <TextInput label="Description (optionnel)" placeholder="ex : salaire de septembre"
+                   value={description} onChange={e => setDescription(e.currentTarget.value)} />
+      </SimpleGrid>
       <Button mt="xs" size="md" color="bleu" onClick={enregistrer} loading={ecrire.isPending}>
         {revenu ? 'Enregistrer' : 'Ajouter le revenu'}
       </Button>
@@ -149,7 +154,7 @@ export function TransactionsDuMois({ mois, titre = 'Transactions du mois', vide 
 
   const lignes: Ligne[] = data ? [
     ...data.depenses.map(x => ({ id: x.id, type: 'depenses' as const, origine: x, date: x.date, montant: x.montant, titre: x.categorie, detail: x.description })),
-    ...data.revenus.map(x => ({ id: x.id, type: 'revenus' as const, origine: x, date: x.date, montant: x.montant, titre: x.source || 'Revenu', detail: '' })),
+    ...data.revenus.map(x => ({ id: x.id, type: 'revenus' as const, origine: x, date: x.date, montant: x.montant, titre: x.source || 'Revenu', detail: x.description })),
   ].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id) : [];
   const visibles = filtre === 'tout' ? lignes : lignes.filter(l => l.type === filtre);
   const totalDep = lignes.filter(l => l.type === 'depenses').reduce((s, l) => s + l.montant, 0);

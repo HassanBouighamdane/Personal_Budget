@@ -288,7 +288,7 @@ Script manuel et **destructif** : supprime toutes les tables du module Bourse et
 |---|---|---|
 | `categories` | `id`, `nom` UNIQUE, `budget`, `actif` | budget mensuel en DH |
 | `depenses` | `id`, `date` TEXT, `categorie` TEXT, `description`, `montant`, `paiement`, `cree_le` | catégorie stockée par son nom ; `paiement` n'est plus utilisée (conservée pour l'historique) |
-| `revenus` | `id`, `date` TEXT, `source`, `montant`, `cree_le` | source stockée par son nom |
+| `revenus` | `id`, `date` TEXT, `source`, `description`, `montant`, `cree_le` | source stockée par son nom |
 | `sources_revenus` | `id`, `nom` UNIQUE, `actif` | |
 | `paiements` | `id`, `nom` UNIQUE, `actif` | n'est plus utilisée (conservée pour l'historique) |
 | `params` | `cle` PK, `valeur` | contient `objectif_epargne` |
@@ -337,7 +337,7 @@ Toutes les routes sauf `/api/login` et `/api/logout` exigent le cookie `session`
 | PUT | `/api/objectif` | `{objectif}` | `{ok}` |
 | POST / PUT / DELETE | `/api/sources[/{id}]` | `{nom}` | `{ok}` |
 | POST / PUT / DELETE | `/api/depenses[/{id}]` | `{date, categorie, description, montant}` | `{id}` / `{ok}` |
-| POST / PUT / DELETE | `/api/revenus[/{id}]` | `{date, source, montant}` | `{id}` / `{ok}` |
+| POST / PUT / DELETE | `/api/revenus[/{id}]` | `{date, source, description, montant}` | `{id}` / `{ok}` |
 | GET | `/api/transactions?mois=` | — | `{depenses, revenus}` |
 | GET | `/api/resume_jour?date=` | — | résumé du jour |
 | GET | `/api/resume_semaine?date=` | — | résumé de la semaine |
@@ -446,7 +446,7 @@ src/
 │   ├── Logo.tsx          Logo de l'application
 │   ├── champs.tsx        ChampDate (JJ/MM/AAAA ↔ AAAA-MM-JJ), ChampMontant (virgule ou point)
 │   ├── Graphique.tsx     Graphique, Donut (légende en %), options communes, couleurs selon le thème
-│   ├── Transactions.tsx  FormDepense / FormRevenu (ajout ou modification) et TransactionsDuMois, partagés par la Saisie et la vue Mois du dashboard
+│   ├── Transactions.tsx  FormDepense / FormRevenu (ajout ou modification) et TransactionsDuMois, utilisés par la Saisie
 │   └── Protection.tsx    Affiche un message au lieu d'une page blanche en cas d'erreur d'affichage
 └── pages/
     ├── Connexion.tsx
@@ -470,7 +470,7 @@ src/
 - Le thème est mémorisé dans `localStorage` sous la clé `theme` (`light` / `dark`), la même que l'ancien frontend. Un script dans `index.html` l'applique avant le premier affichage.
 - La navigation (vue du dashboard, période affichée, sous-onglet Bourse) est conservée quand on change d'onglet.
 - Les suppressions et désactivations passent par une fenêtre de confirmation.
-- La Saisie liste les transactions du mois en cours ; celles des mois passés se consultent dans la vue Mois du dashboard (flèches ‹ ›). Dans les deux listes, le crayon ouvre la modification d'une ligne dans une fenêtre.
+- La Saisie liste les transactions d'un mois : le mois en cours par défaut, les mois passés via les flèches ‹ › de l'en-tête. Le crayon ouvre la modification d'une ligne dans une fenêtre.
 - Les tableaux de la Bourse (transactions, positions, gains) se trient en cliquant sur l'en-tête des colonnes.
 - Navigation : barre latérale sur ordinateur (à partir de 768 px), barre d'onglets en bas sur mobile.
 - Les notifications s'affichent en bas à droite (au-dessus de la barre d'onglets sur mobile), pour ne jamais masquer la navigation.

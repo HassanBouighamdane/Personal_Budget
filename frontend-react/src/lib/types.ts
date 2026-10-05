@@ -6,7 +6,7 @@ export type Source = { id: number; nom: string };
 export type Config = { categories: Categorie[]; sources: Source[]; objectif_epargne: number };
 
 export type Depense = { id: number; date: string; categorie: string; description: string; montant: number };
-export type Revenu = { id: number; date: string; source: string; montant: number };
+export type Revenu = { id: number; date: string; source: string; description: string; montant: number };
 export type TransactionsMois = { depenses: Depense[]; revenus: Revenu[] };
 
 type PartCategorie = { cat: string; montant: number };

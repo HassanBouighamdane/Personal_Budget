@@ -38,15 +38,15 @@ def supprimer_depense(did: int):
 @router.post("/revenus")
 def ajouter_revenu(r: RevenuIn):
     with db() as c:
-        row = c.execute("INSERT INTO revenus(date,source,montant) VALUES(%s,%s,%s) RETURNING id",
-                        (r.date, r.source.strip(), r.montant)).fetchone()
+        row = c.execute("INSERT INTO revenus(date,source,description,montant) VALUES(%s,%s,%s,%s) RETURNING id",
+                        (r.date, r.source.strip(), r.description.strip(), r.montant)).fetchone()
     return {"id": row["id"]}
 
 @router.put("/revenus/{rid}")
 def modifier_revenu(rid: int, r: RevenuIn):
     with db() as c:
-        res = c.execute("UPDATE revenus SET date=%s, source=%s, montant=%s WHERE id=%s",
-                        (r.date, r.source.strip(), r.montant, rid))
+        res = c.execute("UPDATE revenus SET date=%s, source=%s, description=%s, montant=%s WHERE id=%s",
+                        (r.date, r.source.strip(), r.description.strip(), r.montant, rid))
         if res.rowcount == 0:
             raise HTTPException(404, "Revenu introuvable")
     return {"ok": True}
@@ -69,6 +69,6 @@ def transactions(mois: str):
     with db() as c:
         dep = c.execute("SELECT id,date,categorie,description,montant FROM depenses "
                         "WHERE date LIKE %s ORDER BY date DESC, id DESC", (like,)).fetchall()
-        rev = c.execute("SELECT id,date,source,montant FROM revenus "
+        rev = c.execute("SELECT id,date,source,COALESCE(description,'') description,montant FROM revenus "
                         "WHERE date LIKE %s ORDER BY date DESC, id DESC", (like,)).fetchall()
     return {"depenses": dep, "revenus": rev}

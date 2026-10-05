@@ -153,9 +153,12 @@ def init_db():
             id SERIAL PRIMARY KEY,
             date TEXT NOT NULL,
             source TEXT DEFAULT '',
+            description TEXT DEFAULT '',
             montant DOUBLE PRECISION NOT NULL,
             cree_le TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+        -- Description libre d'un revenu (ajoutée après coup : les bases existantes la reçoivent ici)
+        ALTER TABLE revenus ADD COLUMN IF NOT EXISTS description TEXT DEFAULT '';
         CREATE TABLE IF NOT EXISTS params (
             cle TEXT PRIMARY KEY,
             valeur DOUBLE PRECISION NOT NULL

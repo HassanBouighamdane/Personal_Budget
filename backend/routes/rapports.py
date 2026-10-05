@@ -49,7 +49,7 @@ def resume_jour(date: str):
                           "GROUP BY categorie ORDER BY t DESC", (date,)).fetchall()
         dep = c.execute("SELECT id,categorie,description,montant FROM depenses "
                         "WHERE date=%s ORDER BY id DESC", (date,)).fetchall()
-        rev = c.execute("SELECT id,source,montant FROM revenus WHERE date=%s ORDER BY id DESC",
+        rev = c.execute("SELECT id,source,COALESCE(description,'') description,montant FROM revenus WHERE date=%s ORDER BY id DESC",
                         (date,)).fetchall()
 
         # Moyenne quotidienne du mois (jusqu'au jour demandé)
