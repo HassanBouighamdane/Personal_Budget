@@ -151,14 +151,29 @@ export function TransactionsDuMois({ mois, titre = 'Transactions du mois', vide 
   const { data, isPending } = useTransactionsMois(mois);
   const ecrire = useEcriture('budget');
   const [filtre, setFiltre] = useState<'tout' | 'depenses' | 'revenus'>('tout');
+  // Catégorie (dépenses) ou source (revenus), codée « type:nom » : un même nom peut exister des deux côtés
+  const [rubrique, setRubrique] = useState<string | null>(null);
 
   const lignes: Ligne[] = data ? [
     ...data.depenses.map(x => ({ id: x.id, type: 'depenses' as const, origine: x, date: x.date, montant: x.montant, titre: x.categorie, detail: x.description })),
     ...data.revenus.map(x => ({ id: x.id, type: 'revenus' as const, origine: x, date: x.date, montant: x.montant, titre: x.source || 'Revenu', detail: x.description })),
   ].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id) : [];
-  const visibles = filtre === 'tout' ? lignes : lignes.filter(l => l.type === filtre);
-  const totalDep = lignes.filter(l => l.type === 'depenses').reduce((s, l) => s + l.montant, 0);
-  const totalRev = lignes.filter(l => l.type === 'revenus').reduce((s, l) => s + l.montant, 0);
+  const parType = filtre === 'tout' ? lignes : lignes.filter(l => l.type === filtre);
+  const visibles = rubrique ? parType.filter(l => l.type + ':' + l.titre === rubrique) : parType;
+  // Totaux de ce qui est affiché : ils suivent les filtres
+  const totalDep = visibles.filter(l => l.type === 'depenses').reduce((s, l) => s + l.montant, 0);
+  const totalRev = visibles.filter(l => l.type === 'revenus').reduce((s, l) => s + l.montant, 0);
+
+  // Choix proposés : seulement les catégories / sources présentes ce mois, pour le type affiché
+  // (le choix en cours reste listé en changeant de mois, même sans opération ce mois-là)
+  const noms = (type: Ligne['type']) => [...new Set([
+    ...parType.filter(l => l.type === type).map(l => l.titre),
+    ...(rubrique?.startsWith(type + ':') ? [rubrique.slice(type.length + 1)] : []),
+  ])].sort((a, b) => a.localeCompare(b, 'fr')).map(n => ({ value: type + ':' + n, label: n }));
+  const choix = [
+    { group: 'Catégories de dépenses', items: noms('depenses') },
+    { group: 'Sources de revenus', items: noms('revenus') },
+  ].filter(g => g.items.length);
 
   // Regroupement par jour (lignes déjà triées par date décroissante)
   const jours: { date: string; lignes: Ligne[] }[] = [];
@@ -173,8 +188,16 @@ export function TransactionsDuMois({ mois, titre = 'Transactions du mois', vide 
   return (
     <Carte titre={titre} description={lignes.length ? `${lignes.length} opération${lignes.length > 1 ? 's' : ''}` : undefined}
       droite={lignes.length > 0 && (
-        <SegmentedControl size="xs" value={filtre} onChange={v => setFiltre(v as typeof filtre)}
-          data={[{ value: 'tout', label: 'Tout' }, { value: 'depenses', label: 'Dépenses' }, { value: 'revenus', label: 'Revenus' }]} />
+        <Group gap="xs" wrap="wrap">
+          <Select size="xs" w={190} placeholder="Toutes les catégories" data={choix} value={rubrique} onChange={setRubrique}
+                  clearable searchable nothingFoundMessage="Aucune" aria-label="Filtrer par catégorie ou source" />
+          <SegmentedControl size="xs" value={filtre} data={[{ value: 'tout', label: 'Tout' }, { value: 'depenses', label: 'Dépenses' }, { value: 'revenus', label: 'Revenus' }]}
+            onChange={v => {
+              setFiltre(v as typeof filtre);
+              // La catégorie choisie n'a plus de sens si son type est masqué
+              if (rubrique && v !== 'tout' && !rubrique.startsWith(v + ':')) setRubrique(null);
+            }} />
+        </Group>
       )}>
       {isPending ? <Chargement lignes={5} /> : !lignes.length ? (
         <Vide icone={IconReceipt}>{vide}</Vide>
@@ -215,7 +238,7 @@ export function TransactionsDuMois({ mois, titre = 'Transactions du mois', vide 
               </Stack>
             </Box>
           ))}
-          {!visibles.length && <Vide>Aucune opération de ce type ce mois</Vide>}
+          {!visibles.length && <Vide>Aucune opération ne correspond à ce filtre ce mois</Vide>}
         </Stack>
       )}
     </Carte>
