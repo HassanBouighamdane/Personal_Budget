@@ -13,6 +13,7 @@ import {
   useResumeAnnee, useResumeBourseSilencieux, useResumeGlobal, useResumeJour, useResumeMois, useResumeSemaine,
 } from '../../lib/queries';
 import { Donut, Graphique, optionsSeries } from '../../components/Graphique';
+import { TransactionsDuMois } from '../../components/Transactions';
 import { Carte, Grille2, GrilleKpi, Kpi, Tableau, Variation, Vide } from '../../components/ui';
 import { EnTetePeriode, type NavDashboard } from './Dashboard';
 
@@ -163,6 +164,9 @@ export function VueMois({ nav }: { nav: NavDashboard }) {
       </Grille2>
 
       <Carte titre="Top dépenses du mois"><TableTop top={r.top} vide="Aucune dépense ce mois" /></Carte>
+
+      {/* Toutes les opérations du mois affiché, modifiables et supprimables comme dans la Saisie */}
+      <TransactionsDuMois mois={nav.mois} />
     </>
   );
 }

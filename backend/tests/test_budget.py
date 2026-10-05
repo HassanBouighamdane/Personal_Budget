@@ -23,7 +23,10 @@ from routes.configuration import (
     ajouter_categorie, modifier_categorie, desactiver_categorie,
     ajouter_source, modifier_source, desactiver_source,
 )
-from routes.transactions import ajouter_depense, supprimer_depense, ajouter_revenu, supprimer_revenu
+from routes.transactions import (
+    ajouter_depense, modifier_depense, supprimer_depense,
+    ajouter_revenu, modifier_revenu, supprimer_revenu,
+)
 
 PREFIXE = "ZZTEST"
 
@@ -85,12 +88,43 @@ def test_404_sur_depense_inexistante():
     with pytest.raises(HTTPException) as exc:
         supprimer_depense(9_999_999)
     assert exc.value.status_code == 404
+    with pytest.raises(HTTPException) as exc:
+        modifier_depense(9_999_999, DepenseIn(date="2026-01-15", categorie="X", montant=1))
+    assert exc.value.status_code == 404
 
 
 def test_404_sur_revenu_inexistant():
     with pytest.raises(HTTPException) as exc:
         supprimer_revenu(9_999_999)
     assert exc.value.status_code == 404
+    with pytest.raises(HTTPException) as exc:
+        modifier_revenu(9_999_999, RevenuIn(date="2026-01-15", source="X", montant=1))
+    assert exc.value.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Modification d'une dépense / d'un revenu déjà saisi (tous les champs, y compris
+# la date : la ligne peut changer de mois).
+# ---------------------------------------------------------------------------
+def test_modifier_depense():
+    did = ajouter_depense(DepenseIn(date="2026-01-15", categorie=PREFIXE + "Cat", montant=50, description="avant"))["id"]
+
+    modifier_depense(did, DepenseIn(date="2026-02-03", categorie=PREFIXE + "Autre", montant=75.5, description=" après "))
+
+    with db() as c:
+        row = c.execute("SELECT date,categorie,description,montant FROM depenses WHERE id=%s", (did,)).fetchone()
+    assert (row["date"], row["categorie"], row["description"], row["montant"]) == \
+           ("2026-02-03", PREFIXE + "Autre", "après", 75.5)
+
+
+def test_modifier_revenu():
+    rid = ajouter_revenu(RevenuIn(date="2026-01-15", source=PREFIXE + "Src", montant=200))["id"]
+
+    modifier_revenu(rid, RevenuIn(date="2026-02-03", source=PREFIXE + "Autre", montant=250))
+
+    with db() as c:
+        row = c.execute("SELECT date,source,montant FROM revenus WHERE id=%s", (rid,)).fetchone()
+    assert (row["date"], row["source"], row["montant"]) == ("2026-02-03", PREFIXE + "Autre", 250)
 
 
 def test_404_sur_categorie_inexistante():

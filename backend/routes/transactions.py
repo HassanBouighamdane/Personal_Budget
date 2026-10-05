@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Routes des transactions : dépenses et revenus (création, suppression, liste)."""
+"""Routes des transactions : dépenses et revenus (création, modification, suppression, liste)."""
 from fastapi import APIRouter, Depends, HTTPException
 from datetime import datetime
 
@@ -18,6 +18,15 @@ def ajouter_depense(d: DepenseIn):
                         (d.date, d.categorie, d.description.strip(), d.montant)).fetchone()
     return {"id": row["id"]}
 
+@router.put("/depenses/{did}")
+def modifier_depense(did: int, d: DepenseIn):
+    with db() as c:
+        res = c.execute("UPDATE depenses SET date=%s, categorie=%s, description=%s, montant=%s WHERE id=%s",
+                        (d.date, d.categorie, d.description.strip(), d.montant, did))
+        if res.rowcount == 0:
+            raise HTTPException(404, "Dépense introuvable")
+    return {"ok": True}
+
 @router.delete("/depenses/{did}")
 def supprimer_depense(did: int):
     with db() as c:
@@ -32,6 +41,15 @@ def ajouter_revenu(r: RevenuIn):
         row = c.execute("INSERT INTO revenus(date,source,montant) VALUES(%s,%s,%s) RETURNING id",
                         (r.date, r.source.strip(), r.montant)).fetchone()
     return {"id": row["id"]}
+
+@router.put("/revenus/{rid}")
+def modifier_revenu(rid: int, r: RevenuIn):
+    with db() as c:
+        res = c.execute("UPDATE revenus SET date=%s, source=%s, montant=%s WHERE id=%s",
+                        (r.date, r.source.strip(), r.montant, rid))
+        if res.rowcount == 0:
+            raise HTTPException(404, "Revenu introuvable")
+    return {"ok": True}
 
 @router.delete("/revenus/{rid}")
 def supprimer_revenu(rid: int):

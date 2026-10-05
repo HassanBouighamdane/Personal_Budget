@@ -241,7 +241,7 @@ Ces modèles valident automatiquement les données reçues. En cas d'échec, Fas
 
 ### 3.8 `routes/transactions.py`
 
-Création et suppression des dépenses et revenus (404 si la ligne n'existe pas). `GET /api/transactions?mois=AAAA-MM` liste les deux types pour un mois, avec un filtre `date LIKE '2026-09-%'`.
+Création, modification (`PUT`, tous les champs y compris la date) et suppression des dépenses et revenus (404 si la ligne n'existe pas). `GET /api/transactions?mois=AAAA-MM` liste les deux types pour un mois, avec un filtre `date LIKE '2026-09-%'`.
 
 ### 3.9 `routes/rapports.py` — tableaux de bord
 
@@ -336,8 +336,8 @@ Toutes les routes sauf `/api/login` et `/api/logout` exigent le cookie `session`
 | POST / PUT / DELETE | `/api/categories[/{id}]` | `{nom, budget}` | `{ok}` |
 | PUT | `/api/objectif` | `{objectif}` | `{ok}` |
 | POST / PUT / DELETE | `/api/sources[/{id}]` | `{nom}` | `{ok}` |
-| POST / DELETE | `/api/depenses[/{id}]` | `{date, categorie, description, montant}` | `{id}` / `{ok}` |
-| POST / DELETE | `/api/revenus[/{id}]` | `{date, source, montant}` | `{id}` / `{ok}` |
+| POST / PUT / DELETE | `/api/depenses[/{id}]` | `{date, categorie, description, montant}` | `{id}` / `{ok}` |
+| POST / PUT / DELETE | `/api/revenus[/{id}]` | `{date, source, montant}` | `{id}` / `{ok}` |
 | GET | `/api/transactions?mois=` | — | `{depenses, revenus}` |
 | GET | `/api/resume_jour?date=` | — | résumé du jour |
 | GET | `/api/resume_semaine?date=` | — | résumé de la semaine |
@@ -446,6 +446,7 @@ src/
 │   ├── Logo.tsx          Logo de l'application
 │   ├── champs.tsx        ChampDate (JJ/MM/AAAA ↔ AAAA-MM-JJ), ChampMontant (virgule ou point)
 │   ├── Graphique.tsx     Graphique, Donut (légende en %), options communes, couleurs selon le thème
+│   ├── Transactions.tsx  FormDepense / FormRevenu (ajout ou modification) et TransactionsDuMois, partagés par la Saisie et la vue Mois du dashboard
 │   └── Protection.tsx    Affiche un message au lieu d'une page blanche en cas d'erreur d'affichage
 └── pages/
     ├── Connexion.tsx
@@ -469,6 +470,7 @@ src/
 - Le thème est mémorisé dans `localStorage` sous la clé `theme` (`light` / `dark`), la même que l'ancien frontend. Un script dans `index.html` l'applique avant le premier affichage.
 - La navigation (vue du dashboard, période affichée, sous-onglet Bourse) est conservée quand on change d'onglet.
 - Les suppressions et désactivations passent par une fenêtre de confirmation.
+- La Saisie liste les transactions du mois en cours ; celles des mois passés se consultent dans la vue Mois du dashboard (flèches ‹ ›). Dans les deux listes, le crayon ouvre la modification d'une ligne dans une fenêtre.
 - Les tableaux de la Bourse (transactions, positions, gains) se trient en cliquant sur l'en-tête des colonnes.
 - Navigation : barre latérale sur ordinateur (à partir de 768 px), barre d'onglets en bas sur mobile.
 - Les notifications s'affichent en bas à droite (au-dessus de la barre d'onglets sur mobile), pour ne jamais masquer la navigation.
