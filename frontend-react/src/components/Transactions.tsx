@@ -140,7 +140,9 @@ function Resume({ label, valeur, couleur }: { label: string; valeur: string; cou
   );
 }
 
-export function TransactionsDuMois({ mois, vide = 'Aucune transaction ce mois' }: { mois: string; vide?: string }) {
+export function TransactionsDuMois({ mois, titre = 'Transactions du mois', vide = 'Aucune transaction ce mois' }: {
+  mois: string; titre?: string; vide?: string;
+}) {
   const { data, isPending } = useTransactionsMois(mois);
   const ecrire = useEcriture('budget');
   const [filtre, setFiltre] = useState<'tout' | 'depenses' | 'revenus'>('tout');
@@ -164,7 +166,7 @@ export function TransactionsDuMois({ mois, vide = 'Aucune transaction ce mois' }
     ecrire.mutate({ path: `/api/${l.type}/${l.id}`, method: 'DELETE', succes: 'Supprimé' }));
 
   return (
-    <Carte titre="Transactions du mois" description={lignes.length ? `${lignes.length} opération${lignes.length > 1 ? 's' : ''}` : undefined}
+    <Carte titre={titre} description={lignes.length ? `${lignes.length} opération${lignes.length > 1 ? 's' : ''}` : undefined}
       droite={lignes.length > 0 && (
         <SegmentedControl size="xs" value={filtre} onChange={v => setFiltre(v as typeof filtre)}
           data={[{ value: 'tout', label: 'Tout' }, { value: 'depenses', label: 'Dépenses' }, { value: 'revenus', label: 'Revenus' }]} />

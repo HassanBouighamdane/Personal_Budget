@@ -1,17 +1,35 @@
 import { useState } from 'react';
-import { Box, Grid, Group, SegmentedControl, Stack } from '@mantine/core';
-import { IconMinus, IconPlus } from '@tabler/icons-react';
+import { ActionIcon, Box, Button, Grid, Group, SegmentedControl, Stack, Tooltip } from '@mantine/core';
+import { IconChevronLeft, IconChevronRight, IconMinus, IconPlus } from '@tabler/icons-react';
 
-import { auj, MOIS_FR } from '../lib/format';
+import { auj, decalerMois, libelleMois } from '../lib/format';
 import { FormDepense, FormRevenu, TransactionsDuMois } from '../components/Transactions';
 import { Carte, EnTetePage } from '../components/ui';
 
 export function Saisie() {
   const [type, setType] = useState<'depense' | 'revenu'>('depense');
-  const mois = auj().slice(0, 7);
+  const moisCourant = auj().slice(0, 7);
+  // Mois dont les opérations sont listées (et modifiables) à droite ; le formulaire d'ajout reste daté librement
+  const [mois, setMois] = useState(moisCourant);
   return (
     <Stack gap="lg">
-      <EnTetePage titre="Saisie" description={`Enregistre tes opérations de ${MOIS_FR[+mois.slice(5) - 1].toLowerCase()} ${mois.slice(0, 4)}`} />
+      <EnTetePage titre="Saisie" description="Enregistre tes opérations, ou modifie celles déjà saisies" actions={
+        <Group gap={4} wrap="nowrap">
+          <Tooltip label="Mois précédent">
+            <ActionIcon variant="default" size={36} radius="md" aria-label="Mois précédent" onClick={() => setMois(m => decalerMois(m, -1))}>
+              <IconChevronLeft size={18} />
+            </ActionIcon>
+          </Tooltip>
+          <Button variant="default" h={36} px="sm" fw={600} disabled={mois === moisCourant} onClick={() => setMois(moisCourant)}>
+            Mois en cours
+          </Button>
+          <Tooltip label="Mois suivant">
+            <ActionIcon variant="default" size={36} radius="md" aria-label="Mois suivant" onClick={() => setMois(m => decalerMois(m, 1))}>
+              <IconChevronRight size={18} />
+            </ActionIcon>
+          </Tooltip>
+        </Group>
+      } />
       <Grid gap="lg" align="flex-start">
         <Grid.Col span={{ base: 12, md: 5 }}>
           <Carte className="colle" titre="Nouvelle opération" description="Dépense ou revenu, saisi en quelques secondes">
@@ -27,7 +45,8 @@ export function Saisie() {
           </Carte>
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 7 }}>
-          <TransactionsDuMois mois={mois} vide="Aucune transaction ce mois — commence ta saisie !" />
+          <TransactionsDuMois mois={mois} titre={'Transactions — ' + libelleMois(mois)}
+                              vide={mois === moisCourant ? 'Aucune transaction ce mois — commence ta saisie !' : 'Aucune transaction ce mois'} />
         </Grid.Col>
       </Grid>
     </Stack>
