@@ -122,17 +122,17 @@ class PositionBourse(BaseModel):
     valeur_marche: float
     plus_value_latente: float
     performance_latente: float
-    isin: Optional[str] = None              # sans ISIN, pas de cours automatique
+    isin: Optional[str] = None
     cours_manuel: bool = False              # cours saisi à la main : verrouillé jusqu'à remise en automatique
     cours_maj_le: Optional[datetime] = None
 
 
 class CoursActualisation(BaseModel):
     """Résultat d'une récupération des cours. `etat` : maj (cours écrits), recent (déjà faite
-    il y a moins de 15 min), rien (aucun titre détenu à mettre à jour), erreur (flux injoignable)."""
+    il y a moins de 15 min), rien (aucun titre détenu à mettre à jour), erreur (sources injoignables)."""
     etat: Literal["maj", "recent", "rien", "erreur"]
     nb_maj: int = 0
-    introuvables: List[str] = []            # titres dont l'ISIN est absent du flux
+    introuvables: List[str] = []            # titres détenus absents de la source de cours
     message: str = ""
  
  

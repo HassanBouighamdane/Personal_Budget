@@ -33,7 +33,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from cours_bvc import decrire_echec, telecharger_cours
+from cours_bvc import telecharger_cours
 from database import db
 from securite import utilisateur_courant
 from schemas import (
@@ -272,10 +272,10 @@ DELAI_COURS_MIN = 15   # pas plus d'une récupération automatique par quart d'h
 
 
 def _actualiser_cours(force: bool) -> CoursActualisation:
-    """Écrit le dernier cours des titres détenus qui ont un ISIN et ne sont pas en saisie
-    manuelle. Déclenché à l'ouverture de l'application (force=False) ou par le bouton
+    """Écrit le dernier cours des titres détenus qui ne sont pas en saisie manuelle (rapprochés
+    par leur code BVC sur la source officielle, par leur ISIN sur la source de secours). Déclenché à l'ouverture de l'application (force=False) ou par le bouton
     « Actualiser » (force=True) : pas de tâche planifiée, l'instance peut dormir entre deux visites.
-    Si le flux est injoignable, rien n'est modifié et les derniers cours connus restent affichés."""
+    Si les sources sont injoignables, rien n'est modifié et les derniers cours connus restent affichés."""
     with db() as conn:
         if not force and conn.execute(
             "SELECT 1 FROM bourse_parametres WHERE cours_auto_le > now() - make_interval(mins => %s)",
@@ -286,7 +286,7 @@ def _actualiser_cours(force: bool) -> CoursActualisation:
             """SELECT d.titre, t.isin
                FROM (SELECT titre FROM bourse_transactions GROUP BY titre
                      HAVING SUM(CASE WHEN type_operation = 'Achat' THEN quantite ELSE -quantite END) > 0) d
-               JOIN bourse_titres t ON t.code = d.titre AND t.isin IS NOT NULL
+               LEFT JOIN bourse_titres t ON t.code = d.titre
                LEFT JOIN bourse_prix p ON p.titre = d.titre
                WHERE NOT COALESCE(p.manuel, false)"""
         ).fetchall()
@@ -297,11 +297,11 @@ def _actualiser_cours(force: bool) -> CoursActualisation:
     try:
         cours = telecharger_cours()
     except Exception as e:
-        cause = decrire_echec(e)
-        print(f"[cours] récupération échouée — {cause}", flush=True)   # visible dans les logs du serveur
-        return CoursActualisation(etat="erreur", message=f"Source des cours injoignable ({cause.split(' — ')[0]}) : derniers cours conservés")
+        print(f"[cours] récupération échouée — {e}", flush=True)   # détail visible dans les logs du serveur
+        return CoursActualisation(etat="erreur", message="Sources des cours injoignables : derniers cours conservés")
 
-    trouves = [(c["titre"], cours[c["isin"]]) for c in cibles if c["isin"] in cours]
+    valeurs = {c["titre"]: cours.de(c["titre"], c["isin"]) for c in cibles}
+    trouves = [(titre, valeur) for titre, valeur in valeurs.items() if valeur]
     with db() as conn:
         for titre, valeur in trouves:
             # `manuel = false` dans le WHERE : une saisie manuelle faite pendant le téléchargement est respectée
@@ -315,8 +315,8 @@ def _actualiser_cours(force: bool) -> CoursActualisation:
         conn.execute("UPDATE bourse_parametres SET cours_auto_le = now()")
     return CoursActualisation(
         etat="maj", nb_maj=len(trouves),
-        introuvables=[c["titre"] for c in cibles if c["isin"] not in cours],
-        message=f"{len(trouves)} cours mis à jour",
+        introuvables=[titre for titre, valeur in valeurs.items() if not valeur],
+        message=f"{len(trouves)} cours mis à jour ({cours.source})",
     )
 
 

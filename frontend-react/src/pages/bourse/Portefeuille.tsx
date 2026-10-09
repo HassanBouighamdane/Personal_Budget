@@ -41,29 +41,20 @@ function CoursEditable({ titre, cours }: { titre: string; cours: number }) {
 const dateHeure = (iso: string) =>
   new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
-/** Sous le cours : sa provenance (automatique, manuel verrouillé, ou pas d'ISIN pour le récupérer) */
+/** Sous le cours : sa provenance (automatique avec date de mise à jour, ou manuel verrouillé) */
 function SourceCours({ p }: { p: Position }) {
   const actualiser = useActualiserCours();
   if (p.cours_manuel) {
     return (
       <Group gap={2} wrap="nowrap">
         <Text fz={10} c={T.warn}>manuel</Text>
-        {p.isin && (
-          <Tooltip label="Remettre en automatique" withArrow>
-            <ActionIcon variant="subtle" color="gray" size="xs" loading={actualiser.isPending}
-                        onClick={() => actualiser.mutate(p.titre)} aria-label={`Remettre ${p.titre} en cours automatique`}>
-              <IconRefresh size={12} />
-            </ActionIcon>
-          </Tooltip>
-        )}
+        <Tooltip label="Remettre en automatique" withArrow>
+          <ActionIcon variant="subtle" color="gray" size="xs" loading={actualiser.isPending}
+                      onClick={() => actualiser.mutate(p.titre)} aria-label={`Remettre ${p.titre} en cours automatique`}>
+            <IconRefresh size={12} />
+          </ActionIcon>
+        </Tooltip>
       </Group>
-    );
-  }
-  if (!p.isin) {
-    return (
-      <Tooltip label="Ajoute l'ISIN de ce titre dans Paramètres pour récupérer son cours automatiquement" withArrow multiline w={220}>
-        <Text fz={10} c="dimmed">sans ISIN</Text>
-      </Tooltip>
     );
   }
   return <Text fz={10} c="dimmed">auto{p.cours_maj_le ? ' · ' + dateHeure(p.cours_maj_le) : ''}</Text>;

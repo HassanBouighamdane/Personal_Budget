@@ -77,8 +77,8 @@ export function ParametresBourse() {
           </Group>
           <Info>
             Alimente l'autocomplétion du champ « Titre » et le regroupement par secteur des positions. Renommer un code met à
-            jour les transactions, dividendes et cours déjà saisis sous l'ancien code. L'ISIN sert à récupérer le cours du titre
-            automatiquement : sans ISIN, le cours se saisit à la main dans Positions.
+            jour les transactions, dividendes et cours déjà saisis sous l'ancien code. Les cours sont récupérés
+            automatiquement par code ; l'ISIN ne sert qu'à la source de secours.
           </Info>
         </Stack>
       </Carte>

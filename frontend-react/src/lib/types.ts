@@ -135,7 +135,7 @@ export type Position = {
   valeur_marche: number;
   plus_value_latente: number;
   performance_latente: number;
-  isin: string | null;          // sans ISIN, pas de cours automatique
+  isin: string | null;
   cours_manuel: boolean;        // saisi à la main : verrouillé jusqu'à remise en automatique
   cours_maj_le: string | null;
 };

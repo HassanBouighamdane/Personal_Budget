@@ -113,7 +113,7 @@ TITRES_BVC_DEFAUT = [
     ("GTM", "SGTM (Société Générale des Travaux du Maroc)", "Bâtiment et Matériaux de Construction"),
 ]
 
-# ISIN des titres ci-dessus, pour les rapprocher du flux de cours (cf. cours_bvc.py).
+# ISIN des titres ci-dessus, pour les rapprocher de la source de cours de secours (cf. cours_bvc.py).
 # Établi en rapprochant les noms du flux Médias24 (relevé 09/10/2026) des codes BVC : à
 # corriger depuis Bourse > Paramètres si un cours ne correspond pas. Les titres absents du
 # flux (DIS, HOL, MDP, SAM, SOT, SNA) n'ont pas d'ISIN et restent en saisie manuelle.

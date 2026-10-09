@@ -30,7 +30,7 @@ Personal_Budget/
 │   ├── app.py              Point d'entrée : crée l'app FastAPI, branche les routes, sert le frontend
 │   ├── config.py           Variables d'environnement (.env) et constantes
 │   ├── database.py         Pool de connexions PostgreSQL + création du schéma
-│   ├── cours_bvc.py        Cours automatiques des titres BVC (flux Médias24, voir §6.3)
+│   ├── cours_bvc.py        Cours automatiques des titres BVC (site officiel, Médias24 en secours ; voir §6.3)
 │   ├── securite.py         Mots de passe, sessions, limitation des tentatives de connexion
 │   ├── schemas.py          Modèles Pydantic (validation des entrées et des sorties)
 │   ├── requirements.txt
@@ -305,7 +305,7 @@ Index : `depenses(date)`, `revenus(date)`.
 | `bourse_parametres` | `taux_tpcvm`, `cours_auto_le` | une seule ligne ; `cours_auto_le` date la dernière récupération automatique des cours |
 | `bourse_transactions` | `date_operation` DATE, `titre`, `isin`, `type_instrument`, `type_operation`, `quantite`, `cours_unitaire`, `autres_frais` | contraintes `CHECK` sur les types et les quantités |
 | `bourse_prix` | `titre` PK, `cours_actuel`, `maj_le`, `manuel` | un seul cours par titre, sans historique ; `manuel` = saisi à la main, non écrasé par les cours automatiques |
-| `bourse_titres` | `code` UNIQUE, `nom`, `secteur`, `isin`, `actif` | référentiel BVC ; l'ISIN rapproche le titre du flux de cours |
+| `bourse_titres` | `code` UNIQUE, `nom`, `secteur`, `isin`, `actif` | référentiel BVC ; l'ISIN rapproche le titre de la source de cours de secours |
 | `bourse_dividendes` | `date_operation`, `titre`, `montant` | montant net reçu |
 | `bourse_frais` | `date_operation`, `libelle`, `montant` | abonnement courtier, tenue de compte, droits de garde… |
 | `bourse_mouvements` | `date_operation`, `type_mouvement` (Apport / Retrait), `montant`, `libelle` | transferts banque ↔ compte Bourse |
@@ -406,12 +406,15 @@ Toutes les routes sauf `/api/login` et `/api/logout` exigent le cookie `session`
 
 ### 6.3 Cours automatiques
 
-`cours_bvc.py` lit les cours sur le flux JSON public de Médias24 (non officiel : il peut changer ou devenir injoignable). Les titres y sont identifiés par leur ISIN, d'où la colonne `isin` de `bourse_titres` (préremplie pour la liste par défaut, modifiable dans Bourse → Paramètres).
+`cours_bvc.py` récupère les cours auprès de deux sources, essayées dans l'ordre. Aucune n'est une API documentée : elles peuvent changer ou devenir injoignables.
+
+1. **Bourse de Casablanca** (`casablanca-bourse.com/live-market/actions`) : les cours sont dans le JSON embarqué dans la page, identifiés par le code BVC. Cinq codes de l'application diffèrent du symbole officiel (`SYMBOLES_OFFICIELS`). Le site n'envoie pas son certificat intermédiaire : il est fourni dans `backend/certs/sectigo_dv_r36.pem` (valable jusqu'en 2036, à remplacer si le site change d'autorité de certification). La vérification TLS reste active.
+2. **Médias24** (secours) : flux JSON identifié par ISIN, d'où la colonne `isin` de `bourse_titres`. Protégé par Cloudflare, il refuse les serveurs de Render (HTTP 403) : il ne sert en pratique qu'en local.
 
 - **Déclenchement** : à l'ouverture du Dashboard ou de la Bourse (`useCoursAuto`), au plus une fois toutes les 15 minutes, et par le bouton « Actualiser les cours » (sans délai). Il n'y a pas de tâche planifiée : l'instance Render dort entre deux visites.
-- **Titres concernés** : ceux détenus, qui ont un ISIN et ne sont pas en cours manuel.
+- **Titres concernés** : ceux détenus qui ne sont pas en cours manuel.
 - **Cours manuel** : saisir un cours dans Positions le verrouille ; il n'est plus écrasé jusqu'à sa remise en automatique (icône à côté de « manuel »).
-- **Échec** : si le flux est injoignable, rien n'est modifié et les derniers cours connus restent affichés.
+- **Échec** : si aucune source ne répond, rien n'est modifié, les derniers cours connus restent affichés et la cause est écrite dans les logs du serveur (ligne `[cours]`).
 
 ### 6.4 Règle de gestion des transferts
 
