@@ -5,6 +5,7 @@ import {
 } from '@tabler/icons-react';
 
 import { auj } from '../../lib/format';
+import { useCoursAuto } from '../../lib/queries';
 import { EnTetePage } from '../../components/ui';
 import { JournalDividendes, JournalFrais, JournalMouvements, JournalTransactions } from './Journaux';
 import { DashboardBourse, Gains, Positions } from './Portefeuille';
@@ -35,6 +36,7 @@ const VUES: { value: VueBourse; label: string; Icone: typeof IconCoins }[] = [
 ];
 
 export function Bourse({ nav }: { nav: NavBourse }) {
+  useCoursAuto();
   return (
     <Stack gap="lg">
       <Stack gap="sm">

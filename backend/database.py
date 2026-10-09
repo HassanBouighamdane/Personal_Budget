@@ -113,6 +113,32 @@ TITRES_BVC_DEFAUT = [
     ("GTM", "SGTM (Société Générale des Travaux du Maroc)", "Bâtiment et Matériaux de Construction"),
 ]
 
+# ISIN des titres ci-dessus, pour les rapprocher du flux de cours (cf. cours_bvc.py).
+# Établi en rapprochant les noms du flux Médias24 (relevé 09/10/2026) des codes BVC : à
+# corriger depuis Bourse > Paramètres si un cours ne correspond pas. Les titres absents du
+# flux (DIS, HOL, MDP, SAM, SOT, SNA) n'ont pas d'ISIN et restent en saisie manuelle.
+ISIN_BVC_DEFAUT = {
+    "AFM": "MA0000012296", "AFI": "MA0000012114", "GAZ": "MA0000010951", "AGM": "MA0000010944",
+    "ADI": "MA0000011819", "ALM": "MA0000010936", "ATL": "MA0000011710", "ATW": "MA0000012445",
+    "ATH": "MA0000010969", "NEJ": "MA0000011009", "BAL": "MA0000011991", "BCP": "MA0000011884",
+    "BOA": "MA0000012437", "BCI": "MA0000010811", "SBM": "MA0000010365", "CRS": "MA0000011868",
+    "CDM": "MA0000010381", "CIH": "MA0000011454", "CMA": "MA0000010506", "COL": "MA0000011934",
+    "CSR": "MA0000012247", "CTM": "MA0000010340", "DARI": "MA0000011421", "DLM": "MA0000011777",
+    "DHO": "MA0000011850", "DWAY": "MA0000011637", "ADH": "MA0000011512", "NAKL": "MA0000011942",
+    "EQD": "MA0000010357", "FBR": "MA0000011587", "HPS": "MA0000012619", "IBMC": "MA0000011132",
+    "INV": "MA0000011579", "IAM": "MA0000011488", "JET": "MA0000012080", "LBV": "MA0000011801",
+    "LHM": "MA0000012320", "LES": "MA0000012031", "M2M": "MA0000011678", "MOX": "MA0000010985",
+    "MAB": "MA0000011215", "MNG": "MA0000012866", "MLE": "MA0000010035", "MIC": "MA0000012163",
+    "CMT": "MA0000011793", "OUL": "MA0000010415", "PRO": "MA0000011660", "SRM": "MA0000011595",
+    "REB": "MA0000010993", "RDS": "MA0000012239", "RIS": "MA0000011462", "S2M": "MA0000012106",
+    "SAHM": "MA0000012007", "SLF": "MA0000011744", "SMI": "MA0000010068", "SNP": "MA0000011728",
+    "SID": "MA0000010019", "STR": "MA0000012056", "TQM": "MA0000012205", "TMA": "MA0000012262",
+    "UMR": "MA0000012023", "WAA": "MA0000010928", "ZDJ": "MA0000010571", "MSA": "MA0000012312",
+    "IMO": "MA0000012387", "MUT": "MA0000012395", "ARD": "MA0000012460", "TGC": "MA0000012528",
+    "DYT": "MA0000012536", "AKT": "MA0000012585", "CFG": "MA0000012627", "CMG": "MA0000012718",
+    "VCN": "MA0000012759", "CAP": "MA0000012767", "T2S": "MA0000012858", "GTM": "MA0000012783",
+}
+
 # Anciens libellés (classification anglaise) remplacés par la migration dans init_db.
 ANCIENS_SECTEURS_EN = [
     "Basic Materials", "Consumer Goods", "Consumer Services", "Financials", "Health Care",
@@ -271,6 +297,13 @@ def init_db():
         -- avec l'ancienne valeur calculée (cf. routes/bourse.py, remplir_tpcvm_manquantes).
         ALTER TABLE bourse_transactions ADD COLUMN IF NOT EXISTS tpcvm NUMERIC(14,4);
 
+        -- Cours automatiques (cf. cours_bvc.py) : l'ISIN rapproche un titre du flux de cours ;
+        -- `manuel` verrouille un cours saisi à la main jusqu'à sa remise en automatique ;
+        -- `cours_auto_le` date la dernière récupération réussie (au plus une toutes les 15 min).
+        ALTER TABLE bourse_titres ADD COLUMN IF NOT EXISTS isin VARCHAR(20);
+        ALTER TABLE bourse_prix ADD COLUMN IF NOT EXISTS manuel BOOLEAN NOT NULL DEFAULT false;
+        ALTER TABLE bourse_parametres ADD COLUMN IF NOT EXISTS cours_auto_le TIMESTAMPTZ;
+
         -- ================================================================
         -- Lectures — livres terminés. Une relecture est une nouvelle ligne :
         -- elle compte comme un livre lu de plus.
@@ -408,4 +441,9 @@ def init_db():
             cur.executemany(
                 "INSERT INTO bourse_titres(code,nom,secteur) VALUES(%s,%s,%s) ON CONFLICT (code) DO NOTHING",
                 [t for t in TITRES_BVC_DEFAUT if t[0] == "GTM"],
+            )
+            # ISIN des titres de la liste par défaut ; un ISIN déjà renseigné est conservé. Idempotent.
+            cur.executemany(
+                "UPDATE bourse_titres SET isin = %s WHERE code = %s AND isin IS NULL",
+                [(isin, code) for code, isin in ISIN_BVC_DEFAUT.items()],
             )

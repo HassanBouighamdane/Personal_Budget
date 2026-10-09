@@ -30,6 +30,7 @@ Personal_Budget/
 │   ├── app.py              Point d'entrée : crée l'app FastAPI, branche les routes, sert le frontend
 │   ├── config.py           Variables d'environnement (.env) et constantes
 │   ├── database.py         Pool de connexions PostgreSQL + création du schéma
+│   ├── cours_bvc.py        Cours automatiques des titres BVC (flux Médias24, voir §6.3)
 │   ├── securite.py         Mots de passe, sessions, limitation des tentatives de connexion
 │   ├── schemas.py          Modèles Pydantic (validation des entrées et des sorties)
 │   ├── requirements.txt
@@ -301,10 +302,10 @@ Index : `depenses(date)`, `revenus(date)`.
 
 | Table | Colonnes principales | Remarques |
 |---|---|---|
-| `bourse_parametres` | `taux_tpcvm` | une seule ligne |
+| `bourse_parametres` | `taux_tpcvm`, `cours_auto_le` | une seule ligne ; `cours_auto_le` date la dernière récupération automatique des cours |
 | `bourse_transactions` | `date_operation` DATE, `titre`, `isin`, `type_instrument`, `type_operation`, `quantite`, `cours_unitaire`, `autres_frais` | contraintes `CHECK` sur les types et les quantités |
-| `bourse_prix` | `titre` PK, `cours_actuel`, `maj_le` | un seul cours par titre, sans historique |
-| `bourse_titres` | `code` UNIQUE, `nom`, `secteur`, `actif` | référentiel BVC |
+| `bourse_prix` | `titre` PK, `cours_actuel`, `maj_le`, `manuel` | un seul cours par titre, sans historique ; `manuel` = saisi à la main, non écrasé par les cours automatiques |
+| `bourse_titres` | `code` UNIQUE, `nom`, `secteur`, `isin`, `actif` | référentiel BVC ; l'ISIN rapproche le titre du flux de cours |
 | `bourse_dividendes` | `date_operation`, `titre`, `montant` | montant net reçu |
 | `bourse_frais` | `date_operation`, `libelle`, `montant` | abonnement courtier, tenue de compte, droits de garde… |
 | `bourse_mouvements` | `date_operation`, `type_mouvement` (Apport / Retrait), `montant`, `libelle` | transferts banque ↔ compte Bourse |
@@ -345,10 +346,12 @@ Toutes les routes sauf `/api/login` et `/api/logout` exigent le cookie `session`
 | GET | `/api/resume_annuel?annee=` | — | résumé de l'année |
 | GET | `/api/resume_global` | — | résumé de tout l'historique |
 | GET / PUT | `/api/bourse/parametres` | `{taux_tpcvm}` | `ParametresBourse` |
-| GET / POST / PUT / DELETE | `/api/bourse/titres[/{id}]` | `{code, nom, secteur}` | `TitreBourse` / `[TitreBourse]` |
+| GET / POST / PUT / DELETE | `/api/bourse/titres[/{id}]` | `{code, nom, secteur, isin}` | `TitreBourse` / `[TitreBourse]` |
 | GET / POST | `/api/bourse/transactions` | `?mois=&annee=` / `TransactionBourseCreate` | `[TransactionBourseOut]` |
 | DELETE | `/api/bourse/transactions/{id}` | — | 204 |
-| PUT | `/api/bourse/prix/{titre}` | `{cours_actuel}` | `{titre, cours_actuel}` |
+| PUT | `/api/bourse/prix/{titre}` | `{cours_actuel}` | `{titre, cours_actuel}` ; passe le titre en cours manuel (verrouillé) |
+| PUT | `/api/bourse/prix/{titre}/auto` | — | `CoursActualisation` ; déverrouille le titre puis récupère les cours |
+| POST | `/api/bourse/cours/actualiser` | `?force=` | `CoursActualisation` |
 | GET / POST / DELETE | `/api/bourse/dividendes[/{id}]` | `?mois=&annee=` / `{date_operation, titre, montant}` | `[DividendeOut]` |
 | GET / POST / DELETE | `/api/bourse/frais[/{id}]` | `?mois=&annee=` / `{date_operation, libelle, montant}` | `[FraisBourseOut]` |
 | GET / POST / DELETE | `/api/bourse/mouvements[/{id}]` | `?mois=&annee=` / `{date_operation, type_mouvement, montant, libelle}` | `[MouvementBourseOut]` |
@@ -401,7 +404,16 @@ Toutes les routes sauf `/api/login` et `/api/logout` exigent le cookie `session`
 | Patrimoine Bourse | valeur de marché des titres + espèces disponibles |
 | **Performance globale** | patrimoine − apports nets ; en % : ÷ apports nets. Équivaut à gains nets + plus-value latente + dividendes − frais de compte : les gains réinvestis sont comptés une seule fois |
 
-### 6.3 Règle de gestion des transferts
+### 6.3 Cours automatiques
+
+`cours_bvc.py` lit les cours sur le flux JSON public de Médias24 (non officiel : il peut changer ou devenir injoignable). Les titres y sont identifiés par leur ISIN, d'où la colonne `isin` de `bourse_titres` (préremplie pour la liste par défaut, modifiable dans Bourse → Paramètres).
+
+- **Déclenchement** : à l'ouverture du Dashboard ou de la Bourse (`useCoursAuto`), au plus une fois toutes les 15 minutes, et par le bouton « Actualiser les cours » (sans délai). Il n'y a pas de tâche planifiée : l'instance Render dort entre deux visites.
+- **Titres concernés** : ceux détenus, qui ont un ISIN et ne sont pas en cours manuel.
+- **Cours manuel** : saisir un cours dans Positions le verrouille ; il n'est plus écrasé jusqu'à sa remise en automatique (icône à côté de « manuel »).
+- **Échec** : si le flux est injoignable, rien n'est modifié et les derniers cours connus restent affichés.
+
+### 6.4 Règle de gestion des transferts
 
 | Situation | Où la saisir |
 |---|---|

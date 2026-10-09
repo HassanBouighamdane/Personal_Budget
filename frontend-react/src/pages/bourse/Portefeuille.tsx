@@ -1,15 +1,15 @@
 /* Bourse — positions, gains réalisés et tableau de bord */
 import { useState } from 'react';
-import { ActionIcon, Box, Group, SegmentedControl, Table, Text, TextInput, Title } from '@mantine/core';
+import { ActionIcon, Box, Button, Group, SegmentedControl, Stack, Table, Text, TextInput, Title, Tooltip } from '@mantine/core';
 import {
-  IconChevronLeft, IconChevronRight, IconArrowsExchange, IconBuildingBank, IconCash, IconChartDonut, IconChartLine, IconCoins, IconReceipt, IconReceiptTax, IconReportMoney, IconScale, IconTrendingUp,
+  IconChevronLeft, IconChevronRight, IconArrowsExchange, IconBuildingBank, IconCash, IconChartDonut, IconChartLine, IconCoins, IconReceipt, IconReceiptTax, IconRefresh, IconReportMoney, IconScale, IconTrendingUp,
 } from '@tabler/icons-react';
 
 import { toast } from '../../lib/api';
 import { decalerMois, fmt, jjmm, libelleMois } from '../../lib/format';
 import { regrouperAutres, signe, T } from '../../lib/palette';
 import type { Position } from '../../lib/types';
-import { useDashboardBourse, useEcriture, useGains, usePositions } from '../../lib/queries';
+import { useActualiserCours, useDashboardBourse, useEcriture, useGains, usePositions } from '../../lib/queries';
 import { Donut } from '../../components/Graphique';
 import { Carte, Chargement, Grille2, GrilleKpi, Kpi, Tableau, ThTri, TitreSection, useTri, Vide } from '../../components/ui';
 import type { NavBourse, PeriodeBourse } from './Bourse';
@@ -38,6 +38,37 @@ function CoursEditable({ titre, cours }: { titre: string; cours: number }) {
   );
 }
 
+const dateHeure = (iso: string) =>
+  new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+/** Sous le cours : sa provenance (automatique, manuel verrouillé, ou pas d'ISIN pour le récupérer) */
+function SourceCours({ p }: { p: Position }) {
+  const actualiser = useActualiserCours();
+  if (p.cours_manuel) {
+    return (
+      <Group gap={2} wrap="nowrap">
+        <Text fz={10} c={T.warn}>manuel</Text>
+        {p.isin && (
+          <Tooltip label="Remettre en automatique" withArrow>
+            <ActionIcon variant="subtle" color="gray" size="xs" loading={actualiser.isPending}
+                        onClick={() => actualiser.mutate(p.titre)} aria-label={`Remettre ${p.titre} en cours automatique`}>
+              <IconRefresh size={12} />
+            </ActionIcon>
+          </Tooltip>
+        )}
+      </Group>
+    );
+  }
+  if (!p.isin) {
+    return (
+      <Tooltip label="Ajoute l'ISIN de ce titre dans Paramètres pour récupérer son cours automatiquement" withArrow multiline w={220}>
+        <Text fz={10} c="dimmed">sans ISIN</Text>
+      </Tooltip>
+    );
+  }
+  return <Text fz={10} c="dimmed">auto{p.cours_maj_le ? ' · ' + dateHeure(p.cours_maj_le) : ''}</Text>;
+}
+
 function Repartitions({ liste }: { liste: Position[] }) {
   const parSecteurMap: Record<string, number> = {};
   liste.forEach(p => {
@@ -64,11 +95,15 @@ export function Positions() {
     c === 'titre' ? p.titre : c === 'secteur' ? p.secteur : c === 'valeur' ? p.valeur_marche : c === 'pv' ? p.plus_value_latente : p.performance_latente,
     { cle: 'valeur', desc: true });
   const th = { tri, basculer };
+  const actualiser = useActualiserCours();
 
   return (
     <>
       <Repartitions liste={liste} />
-      <Carte titre="Portefeuille actuel" description="Modifie le cours actuel directement dans le tableau (Entrée pour valider)">
+      <Carte titre="Portefeuille actuel"
+             description="Cours récupérés automatiquement. Un cours saisi à la main (Entrée pour valider) reste verrouillé jusqu'à sa remise en automatique."
+             droite={<Button variant="default" size="xs" leftSection={<IconRefresh size={14} />} loading={actualiser.isPending}
+                             onClick={() => actualiser.mutate(null)}>Actualiser les cours</Button>}>
         {isPending ? <Chargement /> : !liste.length ? <Vide>Aucune position ouverte pour le moment.</Vide> : (
           <Tableau minWidth={820}>
             <Table.Thead>
@@ -86,7 +121,12 @@ export function Positions() {
                   <Table.Td c="dimmed" fz="xs">{p.secteur}</Table.Td>
                   <Table.Td className="num chiffre">{p.quantite_detenue}</Table.Td>
                   <Table.Td className="num chiffre">{fmt(p.pru)}</Table.Td>
-                  <Table.Td><Group justify="flex-end"><CoursEditable key={p.cours_actuel} titre={p.titre} cours={p.cours_actuel} /></Group></Table.Td>
+                  <Table.Td>
+                    <Stack gap={2} align="flex-end">
+                      <CoursEditable key={p.cours_actuel} titre={p.titre} cours={p.cours_actuel} />
+                      <SourceCours p={p} />
+                    </Stack>
+                  </Table.Td>
                   <Table.Td className="num chiffre">{fmt(p.valeur_marche)}</Table.Td>
                   <Table.Td className="num chiffre" c={signe(p.plus_value_latente)} fw={600}>{fmt(p.plus_value_latente)}</Table.Td>
                   <Table.Td className="num chiffre" c={signe(p.performance_latente)}>{pctFr(p.performance_latente)}</Table.Td>

@@ -1,10 +1,11 @@
 /* Lecture des données (une fonction use… par route) et écritures (useEcriture) via TanStack Query.
  * Les clés commencent par le module ('budget', 'bourse', 'lectures') : une écriture invalide tout son module. */
+import { useEffect } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { api, apiSilencieux, toast } from './api';
 import type {
-  BilanLecture, Config, DashboardBourse, Dividende, FraisBourse, Gain, Genre, Livre, Mouvement, ObjectifsLecture, Position,
+  BilanLecture, Config, CoursActualisation, DashboardBourse, Dividende, FraisBourse, Gain, Genre, Livre, Mouvement, ObjectifsLecture, Position,
   ResumeAnnee, ResumeGlobal, ResumeJour, ResumeMois, ResumeSemaine, Titre, TransactionBourse, TransactionsMois,
 } from './types';
 
@@ -41,6 +42,31 @@ export const useResumeBourseSilencieux = (requete: string) => useQuery({
   queryFn: () => apiSilencieux<DashboardBourse>('/api/bourse/dashboard?' + requete),
   placeholderData: keepPreviousData,
 });
+
+/** À l'ouverture d'un écran : récupère les cours s'ils datent (le serveur limite à une fois par
+ *  quart d'heure). Jamais d'erreur affichée : à défaut, les derniers cours connus restent. */
+export function useCoursAuto() {
+  const qc = useQueryClient();
+  useEffect(() => {
+    apiSilencieux<CoursActualisation>('/api/bourse/cours/actualiser', 'POST')
+      .then(r => { if (r?.etat === 'maj') qc.invalidateQueries({ queryKey: ['bourse'] }); });
+  }, [qc]);
+}
+
+/** Bouton « Actualiser les cours » (titre = null) ou remise d'un cours manuel en automatique */
+export function useActualiserCours() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (titre: string | null) => titre
+      ? api<CoursActualisation>(`/api/bourse/prix/${encodeURIComponent(titre)}/auto`, { method: 'PUT' })
+      : api<CoursActualisation>('/api/bourse/cours/actualiser?force=true', { method: 'POST' }),
+    onSuccess: r => {
+      const introuvables = r.introuvables.length ? ' · introuvables : ' + r.introuvables.join(', ') : '';
+      toast(r.message + introuvables, r.etat !== 'erreur');
+      qc.invalidateQueries({ queryKey: ['bourse'] });
+    },
+  });
+}
 
 /* ---------- Lectures ---------- */
 export const useLivres = (annee: number) => lire<Livre[]>(['lectures', 'livres', annee], '/api/lectures/livres?annee=' + annee);

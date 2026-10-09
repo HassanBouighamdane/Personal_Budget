@@ -2,7 +2,7 @@
 """Modèles Pydantic : validation des entrées de l'API."""
 
 from datetime import date, datetime
-from typing import Annotated, Literal, Optional
+from typing import Annotated, List, Literal, Optional
 from pydantic import AfterValidator, BaseModel, Field, model_validator
 
 
@@ -100,12 +100,14 @@ class TitreBourse(BaseModel):
     code: str
     nom: str
     secteur: str
+    isin: Optional[str] = None
 
 
 class TitreBourseIn(BaseModel):
     code: str = Field(min_length=1)
     nom: str = Field(min_length=1)
     secteur: str = ""
+    isin: Optional[str] = None      # rapproche le titre du flux de cours automatiques
  
  
 class PositionBourse(BaseModel):
@@ -120,6 +122,18 @@ class PositionBourse(BaseModel):
     valeur_marche: float
     plus_value_latente: float
     performance_latente: float
+    isin: Optional[str] = None              # sans ISIN, pas de cours automatique
+    cours_manuel: bool = False              # cours saisi à la main : verrouillé jusqu'à remise en automatique
+    cours_maj_le: Optional[datetime] = None
+
+
+class CoursActualisation(BaseModel):
+    """Résultat d'une récupération des cours. `etat` : maj (cours écrits), recent (déjà faite
+    il y a moins de 15 min), rien (aucun titre détenu à mettre à jour), erreur (flux injoignable)."""
+    etat: Literal["maj", "recent", "rien", "erreur"]
+    nb_maj: int = 0
+    introuvables: List[str] = []            # titres dont l'ISIN est absent du flux
+    message: str = ""
  
  
 class GainRealise(BaseModel):

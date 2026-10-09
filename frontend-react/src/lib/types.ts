@@ -102,7 +102,10 @@ export type ResumeGlobal = {
 };
 
 /* ---------- Bourse ---------- */
-export type Titre = { id: number; code: string; nom: string; secteur: string };
+export type Titre = { id: number; code: string; nom: string; secteur: string; isin: string | null };
+
+/** Résultat d'une récupération des cours automatiques */
+export type CoursActualisation = { etat: 'maj' | 'recent' | 'rien' | 'erreur'; nb_maj: number; introuvables: string[]; message: string };
 
 export type TransactionBourse = {
   id: number;
@@ -132,6 +135,9 @@ export type Position = {
   valeur_marche: number;
   plus_value_latente: number;
   performance_latente: number;
+  isin: string | null;          // sans ISIN, pas de cours automatique
+  cours_manuel: boolean;        // saisi à la main : verrouillé jusqu'à remise en automatique
+  cours_maj_le: string | null;
 };
 
 export type Gain = {

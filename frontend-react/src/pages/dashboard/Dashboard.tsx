@@ -3,6 +3,7 @@ import { ActionIcon, Button, Group, SegmentedControl, Stack, Tooltip } from '@ma
 import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 
 import { auj, decalerDate, decalerMois } from '../../lib/format';
+import { useCoursAuto } from '../../lib/queries';
 import { EnTetePage } from '../../components/ui';
 import { VueAnnee, VueGlobal, VueJour, VueMois, VueSemaine } from './Vues';
 
@@ -82,6 +83,7 @@ export function EnTetePeriode({ nav, titre }: { nav: NavDashboard; titre: ReactN
 }
 
 export function Dashboard({ nav }: { nav: NavDashboard }) {
+  useCoursAuto();   // le patrimoine net de la vue globale dépend des cours du jour
   return (
     <Stack gap="lg">
       {nav.vue === 'jour' && <VueJour nav={nav} />}

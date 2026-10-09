@@ -33,11 +33,12 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from cours_bvc import telecharger_cours
 from database import db
 from securite import utilisateur_courant
 from schemas import (
     ParametresBourse, TransactionBourseCreate, TransactionBourseOut,
-    PrixMaj, PositionBourse, GainRealise, DashboardBourse, TitreBourse, TitreBourseIn,
+    PrixMaj, PositionBourse, GainRealise, DashboardBourse, TitreBourse, TitreBourseIn, CoursActualisation,
     DividendeCreate, DividendeOut, FraisBourseCreate, FraisBourseOut,
     MouvementBourseCreate, MouvementBourseOut,
 )
@@ -130,11 +131,16 @@ def maj_parametres(p: ParametresBourse):
         return _parametres_dict(conn)
 
 
+def _isin(v: Optional[str]) -> Optional[str]:
+    """ISIN normalisé (majuscules, sans espaces) ; None si vide."""
+    return (v or "").strip().upper() or None
+
+
 @router.get("/titres", response_model=List[TitreBourse])
 def lister_titres():
     with db() as conn:
         rows = conn.execute(
-            "SELECT id, code, nom, secteur FROM bourse_titres WHERE actif = 1 ORDER BY nom"
+            "SELECT id, code, nom, secteur, isin FROM bourse_titres WHERE actif = 1 ORDER BY nom"
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -143,10 +149,11 @@ def lister_titres():
 def ajouter_titre(t: TitreBourseIn):
     with db() as conn:
         row = conn.execute(
-            """INSERT INTO bourse_titres (code, nom, secteur) VALUES (%s,%s,%s)
-               ON CONFLICT (code) DO UPDATE SET nom = EXCLUDED.nom, secteur = EXCLUDED.secteur, actif = 1
-               RETURNING id, code, nom, secteur""",
-            (t.code.strip().upper(), t.nom.strip(), t.secteur.strip()),
+            """INSERT INTO bourse_titres (code, nom, secteur, isin) VALUES (%s,%s,%s,%s)
+               ON CONFLICT (code) DO UPDATE SET nom = EXCLUDED.nom, secteur = EXCLUDED.secteur,
+                                                isin = EXCLUDED.isin, actif = 1
+               RETURNING id, code, nom, secteur, isin""",
+            (t.code.strip().upper(), t.nom.strip(), t.secteur.strip(), _isin(t.isin)),
         ).fetchone()
     return dict(row)
 
@@ -159,9 +166,9 @@ def modifier_titre(titre_id: int, t: TitreBourseIn):
         if not ancien:
             raise HTTPException(404, "Titre introuvable")
         row = conn.execute(
-            """UPDATE bourse_titres SET code = %s, nom = %s, secteur = %s WHERE id = %s
-               RETURNING id, code, nom, secteur""",
-            (nouveau_code, t.nom.strip(), t.secteur.strip(), titre_id),
+            """UPDATE bourse_titres SET code = %s, nom = %s, secteur = %s, isin = %s WHERE id = %s
+               RETURNING id, code, nom, secteur, isin""",
+            (nouveau_code, t.nom.strip(), t.secteur.strip(), _isin(t.isin), titre_id),
         ).fetchone()
         if nouveau_code != ancien["code"]:
             # Le code sert de clé de rapprochement (texte libre) dans les transactions,
@@ -248,14 +255,80 @@ def supprimer_transaction(transaction_id: int):
 # ---------------------------------------------------------------- prix courants
 @router.put("/prix/{titre}")
 def maj_prix(titre: str, p: PrixMaj):
+    """Saisie manuelle : le cours est verrouillé (les cours automatiques ne l'écrasent plus)
+    jusqu'à sa remise en automatique."""
     with db() as conn:
         conn.execute(
-            """INSERT INTO bourse_prix (titre, cours_actuel, maj_le)
-               VALUES (%s, %s, now())
-               ON CONFLICT (titre) DO UPDATE SET cours_actuel = EXCLUDED.cours_actuel, maj_le = now()""",
+            """INSERT INTO bourse_prix (titre, cours_actuel, maj_le, manuel)
+               VALUES (%s, %s, now(), true)
+               ON CONFLICT (titre) DO UPDATE SET cours_actuel = EXCLUDED.cours_actuel, maj_le = now(), manuel = true""",
             (titre.strip().upper(), p.cours_actuel),
         )
     return {"titre": titre.strip().upper(), "cours_actuel": p.cours_actuel}
+
+
+# ---------------------------------------------------------------- cours automatiques
+DELAI_COURS_MIN = 15   # pas plus d'une récupération automatique par quart d'heure
+
+
+def _actualiser_cours(force: bool) -> CoursActualisation:
+    """Écrit le dernier cours des titres détenus qui ont un ISIN et ne sont pas en saisie
+    manuelle. Déclenché à l'ouverture de l'application (force=False) ou par le bouton
+    « Actualiser » (force=True) : pas de tâche planifiée, l'instance peut dormir entre deux visites.
+    Si le flux est injoignable, rien n'est modifié et les derniers cours connus restent affichés."""
+    with db() as conn:
+        if not force and conn.execute(
+            "SELECT 1 FROM bourse_parametres WHERE cours_auto_le > now() - make_interval(mins => %s)",
+            (DELAI_COURS_MIN,),
+        ).fetchone():
+            return CoursActualisation(etat="recent")
+        cibles = conn.execute(
+            """SELECT d.titre, t.isin
+               FROM (SELECT titre FROM bourse_transactions GROUP BY titre
+                     HAVING SUM(CASE WHEN type_operation = 'Achat' THEN quantite ELSE -quantite END) > 0) d
+               JOIN bourse_titres t ON t.code = d.titre AND t.isin IS NOT NULL
+               LEFT JOIN bourse_prix p ON p.titre = d.titre
+               WHERE NOT COALESCE(p.manuel, false)"""
+        ).fetchall()
+    if not cibles:
+        return CoursActualisation(etat="rien", message="Aucun titre détenu en cours automatique")
+
+    # Appel réseau fait hors de la connexion à la base, pour ne pas la retenir pendant l'attente
+    try:
+        cours = telecharger_cours()
+    except Exception:
+        return CoursActualisation(etat="erreur", message="Source des cours injoignable : derniers cours conservés")
+
+    trouves = [(c["titre"], cours[c["isin"]]) for c in cibles if c["isin"] in cours]
+    with db() as conn:
+        for titre, valeur in trouves:
+            # `manuel = false` dans le WHERE : une saisie manuelle faite pendant le téléchargement est respectée
+            conn.execute(
+                """INSERT INTO bourse_prix (titre, cours_actuel, maj_le, manuel)
+                   VALUES (%s, %s, now(), false)
+                   ON CONFLICT (titre) DO UPDATE SET cours_actuel = EXCLUDED.cours_actuel, maj_le = now()
+                   WHERE bourse_prix.manuel = false""",
+                (titre, valeur),
+            )
+        conn.execute("UPDATE bourse_parametres SET cours_auto_le = now()")
+    return CoursActualisation(
+        etat="maj", nb_maj=len(trouves),
+        introuvables=[c["titre"] for c in cibles if c["isin"] not in cours],
+        message=f"{len(trouves)} cours mis à jour",
+    )
+
+
+@router.post("/cours/actualiser", response_model=CoursActualisation)
+def actualiser_cours(force: bool = False):
+    return _actualiser_cours(force)
+
+
+@router.put("/prix/{titre}/auto", response_model=CoursActualisation)
+def remettre_cours_auto(titre: str):
+    """Déverrouille un cours saisi à la main, puis récupère tout de suite les cours."""
+    with db() as conn:
+        conn.execute("UPDATE bourse_prix SET manuel = false WHERE titre = %s", (titre.strip().upper(),))
+    return _actualiser_cours(force=True)
 
 
 # ---------------------------------------------------------------- dividendes
@@ -398,8 +471,14 @@ def _positions_et_gains():
         txs = [dict(r) for r in conn.execute(
             f"SELECT {TX_COLONNES} FROM bourse_transactions ORDER BY date_operation ASC, id ASC"
         ).fetchall()]
-        prix = {r["titre"]: _d(r["cours_actuel"]) for r in conn.execute("SELECT titre, cours_actuel FROM bourse_prix").fetchall()}
-        secteurs = {r["code"]: r["secteur"] for r in conn.execute("SELECT code, secteur FROM bourse_titres").fetchall()}
+        # maj_le est stocké sans fuseau (heure de la session) : renvoyé avec fuseau pour un affichage juste
+        prix_rows = {r["titre"]: r for r in conn.execute(
+            "SELECT titre, cours_actuel, manuel, maj_le AT TIME ZONE current_setting('TimeZone') AS maj_le FROM bourse_prix"
+        ).fetchall()}
+        prix = {titre: _d(r["cours_actuel"]) for titre, r in prix_rows.items()}
+        titres_rows = conn.execute("SELECT code, secteur, isin FROM bourse_titres").fetchall()
+        secteurs = {r["code"]: r["secteur"] for r in titres_rows}
+        isins = {r["code"]: r["isin"] for r in titres_rows}
         tpcvm_rate = _d(params["taux_tpcvm"])
 
     calc = [_calc_transaction(t) for t in txs]
@@ -453,6 +532,9 @@ def _positions_et_gains():
             quantite_detenue=_r(qte_detenue), pru=_r(pru_final), cours_actuel=_r(cours),
             valeur_comptable=_r(valeur_comptable), valeur_marche=_r(valeur_marche),
             plus_value_latente=_r(plus_value), performance_latente=_r4(perf),
+            isin=isins.get(titre),
+            cours_manuel=bool(prix_rows[titre]["manuel"]) if titre in prix_rows else False,
+            cours_maj_le=prix_rows[titre]["maj_le"] if titre in prix_rows else None,
         ))
 
     return positions, gains, calc

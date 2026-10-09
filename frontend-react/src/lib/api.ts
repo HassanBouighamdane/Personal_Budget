@@ -59,9 +59,9 @@ export async function api<T = unknown>(path: string, options: Options = {}): Pro
 }
 
 /** Variante qui n'affiche jamais d'erreur : renvoie null en cas d'échec */
-export async function apiSilencieux<T>(path: string): Promise<T | null> {
+export async function apiSilencieux<T>(path: string, method = 'GET'): Promise<T | null> {
   try {
-    const reponse = await fetch(path);
+    const reponse = await fetch(path, { method });
     return reponse.ok ? await reponse.json() : null;
   } catch {
     return null;
