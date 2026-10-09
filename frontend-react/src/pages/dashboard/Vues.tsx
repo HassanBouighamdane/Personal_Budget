@@ -360,6 +360,10 @@ export function VueGlobal({ nav }: { nav: NavDashboard }) {
     ? 'Depuis ' + MOIS_FR[+r.premier_mois.slice(5) - 1].toLowerCase() + ' ' + r.premier_mois.slice(0, 4)
     : 'Tout l’historique';
   const labels = r.par_mois.map(x => moisCourt(x.m));
+  // Épargne hors Bourse = épargne du budget − argent versé sur le compte Bourse ;
+  // l'épargne totale y ajoute le patrimoine Bourse à sa valeur de marché (titres + espèces).
+  const horsBourse = r.epargne - (bourse?.apports_nets ?? 0);
+  const epargneTotale = horsBourse + (bourse?.patrimoine_total ?? 0);
 
   return (
     <>
@@ -367,7 +371,8 @@ export function VueGlobal({ nav }: { nav: NavDashboard }) {
       <GrilleKpi>
         <Kpi label="Revenus totaux" icone={IconArrowDownLeft} teinte="bleu" valeur={fmt(r.total_revenus)} couleur={T.rev} aide={`moyenne : ${fmt(r.moyenne_rev_mois)} / mois actif`} />
         <Kpi label="Dépenses totales" icone={IconArrowUpRight} teinte="rose" valeur={fmt(r.total_depenses)} couleur={T.dep} aide={`moyenne : ${fmt(r.moyenne_dep_mois)} / mois actif`} />
-        <Kpi label="Épargne totale" icone={IconPigMoney} teinte="emeraude" valeur={fmt(r.epargne)} couleur={signe(r.epargne)} aide={`taux : ${r.taux_epargne}%`} />
+        <Kpi label="Épargne totale" icone={IconPigMoney} teinte="emeraude" valeur={fmt(epargneTotale)} couleur={signe(epargneTotale)}
+             aide={bourse ? `hors Bourse : ${fmt(horsBourse)} · taux : ${r.taux_epargne}%` : `taux : ${r.taux_epargne}%`} />
         <Kpi label="Objectif atteint" icone={IconTarget} teinte="marque" valeur={`${r.nb_mois_objectif} / ${r.nb_mois_actifs}`}
              aide={`mois à ≥ ${fmt(r.objectif_epargne)} d'épargne`} />
         {r.meilleur_mois && <Kpi label="Meilleur mois" icone={IconTrophy} teinte="emeraude" valeur={moisCourt(r.meilleur_mois.m)} couleur={T.ep}
