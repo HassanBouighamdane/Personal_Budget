@@ -33,7 +33,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from cours_bvc import telecharger_cours
+from cours_bvc import decrire_echec, telecharger_cours
 from database import db
 from securite import utilisateur_courant
 from schemas import (
@@ -296,8 +296,10 @@ def _actualiser_cours(force: bool) -> CoursActualisation:
     # Appel réseau fait hors de la connexion à la base, pour ne pas la retenir pendant l'attente
     try:
         cours = telecharger_cours()
-    except Exception:
-        return CoursActualisation(etat="erreur", message="Source des cours injoignable : derniers cours conservés")
+    except Exception as e:
+        cause = decrire_echec(e)
+        print(f"[cours] récupération échouée — {cause}", flush=True)   # visible dans les logs du serveur
+        return CoursActualisation(etat="erreur", message=f"Source des cours injoignable ({cause.split(' — ')[0]}) : derniers cours conservés")
 
     trouves = [(c["titre"], cours[c["isin"]]) for c in cibles if c["isin"] in cours]
     with db() as conn:

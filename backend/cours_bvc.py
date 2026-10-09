@@ -9,6 +9,7 @@ Les titres y sont identifiés par leur ISIN, pas par le code BVC (ATW, IAM...) :
 rapprochement se fait via la colonne `isin` de bourse_titres.
 """
 import json
+import urllib.error
 import urllib.request
 from decimal import Decimal, InvalidOperation
 from typing import Dict, Optional
@@ -39,6 +40,19 @@ def lire_cours(contenu: dict) -> Dict[str, Decimal]:
         if isin and valeur and valeur > 0:
             cours[isin] = valeur
     return cours
+
+
+def decrire_echec(e: Exception) -> str:
+    """« HTTP 403 — détail » ou « TimeoutError — détail » : cause courte, puis de quoi diagnostiquer
+    dans les logs (un 403 avec `cf-mitigated` = blocage Cloudflare de l'adresse du serveur)."""
+    if isinstance(e, urllib.error.HTTPError):
+        try:
+            debut = e.read(300).decode("utf-8", "replace").replace("\n", " ")
+        except Exception:
+            debut = ""
+        return (f"HTTP {e.code} — cf-mitigated={e.headers.get('cf-mitigated')} "
+                f"server={e.headers.get('server')} corps={debut!r}")
+    return f"{type(e).__name__} — {e}"
 
 
 def telecharger_cours() -> Dict[str, Decimal]:
