@@ -1,7 +1,7 @@
 /* Vues du dashboard budget — mêmes KPI, graphiques et tableaux que l'ancien app.js */
 import { Box, Group, Progress, Skeleton, Stack, Table, Text } from '@mantine/core';
 import {
-  IconAlertTriangle, IconArrowDownLeft, IconArrowUpRight, IconBriefcase, IconChartBar, IconChartLine, IconPercentage, IconPigMoney, IconReceipt, IconScale, IconTarget, IconTrophy, IconWallet,
+  IconAlertTriangle, IconArrowDownLeft, IconArrowUpRight, IconChartBar, IconChartLine, IconPigMoney, IconReceipt, IconScale, IconTarget, IconTrophy, IconWallet,
 } from '@tabler/icons-react';
 
 import {
@@ -27,17 +27,14 @@ function Squelette({ nav, titre }: { nav: NavDashboard; titre: string }) {
   );
 }
 
-function KpisBourse({ bourse, libelle }: { bourse: DashboardBourse | null | undefined; libelle: string | number }) {
+const fmtSigne = (v: number) => (v >= 0 ? '+' : '') + fmt(v);
+
+/** Résultat réalisé sur la période ; la valeur du portefeuille (photo du jour) n'est affichée que dans la vue globale */
+function KpiResultatBourse({ bourse, libelle }: { bourse: DashboardBourse | null | undefined; libelle: string | number }) {
   if (!bourse) return null;
   return (
-    <>
-      <Kpi label="Portefeuille Bourse" icone={IconBriefcase} teinte="bleu" valeur={fmt(bourse.valeur_marche)} couleur={T.rev}
-           aide={<Text span inherit c={signe(bourse.plus_value_latente)}>
-             {bourse.plus_value_latente >= 0 ? '+' : ''}{fmt(bourse.plus_value_latente)} ({(bourse.performance_latente * 100).toFixed(2)} %)
-           </Text>} />
-      <Kpi label={`Résultat Bourse ${libelle}`} icone={IconChartLine} teinte="emeraude" valeur={fmt(bourse.resultat_net_periode)}
-           couleur={signe(bourse.resultat_net_periode)} aide="gains nets + dividendes − frais de compte" />
-    </>
+    <Kpi label={`Résultat Bourse ${libelle}`} icone={IconChartLine} teinte="emeraude" valeur={fmt(bourse.resultat_net_periode)}
+         couleur={signe(bourse.resultat_net_periode)} aide="gains nets + dividendes − frais de compte" />
   );
 }
 
@@ -109,9 +106,9 @@ export function VueMois({ nav }: { nav: NavDashboard }) {
                {r.projection_fin_mois ? <> · projection fin de mois : <b>{fmt(r.projection_fin_mois)}</b></> : null}</>} />
         <Kpi label="Reste à dépenser" icone={IconWallet} teinte="emeraude" valeur={fmt(r.reste_budget)} couleur={signe(r.reste_budget)}
              aide={`sur un budget de ${fmt(r.budget_total)}`} />
-        <Kpi label="Épargne" icone={IconPigMoney} teinte="emeraude" valeur={fmt(r.epargne)} couleur={epC} aide={`Objectif : ${fmt(r.objectif_epargne)}`} />
-        <Kpi label="Taux d'épargne" icone={IconPercentage} teinte="marque" valeur={`${r.taux_epargne}%`} couleur={epC} />
-        <KpisBourse bourse={bourse} libelle="du mois" />
+        <Kpi label="Épargne" icone={IconPigMoney} teinte="emeraude" valeur={fmt(r.epargne)} couleur={epC}
+             aide={`objectif : ${fmt(r.objectif_epargne)} · taux : ${r.epargne >= 0 ? r.taux_epargne + '%' : '—'}`} />
+        <KpiResultatBourse bourse={bourse} libelle="du mois" />
       </GrilleKpi>
 
       <Grille2>
@@ -293,7 +290,7 @@ export function VueAnnee({ nav }: { nav: NavDashboard }) {
                                  aide={`épargne : ${fmt(r.meilleur_mois.ep)}`} />}
         {r.pire_mois && <Kpi label="Mois le plus difficile" icone={IconAlertTriangle} teinte="rouge" valeur={MOIS_FR[r.pire_mois.m - 1]} couleur={T.neg}
                              aide={`épargne : ${fmt(r.pire_mois.ep)}`} />}
-        <KpisBourse bourse={bourse} libelle={nav.annee} />
+        <KpiResultatBourse bourse={bourse} libelle={nav.annee} />
       </GrilleKpi>
 
       <Carte titre="Revenus, dépenses et épargne par mois">
@@ -364,6 +361,8 @@ export function VueGlobal({ nav }: { nav: NavDashboard }) {
   // le patrimoine net y ajoute le patrimoine Bourse à sa valeur de marché (titres + espèces).
   const liquidites = r.epargne - (bourse?.apports_nets ?? 0);
   const patrimoineNet = liquidites + (bourse?.patrimoine_total ?? 0);
+  // Performance globale = plus-value latente + résultat réalisé sur tout l'historique
+  const perfBourse = (bourse?.plus_value_latente ?? 0) + (bourse?.resultat_net_periode ?? 0);
 
   return (
     <>
@@ -381,7 +380,8 @@ export function VueGlobal({ nav }: { nav: NavDashboard }) {
                                  aide={`épargne : ${fmt(r.meilleur_mois.ep)}`} />}
         {r.pire_mois && <Kpi label="Mois le plus difficile" icone={IconAlertTriangle} teinte="rouge" valeur={moisCourt(r.pire_mois.m)} couleur={T.neg}
                              aide={`épargne : ${fmt(r.pire_mois.ep)}`} />}
-        <KpisBourse bourse={bourse} libelle="(global)" />
+        {bourse && <Kpi label="Performance Bourse" icone={IconChartLine} teinte="emeraude" valeur={fmtSigne(perfBourse)} couleur={signe(perfBourse)}
+                        aide={`latent : ${fmtSigne(bourse.plus_value_latente)} · réalisé : ${fmtSigne(bourse.resultat_net_periode)}`} />}
       </GrilleKpi>
 
       <Carte titre="Revenus, dépenses et épargne par mois">
