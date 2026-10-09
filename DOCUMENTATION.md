@@ -371,6 +371,8 @@ Toutes les routes sauf `/api/login` et `/api/logout` exigent le cookie `session`
 |---|---|
 | Épargne | revenus − dépenses |
 | Taux d'épargne | épargne ÷ revenus × 100 |
+| Liquidités (vue Globale) | épargne totale − apports nets Bourse |
+| Patrimoine net (vue Globale) | liquidités + patrimoine Bourse (titres au cours actuel + espèces) ; remplace la carte « Épargne totale » quand les données Bourse sont disponibles |
 | Reste à dépenser (mois) | somme des budgets des catégories actives − dépenses |
 | Budget journalier | budget mensuel ÷ 30,44 |
 | Budget hebdomadaire | budget mensuel × 12 ÷ 52 |
