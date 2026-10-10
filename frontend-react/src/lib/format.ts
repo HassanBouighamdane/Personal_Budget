@@ -53,3 +53,18 @@ export const moisCourt = (mois: string) => MOIS_FR[+mois.slice(5, 7) - 1].slice(
 export const jjmm = (d: string) => `${d.slice(8)}/${d.slice(5, 7)}`;
 /** AAAA-MM-JJ → JJ/MM/AA */
 export const jjmmaa = (d: string) => `${d.slice(8)}/${d.slice(5, 7)}/${d.slice(2, 4)}`;
+
+const HEURES_JOUR = 8;
+const SEUIL_HEURES = 2;   // en dessous (un café, un taxi), on n'affiche rien
+
+/** Prix d'une dépense en temps de travail : « ≈ 5 h de travail », « ≈ 3,6 jours de travail »,
+ *  « ≈ 1,4 mois de salaire » ; null sous 2 h ou sans taux horaire */
+export function prixEnTravail(montant: number, tauxHoraire: number | null, heuresMois: number): string | null {
+  if (!tauxHoraire || !(montant > 0)) return null;
+  const heures = montant / tauxHoraire;
+  const un = (v: number) => v.toLocaleString('fr-FR', { maximumFractionDigits: 1 });
+  if (heures < SEUIL_HEURES) return null;
+  if (heures < HEURES_JOUR) return `≈ ${Math.round(heures)} h de travail`;
+  if (heures < heuresMois) return `≈ ${un(heures / HEURES_JOUR)} jours de travail`;
+  return `≈ ${un(heures / heuresMois)} mois de salaire`;
+}

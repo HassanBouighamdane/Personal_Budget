@@ -3,8 +3,11 @@
 /* ---------- Budget ---------- */
 /** `fixe` : charge fixe (loyer, factures), hors budget journalier/hebdo */
 export type Categorie = { id: number; nom: string; budget: number; fixe: boolean };
-export type Source = { id: number; nom: string };
-export type Config = { categories: Categorie[]; sources: Source[]; objectif_epargne: number };
+/** `travail` : revenu du travail (salaire, prime, freelance), sert au taux horaire */
+export type Source = { id: number; nom: string; travail: boolean };
+/** Prix en heures de travail : `taux_horaire` null sans revenu du travail sur les 12 derniers mois terminés */
+export type Travail = { heures_mois: number; revenu_mensuel: number; nb_mois: number; taux_horaire: number | null };
+export type Config = { categories: Categorie[]; sources: Source[]; objectif_epargne: number; travail: Travail };
 
 export type Depense = { id: number; date: string; categorie: string; description: string; montant: number; tags: string[] };
 export type Revenu = { id: number; date: string; source: string; description: string; montant: number; tags: string[] };
@@ -332,4 +335,12 @@ export type Patrimoine = {
     detail: { liquidites: number; bourse: number; actifs: number; creances: number; dettes: number };
     atteint: boolean; montant: number; debut_hawl: string | null; echeance: string | null; jours_restants: number | null;
   };
+  liberte: Liberte;
+};
+/** Liberté financière. Les champs calculés manquent tant qu'aucun mois terminé n'a de dépenses ;
+ *  `annees_restantes` / `date_atteinte` null si l'objectif n'est pas atteint en 100 ans. */
+export type Liberte = {
+  taux_retrait: number; rendement: number; patrimoine: number; exclus: number; nb_mois_base: number;
+  depense_annuelle?: number; epargne_annuelle?: number; cible?: number; progression?: number; annees_couvertes?: number;
+  annees_restantes?: number | null; date_atteinte?: string | null; economie_simulee?: number; annees_gagnees?: number | null;
 };

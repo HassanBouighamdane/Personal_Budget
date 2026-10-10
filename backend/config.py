@@ -73,7 +73,8 @@ CATEGORIES_DEFAUT = [
     ("Famille & Cadeaux", 1500, False), ("Éducation & Formation", 200, False),
     ("Imprévus & Divers", 1000, False),
 ]
-SOURCES_DEFAUT = [("Salaire",), ("Prime",), ("Freelance",), ("Remboursement",)]
+# (nom, revenu du travail) : un remboursement est de l'argent qui revient, pas gagné
+SOURCES_DEFAUT = [("Salaire", True), ("Prime", True), ("Freelance", True), ("Remboursement", False)]
 
 # Module Lectures : genres proposés au premier démarrage, objectifs par défaut (nombre de livres)
 GENRES_DEFAUT = [

@@ -6,19 +6,38 @@ from psycopg.errors import UniqueViolation
 from config import aujourdhui
 from database import db
 from securite import utilisateur_courant
-from schemas import CategorieIn, ObjectifIn, NomIn
+from schemas import CategorieIn, HeuresTravailIn, ObjectifIn, SourceIn
 
 router = APIRouter(prefix="/api", tags=["configuration"],
                    dependencies=[Depends(utilisateur_courant)])
+
+HEURES_MOIS_DEFAUT = 191   # semaine légale au Maroc (secteur privé) : 44 h × 52 semaines ÷ 12
+MOIS_TRAVAIL = 12          # revenu du travail moyen sur les derniers mois terminés
+
+def travail(c, auj) -> dict:
+    """Taux horaire = revenu du travail mensuel moyen ÷ heures travaillées par mois.
+    La moyenne porte sur les derniers mois TERMINÉS où un revenu du travail a été saisi
+    (un mois sans salaire ne fait pas baisser le taux). `taux_horaire` est None sans revenu du travail."""
+    heures = c.execute("SELECT valeur FROM params WHERE cle='heures_mois'").fetchone()
+    heures = heures["valeur"] if heures else HEURES_MOIS_DEFAUT
+    rows = c.execute("""SELECT SUM(r.montant) t FROM revenus r
+                        JOIN sources_revenus s ON s.nom = r.source AND s.travail
+                        WHERE substr(r.date,1,7) < %s
+                        GROUP BY substr(r.date,1,7) ORDER BY substr(r.date,1,7) DESC LIMIT %s""",
+                     (auj.strftime("%Y-%m"), MOIS_TRAVAIL)).fetchall()
+    revenu = sum(r["t"] for r in rows) / len(rows) if rows else 0.0
+    return {"heures_mois": heures, "revenu_mensuel": round(revenu, 2), "nb_mois": len(rows),
+            "taux_horaire": round(revenu / heures, 2) if revenu > 0 else None}
 
 @router.get("/categories")
 def lister_config():
     with db() as c:
         rows = c.execute("SELECT id,nom,budget,fixe FROM categories WHERE actif=1 ORDER BY nom").fetchall()
-        src = c.execute("SELECT id,nom FROM sources_revenus WHERE actif=1 ORDER BY nom").fetchall()
+        src = c.execute("SELECT id,nom,travail FROM sources_revenus WHERE actif=1 ORDER BY nom").fetchall()
         obj = c.execute("SELECT valeur FROM params WHERE cle='objectif_epargne'").fetchone()
+        trav = travail(c, aujourdhui())
     return {"categories": rows, "sources": src,
-            "objectif_epargne": obj["valeur"]}
+            "objectif_epargne": obj["valeur"], "travail": trav}
 
 # ---- Catégories de dépense ----
 def _mois_courant() -> str:
@@ -104,23 +123,32 @@ def modifier_objectif(o: ObjectifIn):
         c.execute("UPDATE params SET valeur=%s WHERE cle='objectif_epargne'", (o.objectif,))
     return {"ok": True}
 
+# ---- Heures travaillées par mois (taux horaire) ----
+@router.put("/heures-travail")
+def modifier_heures(h: HeuresTravailIn):
+    with db() as c:
+        c.execute("""INSERT INTO params(cle,valeur) VALUES('heures_mois',%s)
+                     ON CONFLICT (cle) DO UPDATE SET valeur=EXCLUDED.valeur""", (h.heures_mois,))
+    return {"ok": True}
+
 # ---- Sources de revenus ----
 @router.post("/sources")
-def ajouter_source(s: NomIn):
+def ajouter_source(s: SourceIn):
     with db() as c:
-        c.execute("""INSERT INTO sources_revenus(nom) VALUES(%s)
-                     ON CONFLICT (nom) DO UPDATE SET actif=1""", (s.nom.strip(),))
+        c.execute("""INSERT INTO sources_revenus(nom, travail) VALUES(%s, %s)
+                     ON CONFLICT (nom) DO UPDATE SET actif=1""", (s.nom.strip(), True if s.travail is None else s.travail))
     return {"ok": True}
 
 @router.put("/sources/{sid}")
-def modifier_source(sid: int, s: NomIn):
+def modifier_source(sid: int, s: SourceIn):
     nouveau_nom = s.nom.strip()
     try:
         with db() as c:
             ancien = c.execute("SELECT nom FROM sources_revenus WHERE id=%s", (sid,)).fetchone()
             if not ancien:
                 raise HTTPException(404, "Source introuvable")
-            c.execute("UPDATE sources_revenus SET nom=%s WHERE id=%s", (nouveau_nom, sid))
+            c.execute("UPDATE sources_revenus SET nom=%s, travail=COALESCE(%s, travail) WHERE id=%s",
+                      (nouveau_nom, s.travail, sid))
             if nouveau_nom != ancien["nom"]:
                 c.execute("UPDATE revenus SET source=%s WHERE source=%s", (nouveau_nom, ancien["nom"]))
     except UniqueViolation:

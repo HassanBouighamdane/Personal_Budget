@@ -106,6 +106,13 @@ class ObjectifIn(BaseModel):
 class NomIn(BaseModel):
     nom: str = Field(min_length=1)
 
+class SourceIn(BaseModel):
+    nom: str = Field(min_length=1)
+    travail: Optional[bool] = None   # revenu du travail (taux horaire) ; None = inchangé
+
+class HeuresTravailIn(BaseModel):
+    heures_mois: float = Field(gt=0, le=744)
+
 class ParametresBourse(BaseModel):
     # Fiscalité — taxe sur les profits de cession de valeurs mobilières
     taux_tpcvm: float = Field(ge=0, le=1)
@@ -529,3 +536,6 @@ class ReglagesPatrimoine(BaseModel):
     solde_depart: float = 0                 # argent détenu avant la première saisie (peut être négatif)
     prix_or_gramme: float = Field(default=0, ge=0)
     debut_hawl: Optional[date] = None       # début de l'année lunaire en cours pour la zakat
+    # Liberté financière ; None = inchangé
+    taux_retrait: Optional[float] = Field(default=None, gt=0, le=0.2)   # 4 % → objectif = 25 × dépenses annuelles
+    rendement: Optional[float] = Field(default=None, ge=-0.1, le=0.3)   # rendement annuel après inflation

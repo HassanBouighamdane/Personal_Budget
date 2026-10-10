@@ -13,6 +13,7 @@ Application web personnelle pour gérer et suivre son budget au quotidien, avec 
   - épargne, taux d'épargne et suivi de l'objectif mensuel
   - grille thermique catégories × mois (vue annuelle)
 - Catégories et budgets mensuels, sources de revenus configurables
+- Prix d'une dépense en heures de travail, affiché pendant la saisie
 
 **Bourse**
 - Journal des achats et ventes (actions, obligations, OPCVM, IPO), avec autocomplétion des titres cotés à la BVC
@@ -34,12 +35,13 @@ Application web personnelle pour gérer et suivre son budget au quotidien, avec 
 - Dettes et prêts : argent prêté ou emprunté, remboursements partiels, total qu'on me doit et que je dois
 - Échéances : papiers, assurance, visite technique, garanties, avec délai de rappel et récurrence
 - Patrimoine net (liquidités, Bourse, autres actifs, dettes), réserve de sécurité en mois de dépenses, estimation de la zakat
+- Liberté financière : objectif (25 × les dépenses annuelles), progression et date estimée pour l'atteindre
 - Rappels du matin, résumé de la semaine le lundi, bilan du mois le 1er et de l'année le 1er janvier, par Telegram ou e-mail (optionnel, voir DOCUMENTATION.md §10)
 
 **Autres**
 - Page d'accueil : l'essentiel du jour (reste à dépenser, Bourse, lecture en cours, échéances)
 - Sauvegarde complète en un fichier, avec une copie envoyée chaque mois
-- Installable sur l'écran d'accueil du téléphone
+- Installable sur l'écran d'accueil du téléphone, s'ouvre même hors connexion
 - Connexion sécurisée : mot de passe haché avec PBKDF2, session dans un cookie HttpOnly, option « Rester connecté »
 - Thème clair ou sombre, interface adaptée au mobile
 

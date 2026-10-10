@@ -7,9 +7,10 @@ Patrimoine net — ce que je possède, tous modules confondus.
                     − argent prêté + argent emprunté
     patrimoine    = liquidités + compte Bourse + autres actifs + ce qu'on me doit − ce que je dois
 
-Les autres actifs (or, compte épargne, immobilier...) ont une valeur saisie à la main. Deux
+Les autres actifs (or, compte épargne, immobilier...) ont une valeur saisie à la main. Trois
 indicateurs en découlent : la réserve de sécurité (mois de dépenses couverts par l'argent
-disponible) et une estimation de la zakat (assiette comparée au nisab, échéance du hawl).
+disponible), une estimation de la zakat (assiette comparée au nisab, échéance du hawl) et la
+liberté financière (patrimoine comparé à 25 × les dépenses annuelles, date estimée pour l'atteindre).
 """
 from datetime import date, timedelta
 from decimal import Decimal
@@ -39,9 +40,16 @@ MOIS_RESERVE = 6          # dépense moyenne calculée sur les derniers mois ter
 NISAB_GRAMMES_OR = 85     # seuil de la zakat : valeur de 85 g d'or
 TAUX_ZAKAT = 0.025
 JOURS_HAWL = 354          # une année lunaire
+# Liberté financière : le logement et la voiture ne produisent pas de quoi vivre
+TYPES_HORS_LIBERTE = ("Immobilier", "Véhicule")
+MOIS_LIBERTE = 12         # 12 mois : l'Aïd, l'été et la rentrée scolaire sont compris
+TAUX_RETRAIT_DEFAUT = 0.04
+RENDEMENT_DEFAUT = 0.04
+ECONOMIE_SIMULEE = 500    # « et si tu dépensais 500 DH de moins par mois ? »
+MOIS_MAX = 100 * 12
 
 ACTIF_COLONNES = "id, nom, type, valeur, verse, zakat, maj_le, note"
-PARAMS = ("solde_depart", "zakat_prix_or", "zakat_debut_hawl")
+PARAMS = ("solde_depart", "zakat_prix_or", "zakat_debut_hawl", "liberte_taux_retrait", "liberte_rendement")
 
 
 def _params(c) -> dict:
@@ -57,6 +65,49 @@ def depense_moyenne(c, auj: date) -> tuple:
     return (sum(r["t"] for r in rows) / len(rows), len(rows)) if rows else (0.0, 0)
 
 
+def moyennes_annuelles(c, auj: date) -> tuple:
+    """(dépenses par mois, épargne par mois, nombre de mois) sur les derniers mois TERMINÉS ayant des dépenses."""
+    rows = c.execute("""WITH mois AS (SELECT substr(date,1,7) m, SUM(montant) dep FROM depenses
+                                      WHERE substr(date,1,7) < %s GROUP BY 1 ORDER BY 1 DESC LIMIT %s)
+                        SELECT m, dep, (SELECT COALESCE(SUM(montant),0) FROM revenus WHERE substr(date,1,7) = m) rev
+                        FROM mois""", (auj.strftime("%Y-%m"), MOIS_LIBERTE)).fetchall()
+    if not rows:
+        return 0.0, 0.0, 0
+    return sum(r["dep"] for r in rows) / len(rows), sum(r["rev"] - r["dep"] for r in rows) / len(rows), len(rows)
+
+
+def mois_avant_liberte(patrimoine: float, epargne_mois: float, cible: float, rendement: float) -> Optional[int]:
+    """Mois avant que le patrimoine atteigne la cible : chaque mois, il rapporte (rendement annuel
+    composé) et reçoit l'épargne du mois. None si la cible n'est pas atteinte en 100 ans."""
+    taux = (1 + rendement) ** (1 / 12) - 1
+    for mois in range(MOIS_MAX + 1):
+        if patrimoine >= cible:
+            return mois
+        patrimoine = patrimoine * (1 + taux) + epargne_mois
+    return None
+
+
+def liberte_financiere(patrimoine: float, depense_mois: float, epargne_mois: float,
+                       taux_retrait: float, rendement: float, auj: date) -> dict:
+    """Objectif = dépenses annuelles ÷ taux de retrait (4 % → 25 ×). Épargner plus compte deux fois :
+    le patrimoine grossit plus vite ET l'objectif baisse, d'où la simulation « 500 DH de moins »."""
+    annuelle = depense_mois * 12
+    cible = annuelle / taux_retrait
+    mois = mois_avant_liberte(patrimoine, epargne_mois, cible, rendement)
+    simule = mois_avant_liberte(patrimoine, epargne_mois + ECONOMIE_SIMULEE,
+                                (depense_mois - ECONOMIE_SIMULEE) * 12 / taux_retrait, rendement) \
+        if depense_mois > ECONOMIE_SIMULEE else None
+    return {
+        "depense_annuelle": round(annuelle, 2), "epargne_annuelle": round(epargne_mois * 12, 2),
+        "cible": round(cible, 2), "progression": round(max(patrimoine, 0) / cible, 4),
+        "annees_couvertes": round(max(patrimoine, 0) / annuelle, 1),
+        "annees_restantes": round(mois / 12, 1) if mois is not None else None,
+        "date_atteinte": date(auj.year + (auj.month - 1 + mois) // 12, (auj.month - 1 + mois) % 12 + 1, 1) if mois is not None else None,
+        "economie_simulee": ECONOMIE_SIMULEE,
+        "annees_gagnees": round((mois - simule) / 12, 1) if mois is not None and simule is not None else None,
+    }
+
+
 def calculer_patrimoine(auj: date) -> dict:
     with db() as c:
         epargne = c.execute("""SELECT (SELECT COALESCE(SUM(montant),0) FROM revenus)
@@ -65,6 +116,7 @@ def calculer_patrimoine(auj: date) -> dict:
         dettes = [d for d in lire_dettes(c) if d["reste"] > 0]
         params = _params(c)
         moyenne, nb_mois = depense_moyenne(c, auj)
+        depense_an, epargne_an, nb_mois_an = moyennes_annuelles(c, auj)
     try:
         compte = bourse.obtenir_dashboard()
         apports, compte_bourse = compte.apports_nets, compte.patrimoine_total
@@ -103,11 +155,20 @@ def calculer_patrimoine(auj: date) -> dict:
              "debut_hawl": debut, "echeance": echeance,
              "jours_restants": (echeance - auj).days if echeance else None}
 
+    # Liberté financière : patrimoine sans le logement ni la voiture
+    exclus = sum(a["valeur"] for a in actifs if a["type"] in TYPES_HORS_LIBERTE)
+    taux_retrait = params.get("liberte_taux_retrait", TAUX_RETRAIT_DEFAUT)
+    rendement = params.get("liberte_rendement", RENDEMENT_DEFAUT)
+    liberte = {"taux_retrait": taux_retrait, "rendement": rendement, "patrimoine": round(total - exclus, 2),
+               "exclus": round(exclus, 2), "nb_mois_base": nb_mois_an}
+    if depense_an > 0:
+        liberte |= liberte_financiere(total - exclus, depense_an, epargne_an, taux_retrait, rendement, auj)
+
     return {"solde_depart": solde_depart, "epargne_cumulee": round(epargne, 2),
             "liquidites": round(liquidites, 2), "bourse": round(compte_bourse, 2),
             "autres_actifs": round(autres, 2), "creances": round(on_me_doit, 2), "dettes": round(je_dois, 2),
             "total": round(total, 2), "actifs": actifs, "types_actifs": TYPES_ACTIFS,
-            "reserve": reserve, "zakat": zakat}
+            "reserve": reserve, "zakat": zakat, "liberte": liberte}
 
 
 @router.get("")
@@ -128,6 +189,10 @@ def modifier_reglages(r: ReglagesPatrimoine):
                          ON CONFLICT (cle) DO UPDATE SET valeur=EXCLUDED.valeur""", (r.debut_hawl.toordinal(),))
         else:
             c.execute("DELETE FROM params WHERE cle='zakat_debut_hawl'")
+        for cle, valeur in (("liberte_taux_retrait", r.taux_retrait), ("liberte_rendement", r.rendement)):
+            if valeur is not None:
+                c.execute("""INSERT INTO params(cle,valeur) VALUES(%s,%s)
+                             ON CONFLICT (cle) DO UPDATE SET valeur=EXCLUDED.valeur""", (cle, valeur))
     return {"ok": True}
 
 

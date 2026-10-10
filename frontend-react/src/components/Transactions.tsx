@@ -5,10 +5,10 @@ import {
   ActionIcon, Autocomplete, Badge, Box, Button, Group, SegmentedControl, Select, SimpleGrid, Stack, TagsInput, Text, TextInput, Tooltip,
 } from '@mantine/core';
 import { modals } from '@mantine/modals';
-import { IconArrowDownLeft, IconArrowUpRight, IconCopy, IconPencil, IconReceipt, IconSearch } from '@tabler/icons-react';
+import { IconArrowDownLeft, IconArrowUpRight, IconClockHour4, IconCopy, IconPencil, IconReceipt, IconSearch } from '@tabler/icons-react';
 
 import { toast } from '../lib/api';
-import { auj, decalerDate, fmt, JOURS_FR, lireMontant, MOIS_FR } from '../lib/format';
+import { auj, decalerDate, fmt, JOURS_FR, lireMontant, MOIS_FR, prixEnTravail } from '../lib/format';
 import { T } from '../lib/palette';
 import type { Depense, ResultatRecherche, Revenu } from '../lib/types';
 import { useConfig, useEcriture, useRecherche, useSuggestions, useTags, useTransactionsMois } from '../lib/queries';
@@ -93,10 +93,23 @@ export function FormDepense({ existante, modele, mois, onTermine }: PropsForm<De
   // Sans doublon : Mantine refuse deux options de même valeur (les noms sont uniques en base).
   // Une catégorie désactivée depuis reste proposée pour la dépense qui la porte déjà.
   const cats = [...new Set([...(config?.categories.map(c => c.nom) ?? []), ...(existante ? [existante.categorie] : [])])];
+  // Le prix en heures de travail : pour réfléchir avant un gros achat (rien sous 2 h)
+  const enTravail = config?.travail && prixEnTravail(lireMontant(montant), config.travail.taux_horaire, config.travail.heures_mois);
   return (
     <Stack gap="sm">
-      <ChampMontant label="Montant (DH)" size="md" value={montant} onChange={setMontant}
-                    onKeyDown={e => { if (e.key === 'Enter') enregistrer(); }} />
+      <Box>
+        <ChampMontant label="Montant (DH)" size="md" value={montant} onChange={setMontant}
+                      onKeyDown={e => { if (e.key === 'Enter') enregistrer(); }} />
+        {enTravail && (
+          <Tooltip label={`À ${fmt(config!.travail.taux_horaire!)} de l'heure (${fmt(config!.travail.revenu_mensuel)} par mois pour ${config!.travail.heures_mois} h)`}
+                   multiline w={280} withArrow position="bottom-start">
+            <Group gap={4} mt={6} c="dimmed" wrap="nowrap" w="fit-content">
+              <IconClockHour4 size={14} stroke={1.7} />
+              <Text fz="xs">{enTravail}</Text>
+            </Group>
+          </Tooltip>
+        )}
+      </Box>
       <Select label="Catégorie" placeholder="— Choisir une catégorie —" data={cats} searchable
               nothingFoundMessage="Aucune catégorie"
               value={categorie && cats.includes(categorie) ? categorie : null} onChange={setCategorie} />

@@ -18,10 +18,11 @@ import pytest
 from fastapi import HTTPException
 
 from database import db
-from schemas import CategorieIn, NomIn, DepenseIn, RevenuIn
+from schemas import CategorieIn, SourceIn, DepenseIn, RevenuIn
+from config import aujourdhui
 from routes.configuration import (
     ajouter_categorie, modifier_categorie, desactiver_categorie,
-    ajouter_source, modifier_source, desactiver_source,
+    ajouter_source, modifier_source, desactiver_source, travail,
 )
 from routes.transactions import (
     ajouter_depense, modifier_depense, supprimer_depense,
@@ -68,17 +69,61 @@ def test_renommer_categorie_met_a_jour_les_depenses_existantes():
 
 
 def test_renommer_source_met_a_jour_les_revenus_existants():
-    ajouter_source(NomIn(nom=PREFIXE + "Src"))
+    ajouter_source(SourceIn(nom=PREFIXE + "Src"))
     with db() as c:
         sid = c.execute("SELECT id FROM sources_revenus WHERE nom=%s", (PREFIXE + "Src",)).fetchone()["id"]
     ajouter_revenu(RevenuIn(date="2026-01-15", source=PREFIXE + "Src", montant=200))
 
-    modifier_source(sid, NomIn(nom=PREFIXE + "SrcRenommee"))
+    modifier_source(sid, SourceIn(nom=PREFIXE + "SrcRenommee"))
 
     with db() as c:
         row = c.execute("SELECT source FROM revenus WHERE source LIKE %s", (PREFIXE + "%",)).fetchone()
     assert row["source"] == PREFIXE + "SrcRenommee"
 
+
+
+# ---------------------------------------------------------------------------
+# Prix en heures de travail : seules les sources « revenu du travail » comptent
+# ---------------------------------------------------------------------------
+def _travail():
+    with db() as c:
+        return travail(c, aujourdhui())
+
+
+def _mois_dernier() -> str:
+    debut = aujourdhui().replace(day=1)
+    return (debut.replace(year=debut.year - 1, month=12) if debut.month == 1 else debut.replace(month=debut.month - 1)).isoformat()
+
+
+def test_taux_horaire_ignore_les_sources_hors_travail():
+    ajouter_source(SourceIn(nom=PREFIXE + "Rembourse", travail=False))
+    avant = _travail()
+    ajouter_revenu(RevenuIn(date=_mois_dernier(), source=PREFIXE + "Rembourse", montant=10_000_000))
+    assert _travail() == avant
+
+
+def test_taux_horaire_compte_le_revenu_du_travail_du_mois_termine():
+    ajouter_source(SourceIn(nom=PREFIXE + "Salaire"))          # revenu du travail par défaut
+    avant = _travail()
+    ajouter_revenu(RevenuIn(date=_mois_dernier(), source=PREFIXE + "Salaire", montant=10_000_000))
+    apres = _travail()
+    assert apres["revenu_mensuel"] > avant["revenu_mensuel"]
+    assert apres["taux_horaire"] == round(apres["revenu_mensuel"] / apres["heures_mois"], 2)
+    # Le mois en cours n'est pas terminé : il ne compte pas
+    ajouter_revenu(RevenuIn(date=aujourdhui().isoformat(), source=PREFIXE + "Salaire", montant=10_000_000))
+    assert _travail() == apres
+
+
+def test_modifier_une_source_garde_son_drapeau_travail_si_absent():
+    ajouter_source(SourceIn(nom=PREFIXE + "Src", travail=False))
+    with db() as c:
+        sid = c.execute("SELECT id FROM sources_revenus WHERE nom=%s", (PREFIXE + "Src",)).fetchone()["id"]
+    modifier_source(sid, SourceIn(nom=PREFIXE + "Src2"))
+    with db() as c:
+        assert c.execute("SELECT travail FROM sources_revenus WHERE id=%s", (sid,)).fetchone()["travail"] is False
+    modifier_source(sid, SourceIn(nom=PREFIXE + "Src2", travail=True))
+    with db() as c:
+        assert c.execute("SELECT travail FROM sources_revenus WHERE id=%s", (sid,)).fetchone()["travail"] is True
 
 # ---------------------------------------------------------------------------
 # Point 7 — 404 sur les modifications/suppressions inexistantes (comme le
@@ -140,7 +185,7 @@ def test_404_sur_categorie_inexistante():
 
 def test_404_sur_source_inexistante():
     with pytest.raises(HTTPException) as exc:
-        modifier_source(9_999_999, NomIn(nom="X"))
+        modifier_source(9_999_999, SourceIn(nom="X"))
     assert exc.value.status_code == 404
     with pytest.raises(HTTPException) as exc:
         desactiver_source(9_999_999)
@@ -159,12 +204,12 @@ def test_renommer_categorie_vers_un_nom_existant_renvoie_409():
 
 
 def test_renommer_source_vers_un_nom_existant_renvoie_409():
-    ajouter_source(NomIn(nom=PREFIXE + "A"))
-    ajouter_source(NomIn(nom=PREFIXE + "B"))
+    ajouter_source(SourceIn(nom=PREFIXE + "A"))
+    ajouter_source(SourceIn(nom=PREFIXE + "B"))
     with db() as c:
         sid = c.execute("SELECT id FROM sources_revenus WHERE nom=%s", (PREFIXE + "B",)).fetchone()["id"]
     with pytest.raises(HTTPException) as exc:
-        modifier_source(sid, NomIn(nom=PREFIXE + "A"))
+        modifier_source(sid, SourceIn(nom=PREFIXE + "A"))
     assert exc.value.status_code == 409
 
 

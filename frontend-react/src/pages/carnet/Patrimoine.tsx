@@ -1,15 +1,15 @@
 /* Suivi — patrimoine net : liquidités, Bourse, autres actifs (valeur saisie à la main), dettes et prêts.
- * Deux indicateurs en découlent : la réserve de sécurité et une estimation de la zakat. */
+ * Trois indicateurs en découlent : la réserve de sécurité, une estimation de la zakat et la liberté financière. */
 import { useEffect, useState, type ReactNode } from 'react';
 import {
-  ActionIcon, Alert, Badge, Box, Button, Checkbox, Divider, Grid, Group, Progress, Select, SimpleGrid, Stack, Text, TextInput, Tooltip,
+  ActionIcon, Alert, Badge, Box, Button, Checkbox, Divider, Grid, Group, NumberInput, Progress, Select, SimpleGrid, Stack, Text, TextInput, Tooltip,
 } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { modals } from '@mantine/modals';
-import { IconBuildingBank, IconCoin, IconInfoCircle, IconMoonStars, IconPencil, IconShieldCheck, IconWallet } from '@tabler/icons-react';
+import { IconBuildingBank, IconCoin, IconInfoCircle, IconMoonStars, IconPencil, IconShieldCheck, IconSunrise, IconWallet } from '@tabler/icons-react';
 
 import { toast } from '../../lib/api';
-import { auj, dateFr, fmt, lireMontant } from '../../lib/format';
+import { auj, dateFr, fmt, libelleMois, lireMontant } from '../../lib/format';
 import { T, signe } from '../../lib/palette';
 import type { Actif, Patrimoine } from '../../lib/types';
 import { useEcriture, usePatrimoine } from '../../lib/queries';
@@ -253,6 +253,79 @@ function Zakat({ p }: { p: Patrimoine }) {
   );
 }
 
+/* ---------- Liberté financière ---------- */
+const pct = (v: number) => (Math.round(v * 1000) / 10).toLocaleString('fr-FR') + ' %';
+const annees = (v: number) => `${nombre(v)} an${v >= 2 ? 's' : ''}`;
+
+function Liberte({ p }: { p: Patrimoine }) {
+  const l = p.liberte;
+  const ecrire = useEcriture('patrimoine');
+  const [retrait, setRetrait] = useState<string | number>(l.taux_retrait * 100);
+  const [rendement, setRendement] = useState<string | number>(l.rendement * 100);
+  useEffect(() => { setRetrait(l.taux_retrait * 100); setRendement(l.rendement * 100); }, [l.taux_retrait, l.rendement]);
+
+  function enregistrer() {
+    const r = Number(retrait), d = Number(rendement);
+    if (!(r > 0 && r <= 20)) return toast('Taux de retrait entre 0 et 20 %', false);
+    if (isNaN(d) || d < -10 || d > 30) return toast('Rendement entre −10 et 30 %', false);
+    ecrire.mutate({ path: '/api/patrimoine/reglages', method: 'PUT',
+                    body: { ...reglages(p), taux_retrait: r / 100, rendement: d / 100 }, succes: 'Réglages enregistrés ✓' });
+  }
+
+  const reglagesForm = (
+    <Group gap="xs" wrap="nowrap" align="flex-end">
+      <NumberInput label="Taux de retrait" value={retrait} onChange={setRetrait} min={0.5} max={20} step={0.5} decimalScale={2}
+                   decimalSeparator="," rightSection="%" style={{ flex: 1 }} />
+      <NumberInput label="Rendement après inflation" value={rendement} onChange={setRendement} min={-10} max={30} step={0.5} decimalScale={2}
+                   decimalSeparator="," rightSection="%" style={{ flex: 1 }} />
+      <Button variant="default" onClick={enregistrer} loading={ecrire.isPending} style={{ flexShrink: 0 }}>Enregistrer</Button>
+    </Group>
+  );
+
+  if (l.cible === undefined || l.depense_annuelle === undefined || l.epargne_annuelle === undefined) {
+    return <Info>Il faut au moins un mois terminé avec des dépenses pour estimer ton objectif de liberté financière.</Info>;
+  }
+  const multiple = Math.round(1 / l.taux_retrait * 10) / 10;
+  return (
+    <Stack gap="sm">
+      <Text fz="sm">
+        Ton patrimoine couvre <Text span fw={700} className="chiffre">{annees(l.annees_couvertes ?? 0)}</Text> de ton train de vie.
+      </Text>
+      <Box>
+        <Group justify="space-between" gap="xs" mb={4}>
+          <Text fz="xs" c="dimmed">{fmt(Math.max(l.patrimoine, 0))} sur {fmt(l.cible)}</Text>
+          <Text fz="xs" fw={700} className="chiffre">{pct(l.progression ?? 0)}</Text>
+        </Group>
+        <Progress value={Math.min(100, (l.progression ?? 0) * 100)} color="emeraude" size={10} radius="xl" />
+      </Box>
+      <Info>
+        Objectif : {nombre(multiple)} × tes {fmt(l.depense_annuelle)} de dépenses par an (retrait de {pct(l.taux_retrait)} par an).{' '}
+        {l.date_atteinte && l.annees_restantes !== null && l.annees_restantes !== undefined
+          ? (l.annees_restantes === 0 ? <b>Objectif atteint.</b>
+            : <>En épargnant {fmt(l.epargne_annuelle)} par an à {pct(l.rendement)} de rendement, tu l'atteindrais
+                vers <b>{libelleMois(l.date_atteinte.slice(0, 7)).toLowerCase()}</b>, dans {annees(l.annees_restantes)}.</>)
+          : l.epargne_annuelle <= 0 ? <>Ton épargne des derniers mois est nulle ou négative : à ce rythme, l'objectif n'est pas atteignable.</>
+          : <>À ce rythme, l'objectif n'est pas atteint avant 100 ans.</>}
+      </Info>
+      {l.annees_gagnees !== null && l.annees_gagnees !== undefined && l.annees_gagnees > 0 && (
+        <Alert variant="light" color="emeraude" p="xs" icon={<IconSunrise size={18} />}>
+          <Text fz="sm">
+            Dépenser {fmt(l.economie_simulee ?? 0)} de moins par mois te ferait gagner <b>{annees(l.annees_gagnees)}</b> :
+            ton patrimoine grossit plus vite <i>et</i> ton objectif baisse.
+          </Text>
+        </Alert>
+      )}
+      <Divider color="var(--bordure-douce)" />
+      {reglagesForm}
+      <Text fz="xs" c="dimmed" lh={1.55}>
+        Moyennes sur {l.nb_mois_base === 1 ? 'le dernier mois terminé' : `les ${l.nb_mois_base} derniers mois terminés`}.
+        {l.exclus > 0 && <> Logement et véhicule ({fmt(l.exclus)}) exclus : ils ne produisent pas de quoi vivre.</>}
+        {' '}La règle des 4 % vient d'études américaines : 3,5 % est plus prudent.
+      </Text>
+    </Stack>
+  );
+}
+
 /* ---------- Page ---------- */
 export function VuePatrimoine() {
   const { data: p, isPending } = usePatrimoine();
@@ -261,7 +334,7 @@ export function VuePatrimoine() {
 
   return (
     <Stack gap="lg">
-      <SimpleGrid cols={{ base: 2, sm: 3 }} spacing={{ base: 'xs', sm: 'md' }}>
+      <SimpleGrid cols={{ base: 2, sm: 4 }} spacing={{ base: 'xs', sm: 'md' }}>
         <Kpi label="Patrimoine net" valeur={fmt(p.total)} couleur={signe(p.total)} icone={IconBuildingBank} teinte="emeraude"
              aide="Tout ce que tu possèdes, moins ce que tu dois" />
         <Kpi label="Réserve de sécurité" icone={IconShieldCheck} teinte="marque"
@@ -272,6 +345,11 @@ export function VuePatrimoine() {
              valeur={p.zakat.nisab === null ? '—' : fmt(p.zakat.montant)}
              aide={p.zakat.nisab === null ? "indique le prix de l'or" : p.zakat.atteint
                ? (p.zakat.echeance ? `à payer le ${dateFr(p.zakat.echeance)}` : 'nisab atteint') : 'sous le nisab'} />
+        <Kpi label="Liberté financière" icone={IconSunrise} teinte="emeraude"
+             valeur={p.liberte.progression === undefined ? '—' : pct(p.liberte.progression)}
+             aide={p.liberte.progression === undefined ? 'pas encore de mois terminé'
+               : p.liberte.date_atteinte ? (p.liberte.annees_restantes === 0 ? 'objectif atteint' : `vers ${p.liberte.date_atteinte.slice(0, 4)}`)
+               : "de l'objectif"} />
       </SimpleGrid>
       <Grid gap="lg" align="flex-start">
         <Grid.Col span={{ base: 12, md: 5 }}>
@@ -298,6 +376,10 @@ export function VuePatrimoine() {
             </Carte>
             <Carte titre="Réserve de sécurité" description="Combien de temps tu tiendrais sans revenu" icone={<Pastille icone={IconShieldCheck} couleur="marque" />}>
               <Reserve p={p} />
+            </Carte>
+            <Carte titre="Liberté financière" description="Vivre de ton patrimoine sans salaire : où tu en es, et quand"
+                   icone={<Pastille icone={IconSunrise} couleur="emeraude" />}>
+              <Liberte p={p} />
             </Carte>
             <Carte titre="Zakat" description="Ton avoir comparé au nisab, et la date d'échéance" icone={<Pastille icone={IconMoonStars} couleur="ambre" />}>
               <Zakat p={p} />

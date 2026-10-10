@@ -21,8 +21,8 @@ from config import aujourdhui
 from database import db
 from schemas import ActifIn, DetteIn, ReglagesPatrimoine
 from routes.carnet import ajouter_dette
-from routes.patrimoine import (JOURS_HAWL, PARAMS, ajouter_actif, calculer_patrimoine, modifier_actif,
-                               modifier_reglages, supprimer_actif)
+from routes.patrimoine import (JOURS_HAWL, PARAMS, ajouter_actif, calculer_patrimoine, liberte_financiere,
+                               mois_avant_liberte, modifier_actif, modifier_reglages, supprimer_actif)
 
 PREFIXE = "ZZTEST"
 AUJ = aujourdhui()
@@ -130,3 +130,42 @@ def test_modifier_et_supprimer_un_actif():
         with pytest.raises(HTTPException) as exc:
             appel()
         assert exc.value.status_code == 404
+
+
+# ---------------------------------------------------------------- liberté financière
+def test_objectif_vaut_25_fois_les_depenses_annuelles_a_4_pourcent():
+    l = liberte_financiere(120000, 5000, 2500, 0.04, 0.04, date(2026, 10, 10))
+    assert l["depense_annuelle"] == 60000 and l["cible"] == 1_500_000
+    assert l["progression"] == 0.08 and l["annees_couvertes"] == 2.0
+
+
+def test_date_atteinte_et_effet_double_d_une_economie():
+    l = liberte_financiere(120000, 5000, 2500, 0.04, 0.04, date(2026, 10, 10))
+    mois = round(l["annees_restantes"] * 12)
+    assert 20 * 12 < mois < 30 * 12
+    assert l["date_atteinte"] == date(2026 + (9 + mois) // 12, (9 + mois) % 12 + 1, 1)
+    assert l["annees_gagnees"] > 0                   # plus d'épargne ET un objectif plus bas
+
+
+def test_mois_avant_liberte():
+    assert mois_avant_liberte(100, 0, 100, 0.04) == 0               # déjà atteint
+    assert mois_avant_liberte(0, 100, 1200, 0) == 12                # sans rendement : 12 versements
+    assert mois_avant_liberte(0, 0, 1000, 0.04) is None             # sans épargne ni patrimoine : jamais
+    assert mois_avant_liberte(-1000, 100, 1000, 0) == 20            # une dette à rembourser d'abord
+
+
+def test_le_logement_et_la_voiture_ne_comptent_pas():
+    avant = calculer_patrimoine(AUJ)["liberte"]
+    _actif(valeur=300000, type="Immobilier", nom="Maison")
+    _actif(valeur=80000, type="Véhicule", nom="Voiture")
+    _actif(valeur=5000, type="Or / argent", nom="Or")
+    apres = calculer_patrimoine(AUJ)["liberte"]
+    assert round(apres["exclus"] - avant["exclus"], 2) == 380000
+    assert round(apres["patrimoine"] - avant["patrimoine"], 2) == 5000
+
+
+def test_reglages_liberte_conserves_si_absents():
+    modifier_reglages(ReglagesPatrimoine(taux_retrait=0.035, rendement=0.05))
+    modifier_reglages(ReglagesPatrimoine(solde_depart=0))          # ne touche pas aux réglages de liberté
+    l = calculer_patrimoine(AUJ)["liberte"]
+    assert l["taux_retrait"] == 0.035 and l["rendement"] == 0.05

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ActionIcon, Badge, Box, Button, Checkbox, Divider, Grid, Group, NumberInput, PasswordInput, SegmentedControl, Stack, Table, Text, TextInput, Tooltip } from '@mantine/core';
 import { MonthPickerInput } from '@mantine/dates';
 import { modals } from '@mantine/modals';
-import { IconBell, IconBriefcase, IconCategory, IconDeviceFloppy, IconEye, IconHistory, IconLock, IconPlus, IconSend, IconTarget } from '@tabler/icons-react';
+import { IconBell, IconBriefcase, IconCategory, IconClockHour4, IconDeviceFloppy, IconEye, IconHistory, IconLock, IconPlus, IconSend, IconTarget } from '@tabler/icons-react';
 
 import { api, toast } from '../lib/api';
 import { auj, fmt, libelleMois } from '../lib/format';
@@ -25,6 +25,17 @@ function BoutonSauver({ modifie, onClick, loading }: { modifie: boolean; onClick
 
 const AIDE_FIXE = 'Charge fixe (loyer, factures) : payée une fois par mois, elle ne compte pas dans le budget journalier '
   + 'et hebdomadaire, et la projection de fin de mois la compte pour son budget au lieu de l’extrapoler';
+
+const AIDE_TRAVAIL = 'Revenu du travail (salaire, prime, freelance) : sert à calculer ton taux horaire, pour afficher '
+  + 'le prix d’une grosse dépense en heures de travail. Décoche ce qui n’est pas gagné en travaillant (remboursement, loyer perçu)';
+
+function CaseTravail({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <Tooltip label={AIDE_TRAVAIL} multiline w={280} withArrow>
+      <Checkbox label="Travail" checked={checked} onChange={e => onChange(e.currentTarget.checked)} style={{ flexShrink: 0 }} />
+    </Tooltip>
+  );
+}
 
 function CaseFixe({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -98,6 +109,9 @@ function LigneSource({ s }: { s: Source }) {
   return (
     <Group gap="xs" wrap="nowrap">
       <TextInput value={nom} onChange={e => setNom(e.currentTarget.value)} style={{ flex: 1 }} aria-label="Nom de la source" />
+      <CaseTravail checked={s.travail} onChange={travail => ecrire.mutate({
+        path: '/api/sources/' + s.id, method: 'PUT', body: { nom: s.nom, travail },
+        succes: travail ? 'Compte comme revenu du travail ✓' : 'Ne compte plus comme revenu du travail ✓' })} />
       <BoutonSauver modifie={nom !== s.nom} loading={ecrire.isPending}
         onClick={() => ecrire.mutate({ path: '/api/sources/' + s.id, method: 'PUT', body: { nom }, succes: 'Source mise à jour ✓' })} />
       <BoutonSuppr label="Retirer" onClick={() => confirmer('Retirer cette source de la liste ? (les revenus existants sont conservés)',
@@ -198,11 +212,14 @@ export function Parametres({ onMdpChange }: { onMdpChange: () => void }) {
   // Mois à partir duquel un changement de budget s'applique (les mois antérieurs gardent l'ancien)
   const [aPartirDe, setAPartirDe] = useState(auj().slice(0, 7));
   const [nouvSource, setNouvSource] = useState('');
+  const [nouvTravail, setNouvTravail] = useState(true);
+  const [heures, setHeures] = useState<string | number>('');
   const [mdpActuel, setMdpActuel] = useState('');
   const [mdpNouveau, setMdpNouveau] = useState('');
   const [envoiMdp, setEnvoiMdp] = useState(false);
 
   useEffect(() => { if (config) setObjectif(config.objectif_epargne); }, [config?.objectif_epargne]);
+  useEffect(() => { if (config) setHeures(config.travail.heures_mois); }, [config?.travail.heures_mois]);
 
   function ajouterCategorie() {
     const nom = nouvCat.trim();
@@ -214,8 +231,8 @@ export function Parametres({ onMdpChange }: { onMdpChange: () => void }) {
   function ajouterSource() {
     const nom = nouvSource.trim();
     if (!nom) return toast('Nom requis', false);
-    ecrire.mutate({ path: '/api/sources', method: 'POST', body: { nom }, succes: 'Source ajoutée ✓' },
-      { onSuccess: () => setNouvSource('') });
+    ecrire.mutate({ path: '/api/sources', method: 'POST', body: { nom, travail: nouvTravail }, succes: 'Source ajoutée ✓' },
+      { onSuccess: () => { setNouvSource(''); setNouvTravail(true); } });
   }
 
   async function changerMdp() {
@@ -242,6 +259,30 @@ export function Parametres({ onMdpChange }: { onMdpChange: () => void }) {
             Enregistrer
           </Button>
         </Group>
+      </Carte>
+  );
+
+  const t = config?.travail;
+  const travailCarte = (
+      <Carte titre="Prix en heures de travail" description="Affiché sous le montant d'une dépense, à partir de 2 h de travail"
+             icone={<Pastille icone={IconClockHour4} couleur="ambre" />}>
+        <Stack gap="sm">
+          <Group gap="xs" wrap="nowrap" align="flex-end">
+            <NumberInput label="Heures travaillées par mois" value={heures} onChange={setHeures} min={1} max={744} allowNegative={false}
+                         decimalScale={1} decimalSeparator="," rightSection="h" style={{ flex: 1 }} />
+            <Button loading={ecrire.isPending}
+              onClick={() => ecrire.mutate({ path: '/api/heures-travail', method: 'PUT', body: { heures_mois: nombre(heures) }, succes: 'Heures enregistrées ✓' })}>
+              Enregistrer
+            </Button>
+          </Group>
+          <Info>
+            {!t ? null : t.taux_horaire === null
+              ? 'Aucun revenu du travail sur les 12 derniers mois terminés : coche « Travail » sur tes sources de salaire.'
+              : <>Ton heure vaut <b>{fmt(t.taux_horaire)}</b> : {fmt(t.revenu_mensuel)} par mois en moyenne
+                  ({t.nb_mois === 1 ? 'dernier mois terminé' : `${t.nb_mois} derniers mois terminés`}), pour {t.heures_mois} h.</>}
+            {' '}191 h = la semaine légale de 44 h au Maroc.
+          </Info>
+        </Stack>
       </Carte>
   );
 
@@ -284,6 +325,7 @@ export function Parametres({ onMdpChange }: { onMdpChange: () => void }) {
         <Text fz="xs" fw={700} c="dimmed" tt="uppercase" lts={0.5} mb={8}>Ajouter une source</Text>
         <Group gap="xs" wrap="nowrap">
           <TextInput placeholder="ex : Loyer perçu" value={nouvSource} onChange={e => setNouvSource(e.currentTarget.value)} style={{ flex: 1 }} />
+          <CaseTravail checked={nouvTravail} onChange={setNouvTravail} />
           <ActionIcon size={36} onClick={ajouterSource} aria-label="Ajouter la source"><IconPlus size={18} /></ActionIcon>
         </Group>
       </Carte>
@@ -306,7 +348,7 @@ export function Parametres({ onMdpChange }: { onMdpChange: () => void }) {
       <EnTetePage titre="Paramètres" description="Budget, sources de revenus, rappels et sécurité du compte" />
       <Grid gap="lg" align="flex-start">
         <Grid.Col span={{ base: 12, md: 7 }}><Stack gap="lg">{categoriesCarte}{sourcesCarte}</Stack></Grid.Col>
-        <Grid.Col span={{ base: 12, md: 5 }}><Stack gap="lg">{objectifCarte}<CarteRappels />{mdpCarte}</Stack></Grid.Col>
+        <Grid.Col span={{ base: 12, md: 5 }}><Stack gap="lg">{objectifCarte}{travailCarte}<CarteRappels />{mdpCarte}</Stack></Grid.Col>
         <Grid.Col span={12}><ImportExport /></Grid.Col>
       </Grid>
     </Stack>

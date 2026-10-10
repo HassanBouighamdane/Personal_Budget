@@ -61,11 +61,13 @@ Built on 2026-10-10 (the three Suivi and reminder items were added the same day)
 - **Full backup**: one JSON file with every table (no accounts or sessions), a copy sent on the 1st of each month by Telegram and e-mail, and `scripts/restaurer_sauvegarde.py` to restore it.
 - **Stay logged in**: 30-day sessions that renew with use; ordinary sessions also renew, within one day.
 - **Year in review**: sent on 1 January, same design as the monthly summary.
-- **Installable app**: web manifest and icons; no service worker.
+- **Installable app**: web manifest and icons, and a service worker (`vite-plugin-pwa`): the app shell opens offline, `/api` is never cached, an "Hors connexion" screen replaces the login page without network, and a new version is offered with a "Recharger" button.
 - **Lectures: reading pace**: note today's page on a book in progress to get pages per day, an estimated finish date and a streak of reading days.
 - **Lectures: note of the day**, **lent books** ("Prêtés" tab) and **Markdown export** of notes (one book, or a ZIP with one file per book).
 - **Bourse: decision journal** (a note per transaction, with the price change since) and **expected dividends** over 12 months (last dividend per share × shares held today).
 - **Suivi: net worth** ("Patrimoine" tab): other assets with manual values, opening balance, emergency-fund runway in months, and a zakat estimate against the nisab with its due date. The Global dashboard card uses the same total.
+- **Suivi: financial freedom** (Patrimoine tab): target = annual spending ÷ withdrawal rate (4 % → 25×, adjustable), progress, years of lifestyle covered, estimated date (monthly compounding at an adjustable real return of 4 %), and years gained by spending 500 DH less per month. Averages over the last 12 completed months; housing and vehicle excluded.
+- **Price in hours of work** (Saisie): under the amount of an expense, "≈ 3,6 jours de travail" from 2 h up. Hourly rate = average work income (sources ticked "Travail" in Paramètres; Remboursement isn't) over the last 12 completed months ÷ hours per month (191 h by default, the legal 44 h week).
 - **Suivi: debts and loans**: money lent or borrowed, partial repayments, "on me doit / je dois" totals. Kept out of the Budget, like Bourse deposits.
 - **Suivi: deadlines**: papers, insurance, warranties, with a reminder window and recurrence; a recurring one moves to its next date with ✓.
 - **Reminders and weekly summary** by Telegram or e-mail: deadline and repayment reminders each morning, on Monday a summary of the past week and on the 1st a summary of the past month (Budget, Bourse, Lectures, Suivi), as a designed HTML e-mail and a formatted Telegram message. One daily Vercel cron, protected by `CRON_SECRET`; preview and test button in Paramètres. Setup in DOCUMENTATION.md §10.

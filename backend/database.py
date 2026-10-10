@@ -538,11 +538,18 @@ def init_db():
                 DROP COLUMN IF EXISTS structure_ipo
         """)
 
+        # Revenu du travail (salaire, prime, freelance) : sert au taux horaire (« prix en heures de travail »).
+        # Ajout de la colonne : toutes les sources comptent, sauf Remboursement (de l'argent qui revient).
+        if not c.execute("""SELECT 1 FROM information_schema.columns
+                            WHERE table_name = 'sources_revenus' AND column_name = 'travail'""").fetchone():
+            c.execute("ALTER TABLE sources_revenus ADD COLUMN travail BOOLEAN NOT NULL DEFAULT true")
+            c.execute("UPDATE sources_revenus SET travail = false WHERE nom = 'Remboursement'")
+
         with c.cursor() as cur:
             if c.execute("SELECT COUNT(*) n FROM categories").fetchone()["n"] == 0:
                 cur.executemany("INSERT INTO categories(nom,budget,fixe) VALUES(%s,%s,%s)", CATEGORIES_DEFAUT)
             if c.execute("SELECT COUNT(*) n FROM sources_revenus").fetchone()["n"] == 0:
-                cur.executemany("INSERT INTO sources_revenus(nom) VALUES(%s)", SOURCES_DEFAUT)
+                cur.executemany("INSERT INTO sources_revenus(nom, travail) VALUES(%s,%s)", SOURCES_DEFAUT)
         # Historique des budgets : une catégorie sans historique (base antérieure) reçoit son budget
         # actuel « depuis toujours » ; une catégorie déjà désactivée, 0 (comme avant, elle ne compte plus).
         c.execute("""INSERT INTO budgets_historique(categorie_id, mois_debut, budget, fixe)
