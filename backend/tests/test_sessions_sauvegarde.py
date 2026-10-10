@@ -103,15 +103,21 @@ def test_la_sauvegarde_se_relit_brute_ou_compressee():
     brut = sauvegarde.en_json(donnees)
     assert sauvegarde.lire(brut)["tables"].keys() == donnees["tables"].keys()
     nom, compresse = sauvegarde.fichier_compresse()
-    assert nom.startswith("mon-budget-") and nom.endswith(".json.gz")
+    assert nom.startswith("carnet-") and nom.endswith(".json.gz")
     assert sauvegarde.lire(compresse)["tables"] == json.loads(brut)["tables"]
 
 
 def test_fichier_qui_n_est_pas_une_sauvegarde_refuse():
-    for contenu in (b'{"autre": 1}', b'[]', gzip.compress(b'{"application": "Mon Budget"}'),
-                    json.dumps({"application": "Mon Budget", "format": 99, "tables": {}}).encode()):
+    for contenu in (b'{"autre": 1}', b'[]', gzip.compress(b'{"application": "Carnet"}'),
+                    json.dumps({"application": "Carnet", "format": 99, "tables": {}}).encode()):
         with pytest.raises(ValueError):
             sauvegarde.lire(contenu)
+
+
+def test_sauvegarde_faite_sous_l_ancien_nom_toujours_lisible():
+    ancienne = json.dumps({"application": "Mon Budget", "format": 1, "tables": {"depenses": []}}).encode()
+    assert sauvegarde.lire(ancienne)["tables"] == {"depenses": []}
+    assert sauvegarde.exporter()["application"] == "Carnet"
 
 
 def test_ordre_de_restauration_parents_avant_enfants():

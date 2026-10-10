@@ -1,4 +1,4 @@
-# 💰 Mon Budget
+# 📒 Carnet
 
 Application web personnelle pour gérer et suivre son budget au quotidien, avec un module de suivi de portefeuille à la Bourse de Casablanca, un journal de lecture et un carnet (dettes, prêts, échéances). Tous les montants sont en dirhams (DH).
 
@@ -30,7 +30,7 @@ Application web personnelle pour gérer et suivre son budget au quotidien, avec 
 - Livres prêtés ; export des notes en Markdown
 - Bilan annuel : livres et pages lus, livres par mois, genres, records, auteurs les plus lus, historique par année
 
-**Carnet**
+**Suivi**
 - Dettes et prêts : argent prêté ou emprunté, remboursements partiels, total qu'on me doit et que je dois
 - Échéances : papiers, assurance, visite technique, garanties, avec délai de rappel et récurrence
 - Patrimoine net (liquidités, Bourse, autres actifs, dettes), réserve de sécurité en mois de dépenses, estimation de la zakat

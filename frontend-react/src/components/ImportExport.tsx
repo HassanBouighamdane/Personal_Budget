@@ -91,7 +91,7 @@ function Sauvegarde() {
         Télécharger toutes mes données
       </Button>
       <Info>
-        Un seul fichier avec tout : Budget, Bourse, Lectures, Carnet et Patrimoine (sans ton mot de passe). Si les rappels sont configurés,
+        Un seul fichier avec tout : Budget, Bourse, Lectures, Suivi et Patrimoine (sans ton mot de passe). Si les rappels sont configurés,
         une copie t'est aussi envoyée le 1er de chaque mois. Il se restaure avec le script « restaurer_sauvegarde.py ».
       </Info>
     </Stack>

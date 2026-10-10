@@ -18,7 +18,7 @@ From a review of the code on 2026-10-05, updated on 2026-10-10. Everything below
 
 ## 3. Across modules
 
-10. **Net worth curve** (M): net worth now includes other assets, debts and an opening balance (Carnet → Patrimoine), but only as today's figure. A curve over time needs the price history (idea 5) for the Bourse part, and a history of the manual asset values.
+10. **Net worth curve** (M): net worth now includes other assets, debts and an opening balance (Suivi → Patrimoine), but only as today's figure. A curve over time needs the price history (idea 5) for the Bourse part, and a history of the manual asset values.
 
 ## 5. Backend best practices
 
@@ -54,7 +54,7 @@ From a review of the code on 2026-10-05, updated on 2026-10-10. Everything below
 
 ## Done
 
-Built on 2026-10-10 (the three Carnet and reminder items were added the same day), with tests in `backend/tests/` and checked in a browser.
+Built on 2026-10-10 (the three Suivi and reminder items were added the same day), with tests in `backend/tests/` and checked in a browser.
 
 **Features**
 - **Home page**: today's remaining budget, the month, the portfolio, the book in progress and streak, the note of the day, and what needs action. Default page; settings moved to the header on phones.
@@ -65,10 +65,10 @@ Built on 2026-10-10 (the three Carnet and reminder items were added the same day
 - **Lectures: reading pace**: note today's page on a book in progress to get pages per day, an estimated finish date and a streak of reading days.
 - **Lectures: note of the day**, **lent books** ("Prêtés" tab) and **Markdown export** of notes (one book, or a ZIP with one file per book).
 - **Bourse: decision journal** (a note per transaction, with the price change since) and **expected dividends** over 12 months (last dividend per share × shares held today).
-- **Carnet: net worth** ("Patrimoine" tab): other assets with manual values, opening balance, emergency-fund runway in months, and a zakat estimate against the nisab with its due date. The Global dashboard card uses the same total.
-- **Carnet: debts and loans**: money lent or borrowed, partial repayments, "on me doit / je dois" totals. Kept out of the Budget, like Bourse deposits.
-- **Carnet: deadlines**: papers, insurance, warranties, with a reminder window and recurrence; a recurring one moves to its next date with ✓.
-- **Reminders and weekly summary** by Telegram or e-mail: deadline and repayment reminders each morning, on Monday a summary of the past week and on the 1st a summary of the past month (Budget, Bourse, Lectures, Carnet), as a designed HTML e-mail and a formatted Telegram message. One daily Vercel cron, protected by `CRON_SECRET`; preview and test button in Paramètres. Setup in DOCUMENTATION.md §10.
+- **Suivi: net worth** ("Patrimoine" tab): other assets with manual values, opening balance, emergency-fund runway in months, and a zakat estimate against the nisab with its due date. The Global dashboard card uses the same total.
+- **Suivi: debts and loans**: money lent or borrowed, partial repayments, "on me doit / je dois" totals. Kept out of the Budget, like Bourse deposits.
+- **Suivi: deadlines**: papers, insurance, warranties, with a reminder window and recurrence; a recurring one moves to its next date with ✓.
+- **Reminders and weekly summary** by Telegram or e-mail: deadline and repayment reminders each morning, on Monday a summary of the past week and on the 1st a summary of the past month (Budget, Bourse, Lectures, Suivi), as a designed HTML e-mail and a formatted Telegram message. One daily Vercel cron, protected by `CRON_SECRET`; preview and test button in Paramètres. Setup in DOCUMENTATION.md §10.
 - **Search across all history** (Saisie): text, exact amount and `#tag`, paginated, with totals of everything found. The search is in the URL.
 - **Form date follows the browsed month**: today for the current month, the last day of a past month, the 1st of a future one.
 - **CSV export and import** (Paramètres > Import / export): export per period (Excel-friendly). Import with column mapping (amount or debit/credit, type, category, tags), French and English number and date formats, a preview, and duplicates (same date, amount and description) skipped.

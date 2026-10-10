@@ -67,10 +67,13 @@ function LigneCategorie({ c, aPartirDe }: { c: Categorie; aPartirDe: string }) {
   const [budget, setBudget] = useState<string | number>(c.budget);
   const [fixe, setFixe] = useState(c.fixe);
   return (
-    <Group gap="xs" wrap="nowrap">
-      <TextInput value={nom} onChange={e => setNom(e.currentTarget.value)} style={{ flex: 2 }} aria-label="Nom" />
+    // Téléphone : le nom sur une ligne, le budget et ses boutons sur la suivante (tout sur une ligne, le nom
+    // et le montant étaient coupés), avec un peu d'air entre deux catégories. Ordinateur : une seule ligne.
+    <Group gap="xs" wrap="wrap" mb={{ base: 8, sm: 0 }}>
+      <TextInput value={nom} onChange={e => setNom(e.currentTarget.value)} w={{ base: '100%', sm: 'auto' }} flex={{ sm: 2 }} aria-label="Nom" />
       <NumberInput value={budget} onChange={setBudget} min={0} allowNegative={false} decimalSeparator="," thousandSeparator=" "
-                   style={{ flex: 1 }} rightSection="DH" aria-label="Budget mensuel" />
+                   flex={1} miw={110} rightSection="DH" aria-label="Budget mensuel" />
+      <Group gap="xs" wrap="nowrap">
       <CaseFixe checked={fixe} onChange={setFixe} />
       <BoutonSauver modifie={nom !== c.nom || nombre(budget) !== c.budget || fixe !== c.fixe} loading={ecrire.isPending}
         onClick={() => ecrire.mutate({ path: '/api/categories/' + c.id, method: 'PUT', body: { nom, budget: nombre(budget), fixe, a_partir_de: aPartirDe },
@@ -84,6 +87,7 @@ function LigneCategorie({ c, aPartirDe }: { c: Categorie; aPartirDe: string }) {
       </Tooltip>
       <BoutonSuppr label="Désactiver" onClick={() => confirmer('Désactiver cette catégorie ? (les dépenses existantes sont conservées)',
         () => ecrire.mutate({ path: '/api/categories/' + c.id, method: 'DELETE', succes: 'Catégorie désactivée' }), 'Désactiver')} />
+      </Group>
     </Group>
   );
 }
@@ -172,7 +176,7 @@ function CarteRappels() {
           {(!etat?.canaux.length || !etat.cron) && (
             <Info>
               Ces réglages sont des variables d'environnement du serveur (jeton Telegram ou compte SMTP, et CRON_SECRET pour
-              l'envoi automatique) : la marche à suivre est dans DOCUMENTATION.md, section « Carnet, rappels et résumés ».
+              l'envoi automatique) : la marche à suivre est dans DOCUMENTATION.md, section « Suivi, rappels et résumés ».
             </Info>
           )}
           <Button variant="default" leftSection={<IconEye size={16} />} style={{ alignSelf: 'flex-start' }} onClick={() => modals.open({
@@ -257,12 +261,14 @@ export function Parametres({ onMdpChange }: { onMdpChange: () => void }) {
         <Info>Les mois antérieurs gardent leur budget : le « prévu » du passé n'est pas réécrit.</Info>
         <Divider my="md" color="var(--bordure-douce)" />
         <Text fz="xs" fw={700} c="dimmed" tt="uppercase" lts={0.5} mb={8}>Ajouter une catégorie</Text>
-        <Group gap="xs" wrap="nowrap">
-          <TextInput placeholder="Nom" value={nouvCat} onChange={e => setNouvCat(e.currentTarget.value)} style={{ flex: 2 }} />
+        <Group gap="xs" wrap="wrap">
+          <TextInput placeholder="Nom" value={nouvCat} onChange={e => setNouvCat(e.currentTarget.value)} w={{ base: '100%', sm: 'auto' }} flex={{ sm: 2 }} />
           <NumberInput placeholder="Budget" value={nouvBudget} onChange={setNouvBudget} min={0} allowNegative={false}
-                       decimalSeparator="," thousandSeparator=" " style={{ flex: 1 }} rightSection="DH" />
-          <CaseFixe checked={nouvFixe} onChange={setNouvFixe} />
-          <ActionIcon size={36} onClick={ajouterCategorie} aria-label="Ajouter la catégorie"><IconPlus size={18} /></ActionIcon>
+                       decimalSeparator="," thousandSeparator=" " flex={1} miw={110} rightSection="DH" />
+          <Group gap="xs" wrap="nowrap">
+            <CaseFixe checked={nouvFixe} onChange={setNouvFixe} />
+            <ActionIcon size={36} onClick={ajouterCategorie} aria-label="Ajouter la catégorie"><IconPlus size={18} /></ActionIcon>
+          </Group>
         </Group>
       </Carte>
   );

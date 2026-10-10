@@ -43,7 +43,7 @@ export function Connexion({ onConnecte }: { onConnecte: () => void }) {
             <Stack gap="md">
               <Box>
                 <Title order={2} fz={20}>Connexion</Title>
-                <Text c="dimmed" fz="sm" mt={4}>Connecte-toi pour accéder à ton budget</Text>
+                <Text c="dimmed" fz="sm" mt={4}>Connecte-toi pour ouvrir ton carnet</Text>
               </Box>
               <TextInput label="Utilisateur" autoComplete="username" autoFocus size="md"
                          leftSection={<IconUser size={17} stroke={1.7} />}

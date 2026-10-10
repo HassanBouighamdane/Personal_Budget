@@ -8,7 +8,7 @@ export function SymboleLogo({ taille = 34 }: { taille?: number }) {
   // spéciaux de useId() sont retirés pour rester valides dans url(#...)
   const id = 'logo' + useId().replace(/[^a-zA-Z0-9_-]/g, '');
   return (
-    <svg width={taille} height={taille} viewBox="0 0 64 64" role="img" aria-label="Mon Budget" style={{ display: 'block', flexShrink: 0 }}>
+    <svg width={taille} height={taille} viewBox="0 0 64 64" role="img" aria-label="Carnet" style={{ display: 'block', flexShrink: 0 }}>
       <defs>
         <linearGradient id={id} x1="0" y1="0" x2="1" y2="1">
           <stop offset="0" stopColor="#818cf8" />
@@ -31,7 +31,7 @@ export function Logo({ taille = 34 }: { taille?: number }) {
     <Group gap={10} wrap="nowrap">
       <SymboleLogo taille={taille} />
       <Text fw={750} fz={taille > 36 ? 22 : 17} lts={-0.3}>
-        Mon <Text span inherit c="var(--c-brand)">Budget</Text>
+        Carnet<Text span inherit c="var(--c-brand)">.</Text>
       </Text>
     </Group>
   );

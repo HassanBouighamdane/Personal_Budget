@@ -7,7 +7,7 @@ reçu par e-mail / Telegram) dans la base configurée par DATABASE_URL (backend/
 sont pas touchés. Tout se fait dans une seule transaction : en cas d'erreur, rien ne change.
 
     cd backend
-    python scripts/restaurer_sauvegarde.py chemin/vers/mon-budget-2026-10-01.json.gz
+    python scripts/restaurer_sauvegarde.py chemin/vers/carnet-2026-10-01.json.gz
 
 Sur une base neuve, le schéma est créé d'abord (comme au démarrage de l'application).
 """

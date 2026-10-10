@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Mon Budget — Point d'entrée de l'application
+Carnet — Point d'entrée de l'application
 ============================================
 Architecture modulaire :
     config.py            variables d'environnement, constantes
@@ -48,7 +48,7 @@ async def cycle_de_vie(_app: FastAPI):
     _pool.close()
 
 
-app = FastAPI(title="Mon Budget — API", version="2.2", lifespan=cycle_de_vie)
+app = FastAPI(title="Carnet — API", version="2.2", lifespan=cycle_de_vie)
 
 # CORS fermé par défaut : le frontend est servi par ce même serveur (même origine), il n'en
 # a pas besoin. N'ouvre l'API qu'aux origines listées explicitement dans CORS_ORIGINS.
@@ -82,7 +82,7 @@ else:
 if __name__ == "__main__":
     import uvicorn
     print("=" * 56)
-    print("  💰 Mon Budget v2.2 — module Bourse")
+    print("  📒 Carnet v2.2 — module Bourse")
     print(f"     Interface : http://localhost:{PORT}")
     print(f"     API docs  : http://localhost:{PORT}/docs")
     print(f"     Base      : {DATABASE_URL.split('@')[-1]}")

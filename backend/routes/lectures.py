@@ -314,7 +314,7 @@ def lire_fiche_open_library(reponse: dict, isbn: str) -> Optional[dict]:
 def chercher_isbn(isbn: str):
     """Titre, auteur(s), pages et couverture d'après Open Library (appel fait par le serveur)."""
     v = valider_isbn(isbn)
-    requete = urllib.request.Request(URL_OPEN_LIBRARY.format(isbn=v), headers={"User-Agent": "MonBudget/2.2"})
+    requete = urllib.request.Request(URL_OPEN_LIBRARY.format(isbn=v), headers={"User-Agent": "Carnet/2.2"})
     try:
         with urllib.request.urlopen(requete, timeout=8) as r:
             reponse = json.load(r)

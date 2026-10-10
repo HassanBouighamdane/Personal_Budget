@@ -1,4 +1,4 @@
-/* Carnet — patrimoine net : liquidités, Bourse, autres actifs (valeur saisie à la main), dettes et prêts.
+/* Suivi — patrimoine net : liquidités, Bourse, autres actifs (valeur saisie à la main), dettes et prêts.
  * Deux indicateurs en découlent : la réserve de sécurité et une estimation de la zakat. */
 import { useEffect, useState, type ReactNode } from 'react';
 import {

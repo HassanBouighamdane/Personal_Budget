@@ -1,4 +1,4 @@
-/* Carnet — dettes et prêts : argent prêté (on me doit) ou emprunté (je dois), remboursé en une ou plusieurs fois.
+/* Suivi — dettes et prêts : argent prêté (on me doit) ou emprunté (je dois), remboursé en une ou plusieurs fois.
  * Ce sont des transferts, à ne pas saisir dans le Budget. */
 import { useState, type ReactNode } from 'react';
 import {

@@ -430,8 +430,8 @@ def rendre_email(d: dict) -> str:
         cartes.append(_carte_lectures(d["lectures"]))
     if d["dettes"] or d["echeances"]:
         cartes.append(_carte_carnet(d["dettes"], d["echeances"]))
-    return _page("Mon Budget · résumé de la semaine", f"{jour(d['lundi'])} → {jour(d['dimanche'])}", verdict(b), cartes,
-                 "Envoyé chaque lundi par ton application Mon Budget")
+    return _page("Carnet · résumé de la semaine", f"{jour(d['lundi'])} → {jour(d['dimanche'])}", verdict(b), cartes,
+                 "Envoyé chaque lundi par ton application Carnet")
 
 
 # ================================================================ résumé du mois
@@ -641,8 +641,8 @@ def rendre_email_mois(d: dict) -> str:
         cartes.append(_carte_lectures(d["lectures"]))
     if d["dettes"] or d["echeances"]:
         cartes.append(_carte_carnet(d["dettes"], d["echeances"]))
-    return _page("Mon Budget · bilan du mois", _nom_mois(d["mois"]).capitalize(), verdict_mois(b), cartes,
-                 "Envoyé le 1er de chaque mois par ton application Mon Budget")
+    return _page("Carnet · bilan du mois", _nom_mois(d["mois"]).capitalize(), verdict_mois(b), cartes,
+                 "Envoyé le 1er de chaque mois par ton application Carnet")
 
 
 # ================================================================ bilan de l'année
@@ -800,5 +800,5 @@ def rendre_email_annee(d: dict) -> str:
         cartes.append(_carte_lectures_annee(d["lectures"]))
     if d["patrimoine"] is not None:
         cartes.append(_carte("🏦 Patrimoine net", _chiffres([("Aujourd'hui", dh(d["patrimoine"]), EP if d["patrimoine"] >= 0 else DEP, "")])))
-    return _page("Mon Budget · bilan de l'année", f"Ton année {d['annee']}", verdict_annee(b, d["annee"]), cartes,
-                 "Envoyé le 1er janvier par ton application Mon Budget")
+    return _page("Carnet · bilan de l'année", f"Ton année {d['annee']}", verdict_annee(b, d["annee"]), cartes,
+                 "Envoyé le 1er janvier par ton application Carnet")

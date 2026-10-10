@@ -347,7 +347,7 @@ def tache_quotidienne(force: bool = False, authorization: Optional[str] = Header
     try:
         lignes = rappels_du_jour(auj)
         if lignes:
-            envoyer("⏰ Mon Budget — rappels du jour", "\n".join(lignes))
+            envoyer("⏰ Carnet — rappels du jour", "\n".join(lignes))
             envoyes.append("rappels")
         if auj.day == 1 and auj.month == 1:
             _envoyer_resume(resume_annuel(auj))
@@ -375,7 +375,7 @@ def envoyer_sauvegarde() -> bool:
     faire échouer la tâche : les résumés du jour sont déjà partis."""
     try:
         nom, contenu = sauvegarde.fichier_compresse()
-        envoyer_fichier("💾 Mon Budget — sauvegarde du mois",
+        envoyer_fichier("💾 Carnet — sauvegarde du mois",
                         "Copie complète de tes données. Garde ce fichier : il se restaure avec "
                         "scripts/restaurer_sauvegarde.py.", nom, contenu)
         return True

@@ -12,8 +12,8 @@ import { VuePatrimoine } from './Patrimoine';
 export type VueCarnet = 'dettes' | 'echeances' | 'patrimoine';
 const VUES_CARNET = ['dettes', 'echeances', 'patrimoine'] as const;
 
-/** État de navigation du module Carnet, gardé par App pour survivre aux changements d'onglet.
- *  `initial` : segments de l'URL après « carnet » (ex : ['echeances']). */
+/** État de navigation de l'onglet Suivi (dettes, échéances, patrimoine), gardé par App pour survivre aux
+ *  changements d'onglet. `initial` : segments de l'URL après « suivi » (ex : ['echeances']). */
 export function useNavCarnet(initial: string[] = []) {
   const [vue, setVue] = useState<VueCarnet>(parmi(initial[0], VUES_CARNET, 'dettes'));
   const chemin = () => [vue];
@@ -28,7 +28,7 @@ export function Carnet({ nav }: { nav: NavCarnet }) {
   return (
     <Stack gap="lg">
       <Stack gap="sm">
-        <EnTetePage titre="Carnet" description="L'argent prêté ou emprunté, ce qui a une date limite, et tout ce que tu possèdes" />
+        <EnTetePage titre="Suivi" description="L'argent prêté ou emprunté, ce qui a une date limite, et tout ce que tu possèdes" />
         <ScrollArea type="never" offsetScrollbars={false}>
           <Tabs value={nav.vue} onChange={v => v && nav.setVue(v as VueCarnet)} color="marque">
             <Tabs.List style={{ flexWrap: 'nowrap' }}>

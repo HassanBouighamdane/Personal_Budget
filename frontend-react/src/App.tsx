@@ -25,9 +25,12 @@ import { Parametres } from './pages/Parametres';
 
 type Onglet = 'accueil' | 'saisie' | 'dash' | 'bourse' | 'lectures' | 'carnet' | 'params';
 
-// Nom de chaque onglet dans l'URL (#/dashboard/…)
-const URL_ONGLET: Record<Onglet, string> = { accueil: 'accueil', saisie: 'saisie', dash: 'dashboard', bourse: 'bourse', lectures: 'lectures', carnet: 'carnet', params: 'parametres' };
-const ongletDeUrl = (s?: string) => (Object.keys(URL_ONGLET) as Onglet[]).find(o => URL_ONGLET[o] === s) ?? 'accueil';
+// Nom de chaque onglet dans l'URL (#/dashboard/…). L'onglet « Suivi » garde l'identifiant interne `carnet`
+// (fichiers pages/carnet/, routes /api/carnet) : « Carnet » est devenu le nom de l'application.
+const URL_ONGLET: Record<Onglet, string> = { accueil: 'accueil', saisie: 'saisie', dash: 'dashboard', bourse: 'bourse', lectures: 'lectures', carnet: 'suivi', params: 'parametres' };
+// « carnet » : ancienne adresse de l'onglet Suivi, encore acceptée (favoris enregistrés avant le renommage)
+const ongletDeUrl = (s?: string) =>
+  s === 'carnet' ? 'carnet' : (Object.keys(URL_ONGLET) as Onglet[]).find(o => URL_ONGLET[o] === s) ?? 'accueil';
 
 const ONGLETS: { id: Onglet; label: string; aide: string; Icone: typeof IconChartPie }[] = [
   { id: 'accueil', label: 'Accueil', aide: "L'essentiel du jour", Icone: IconHome },
@@ -35,7 +38,7 @@ const ONGLETS: { id: Onglet; label: string; aide: string; Icone: typeof IconChar
   { id: 'dash', label: 'Dashboard', aide: 'Analyse du budget', Icone: IconChartPie },
   { id: 'bourse', label: 'Bourse', aide: 'Portefeuille BVC', Icone: IconTrendingUp },
   { id: 'lectures', label: 'Lectures', aide: 'Livres lus', Icone: IconBook2 },
-  { id: 'carnet', label: 'Carnet', aide: 'Dettes, patrimoine', Icone: IconNotebook },
+  { id: 'carnet', label: 'Suivi', aide: 'Dettes, patrimoine', Icone: IconNotebook },
   { id: 'params', label: 'Paramètres', aide: 'Catégories, compte', Icone: IconSettings },
 ];
 

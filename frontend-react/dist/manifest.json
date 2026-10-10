@@ -1,6 +1,6 @@
 {
-  "name": "Mon Budget",
-  "short_name": "Mon Budget",
+  "name": "Carnet",
+  "short_name": "Carnet",
   "description": "Budget, Bourse de Casablanca, lectures et carnet personnel",
   "lang": "fr",
   "start_url": "/",

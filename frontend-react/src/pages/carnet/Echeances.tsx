@@ -1,4 +1,4 @@
-/* Carnet — échéances : papiers, assurance, visite technique, vignette, garanties… avec un rappel avant la date.
+/* Suivi — échéances : papiers, assurance, visite technique, vignette, garanties… avec un rappel avant la date.
  * Une échéance récurrente se reporte d'une période une fois traitée. */
 import { useState, type ReactNode } from 'react';
 import { ActionIcon, Badge, Box, Button, Grid, Group, Select, SimpleGrid, Stack, Text, Textarea, TextInput, Tooltip } from '@mantine/core';

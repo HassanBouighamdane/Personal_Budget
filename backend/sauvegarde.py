@@ -17,6 +17,9 @@ from database import db
 
 TABLES_EXCLUES = {"utilisateurs", "sessions"}
 FORMAT = 1
+APPLICATION = "Carnet"
+# Nom de l'application avant son renommage : ses sauvegardes restent lisibles
+ANCIENS_NOMS = {"Mon Budget"}
 
 
 def _tables(c) -> list:
@@ -41,7 +44,7 @@ def exporter() -> dict:
     with db() as c:
         tables = {t: c.execute(sql.SQL("SELECT * FROM {} ORDER BY 1").format(sql.Identifier(t))).fetchall()
                   for t in _tables(c)}
-    return {"application": "Mon Budget", "format": FORMAT, "cree_le": datetime.now().isoformat(timespec="seconds"),
+    return {"application": APPLICATION, "format": FORMAT, "cree_le": datetime.now().isoformat(timespec="seconds"),
             "tables": tables}
 
 
@@ -51,7 +54,7 @@ def en_json(donnees: dict) -> bytes:
 
 def fichier_compresse() -> tuple:
     """(nom, contenu) de la sauvegarde du jour, compressée : pour l'envoi automatique."""
-    return f"mon-budget-{aujourdhui().isoformat()}.json.gz", gzip.compress(en_json(exporter()))
+    return f"carnet-{aujourdhui().isoformat()}.json.gz", gzip.compress(en_json(exporter()))
 
 
 def lire(contenu: bytes) -> dict:
@@ -59,8 +62,8 @@ def lire(contenu: bytes) -> dict:
     if contenu[:2] == b"\x1f\x8b":
         contenu = gzip.decompress(contenu)
     donnees = json.loads(contenu)
-    if not isinstance(donnees, dict) or donnees.get("application") != "Mon Budget" or not isinstance(donnees.get("tables"), dict):
-        raise ValueError("Ce fichier n'est pas une sauvegarde de Mon Budget")
+    if not isinstance(donnees, dict) or donnees.get("application") not in {APPLICATION} | ANCIENS_NOMS or not isinstance(donnees.get("tables"), dict):
+        raise ValueError("Ce fichier n'est pas une sauvegarde de Carnet")
     if donnees.get("format", 0) > FORMAT:
         raise ValueError("Sauvegarde faite par une version plus récente de l'application")
     return donnees

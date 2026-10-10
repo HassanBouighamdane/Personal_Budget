@@ -1,4 +1,4 @@
-# Deploying Mon Budget on Vercel
+# Deploying Carnet on Vercel
 
 This guide puts the app on Vercel's free Hobby plan **next to** the current Render deployment. Both use the same Neon database, so you can try Vercel for a while and switch Render off only once you are happy.
 

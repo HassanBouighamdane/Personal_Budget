@@ -1,4 +1,4 @@
-# Mon Budget — Documentation technique
+# Carnet — Documentation technique
 
 Application web personnelle pour suivre son budget (dépenses, revenus, épargne), un portefeuille boursier à la Bourse de Casablanca, ses lectures (livres terminés, bilan annuel) et un carnet (dettes et prêts, échéances) avec rappels et résumé hebdomadaire par Telegram ou e-mail. Toutes les valeurs sont en dirhams (DH).
 
@@ -19,7 +19,7 @@ Application web personnelle pour suivre son budget (dépenses, revenus, épargne
 7. [Frontend](#7-frontend)
 8. [Points restants](#8-points-restants)
 9. [Module Lectures](#9-module-lectures)
-10. [Carnet, rappels et résumés](#10-carnet-rappels-et-résumés)
+10. [Suivi, rappels et résumés](#10-suivi-rappels-et-résumés)
 11. [Patrimoine, réserve de sécurité et zakat](#11-patrimoine-réserve-de-sécurité-et-zakat)
 12. [Accueil, sauvegarde, sessions et installation](#12-accueil-sauvegarde-sessions-et-installation)
 
@@ -59,7 +59,7 @@ Personal_Budget/
 │       ├── rapports.py           résumés jour / semaine / mois / année / global
 │       ├── bourse.py             module Bourse
 │       ├── lectures.py           module Lectures (livres lus, objectifs, bilan annuel)
-│       ├── carnet.py             module Carnet (dettes et prêts, échéances)
+│       ├── carnet.py             onglet Suivi (dettes et prêts, échéances)
 │       ├── patrimoine.py         patrimoine net, autres actifs, réserve de sécurité, zakat (voir §11)
 │       └── rappels.py            rappels du jour, résumé hebdomadaire, tâche planifiée
 ├── frontend-react/         Frontend React (voir §7)
@@ -347,7 +347,7 @@ Index : `depenses(date)`, `revenus(date)`.
 
 Les objectifs de lecture sont dans `params` : `objectif_lecture_annuel` (24 par défaut) et `objectif_lecture_mensuel` (2).
 
-### Carnet
+### Suivi
 
 | Table | Colonnes principales | Remarques |
 |---|---|---|
@@ -361,7 +361,7 @@ Les objectifs de lecture sont dans `params` : `objectif_lecture_annuel` (24 par 
 
 Deux clés de `params` servent à la tâche planifiée : `cron_dernier_jour` (dernier jour traité, en numéro de jour) et `resume_hebdo_patrimoine` (valeur du compte Bourse au dernier résumé).
 
-Les modules Bourse et Carnet utilisent les types `DATE` et `NUMERIC`. Le module Budget utilise `TEXT` pour les dates et `DOUBLE PRECISION` pour les montants.
+Les modules Bourse et Suivi utilisent les types `DATE` et `NUMERIC`. Le module Budget utilise `TEXT` pour les dates et `DOUBLE PRECISION` pour les montants.
 
 ---
 
@@ -638,7 +638,9 @@ Onglet **Lectures**, avec trois sous-onglets :
 
 ---
 
-## 10. Carnet, rappels et résumés
+## 10. Suivi, rappels et résumés
+
+> L'onglet s'appelle **Suivi** dans l'interface (`#/suivi`). Dans le code, il garde son premier nom : `routes/carnet.py`, `/api/carnet/…`, `pages/carnet/`. « Carnet » est aujourd'hui le nom de l'application (auparavant « Mon Budget » ; les sauvegardes faites sous cet ancien nom restent lisibles).
 
 ### Dettes et prêts
 
@@ -673,7 +675,7 @@ Tout ce qui a une date limite : CIN, passeport, assurance, visite technique, vig
 | Budget | dépenses et variation sur la semaine d'avant, revenus et épargne, jauge du budget variable, dépenses jour par jour, premières catégories, plus grosse dépense, jour le plus dépensier, jours sans dépense, mois en cours (dépensé, budget, projection à partir du 5) |
 | Bourse | valeur du compte (titres + espèces), écart depuis le résumé précédent (apports et retraits compris), performance globale |
 | Lectures | livres terminés dans la semaine, livres en cours, avancement de l'objectif annuel |
-| Carnet | total qu'on me doit et que je dois, dettes dont l'échéance est dépassée, échéances à traiter |
+| Suivi | total qu'on me doit et que je dois, dettes dont l'échéance est dépassée, échéances à traiter |
 
 Une section vide est omise ; une section qui lève une erreur est ignorée et journalisée, les autres partent quand même.
 
@@ -693,7 +695,7 @@ Une section vide est omise ; une section qui lève une erreur est ignorée et jo
 | Derniers mois | dépenses des six derniers mois (e-mail seulement) |
 | Bourse | valeur du compte, résultat, dividendes, apports et retraits du mois, performance globale |
 | Lectures | livres terminés dans le mois, livres en cours, objectif annuel |
-| Carnet | dettes en cours, échéances à traiter ou qui tombent dans les 31 jours qui viennent |
+| Suivi | dettes en cours, échéances à traiter ou qui tombent dans les 31 jours qui viennent |
 
 Mêmes trois versions et mêmes règles que le résumé de la semaine.
 
@@ -729,7 +731,7 @@ Sur Vercel et Render, ces variables se règlent dans le tableau de bord de l'hé
 
 ### Frontend
 
-Onglet **Carnet**, avec deux sous-onglets :
+Onglet **Suivi**, avec deux sous-onglets :
 - **Dettes et prêts** : totaux (on me doit, je dois, solde net), formulaire, dettes en cours avec leur avancement, fenêtre des remboursements (le champ montant vide solde la dette), dettes soldées ;
 - **Échéances** : formulaire (catégorie, date limite, délai de rappel, récurrence), « À traiter » et « Plus tard ». Le nombre d'échéances à traiter s'affiche sur l'onglet.
 
@@ -737,7 +739,7 @@ Onglet **Carnet**, avec deux sous-onglets :
 
 ## 11. Patrimoine, réserve de sécurité et zakat
 
-Onglet **Carnet → Patrimoine** (`routes/patrimoine.py`). La carte « Patrimoine net » de la vue Global du dashboard affiche le même total.
+Onglet **Suivi → Patrimoine** (`routes/patrimoine.py`). La carte « Patrimoine net » de la vue Global du dashboard affiche le même total.
 
 ### Patrimoine net
 
@@ -786,7 +788,7 @@ Page par défaut (`#/accueil`, aussi ouverte par un clic sur le logo). Elle ne d
 | Lecture en cours | `/api/lectures/a_lire` et `/serie` |
 | À traiter | échéances dans leur fenêtre de rappel, dettes dont l'échéance est dépassée |
 
-Sur mobile, la barre du bas garde six onglets (Accueil, Saisie, Dashboard, Bourse, Lectures, Carnet) ; les Paramètres passent dans l'en-tête.
+Sur mobile, la barre du bas garde six onglets (Accueil, Saisie, Dashboard, Bourse, Lectures, Suivi) ; les Paramètres passent dans l'en-tête.
 
 ### Sauvegarde complète
 
@@ -797,7 +799,7 @@ Sur mobile, la barre du bas garde six onglets (Accueil, Saisie, Dashboard, Bours
 
   ```bash
   cd backend
-  python scripts/restaurer_sauvegarde.py chemin/vers/mon-budget-2026-10-01.json.gz
+  python scripts/restaurer_sauvegarde.py chemin/vers/carnet-2026-10-01.json.gz
   ```
 
   Le script affiche la base visée et demande confirmation (`--oui` pour s'en passer). Le contenu des tables sauvegardées est **remplacé**, dans une seule transaction : en cas d'erreur, rien ne change. Les tables parentes sont insérées avant celles qui les référencent, et les identifiants automatiques repartent après le plus grand restauré. Une table ou une colonne absente de la base est ignorée ; une colonne absente du fichier prend sa valeur par défaut. Les comptes ne sont pas touchés : sur une base neuve, le compte est créé par `ADMIN_UTILISATEUR` / `ADMIN_MOT_DE_PASSE`.
