@@ -10,7 +10,7 @@ import {
 import { C, PALETTE, regrouperAutres, signe, T } from '../../lib/palette';
 import type { DashboardBourse } from '../../lib/types';
 import {
-  useResumeAnnee, useResumeBourseSilencieux, useResumeGlobal, useResumeJour, useResumeMois, useResumeSemaine,
+  useResumeAnnee, useResumeBourseSilencieux, useResumeGlobal, useResumeJour, useResumeMois, useResumeSemaine, useTags,
 } from '../../lib/queries';
 import { Donut, Graphique, optionsSeries } from '../../components/Graphique';
 import { Carte, Grille2, GrilleKpi, Kpi, Tableau, Variation, Vide } from '../../components/ui';
@@ -93,16 +93,22 @@ export function VueMois({ nav }: { nav: NavDashboard }) {
   const now = new Date();
   const estMoisCourant = nav.mois === `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
   const jourRef = estMoisCourant ? now.getDate() : r.nb_jours;
+  // Mois en cours : le mois précédent est pris jusqu'au même jour (cf. jour_comparaison)
+  const vsMoisPrec = (precedent: number, total: number) => r.jour_comparaison
+    ? `vs ${fmt(precedent)} du 1er au ${r.jour_comparaison} le mois dernier (mois entier : ${fmt(total)})`
+    : `vs ${fmt(precedent)} le mois dernier`;
 
   return (
     <>
       <EnTetePeriode nav={nav} titre={titre} />
       <GrilleKpi>
         <Kpi label="Revenus" icone={IconArrowDownLeft} teinte="bleu" valeur={fmt(r.total_revenus)} couleur={T.rev}
-             badge={<Variation actuel={r.total_revenus} precedent={r.revenus_mois_precedent} inverse />} />
+             badge={<Variation actuel={r.total_revenus} precedent={r.revenus_mois_precedent} inverse
+                               libelle={vsMoisPrec(r.revenus_mois_precedent, r.revenus_mois_precedent_total)} />} />
         <Kpi label="Dépenses" icone={IconArrowUpRight} teinte="rose" valeur={fmt(r.total_depenses)} couleur={T.dep}
-             badge={<Variation actuel={r.total_depenses} precedent={r.depenses_mois_precedent} />}
-             aide={<>{fmt(r.total_depenses / Math.max(jourRef, 1))} / jour
+             badge={<Variation actuel={r.total_depenses} precedent={r.depenses_mois_precedent}
+                               libelle={vsMoisPrec(r.depenses_mois_precedent, r.depenses_mois_precedent_total)} />}
+             aide={<>{fmt(r.depenses_variables / Math.max(jourRef, 1))} / jour{r.charges_fixes ? ' hors charges fixes' : ''}
                {r.projection_fin_mois ? <> · projection fin de mois : <b>{fmt(r.projection_fin_mois)}</b></> : null}</>} />
         <Kpi label="Reste à dépenser" icone={IconWallet} teinte="emeraude" valeur={fmt(r.reste_budget)} couleur={signe(r.reste_budget)}
              aide={`sur un budget de ${fmt(r.budget_total)}`} />
@@ -171,7 +177,9 @@ export function VueJour({ nav }: { nav: NavDashboard }) {
   const titre = nomJour(nav.jour) + ' ' + dateFr(nav.jour);
   if (!r) return <Squelette nav={nav} titre={titre} />;
 
-  const dansBudget = r.total_depenses <= r.budget_jour;
+  // Les charges fixes (loyer, factures) ne sont pas réparties au jour : seules les dépenses variables comptent
+  const dansBudget = r.depenses_variables <= r.budget_jour;
+  const horsFixes = r.charges_fixes ? ' · hors charges fixes' : '';
   const lignes = [
     ...r.depenses.map(x => ({ lbl: x.categorie + (x.description ? ' — ' + x.description : ''), m: x.montant, dep: true })),
     ...r.revenus.map(x => ({ lbl: (x.source || 'Revenu') + (x.description ? ' — ' + x.description : ''), m: x.montant, dep: false })),
@@ -186,8 +194,9 @@ export function VueJour({ nav }: { nav: NavDashboard }) {
              aide={`veille : ${fmt(r.depenses_veille)}`} />
         <Kpi label="Revenus du jour" icone={IconArrowDownLeft} teinte="bleu" valeur={fmt(r.total_revenus)} couleur={T.rev} />
         <Kpi label="Budget journalier" icone={IconTarget} teinte="marque" valeur={fmt(r.budget_jour)} couleur={dansBudget ? T.ep : T.neg}
-             aide={dansBudget ? 'dans le budget ✓' : 'dépassé de ' + fmt(r.total_depenses - r.budget_jour)} />
-        <Kpi label="Moyenne / jour du mois" icone={IconChartBar} teinte="gray" valeur={fmt(r.moyenne_jour_mois)} />
+             aide={(dansBudget ? 'dans le budget ✓' : 'dépassé de ' + fmt(r.depenses_variables - r.budget_jour)) + horsFixes} />
+        <Kpi label="Moyenne / jour du mois" icone={IconChartBar} teinte="gray" valeur={fmt(r.moyenne_jour_mois)}
+             aide={r.charges_fixes ? 'hors charges fixes' : undefined} />
         <Kpi label="Transactions" icone={IconReceipt} teinte="gray" valeur={r.nb_transactions} />
       </GrilleKpi>
       <Grille2>
@@ -219,19 +228,23 @@ export function VueSemaine({ nav }: { nav: NavDashboard }) {
   const lundi = decalerDate(nav.semaine, -((new Date(a, m - 1, j).getDay() + 6) % 7));
   const titre = 'Semaine du ' + dateFr(lundi, false) + ' au ' + dateFr(decalerDate(lundi, 6));
   if (!r) return <Squelette nav={nav} titre={titre} />;
+  // Semaine en cours : la semaine précédente est prise jusqu'au même jour
+  const vsSemPrec = r.comparaison_partielle ? 'par rapport à la semaine dernière au même jour' : 'par rapport à la semaine précédente';
 
   return (
     <>
       <EnTetePeriode nav={nav} titre={titre} />
       <GrilleKpi>
         <Kpi label="Dépenses" icone={IconArrowUpRight} teinte="rose" valeur={fmt(r.total_depenses)} couleur={T.dep}
-             badge={<Variation actuel={r.total_depenses} precedent={r.depenses_semaine_precedente} />}
-             aide={`semaine préc. : ${fmt(r.depenses_semaine_precedente)}`} />
+             badge={<Variation actuel={r.total_depenses} precedent={r.depenses_semaine_precedente} libelle={vsSemPrec} />}
+             aide={r.comparaison_partielle
+               ? `sem. préc. au même jour : ${fmt(r.depenses_semaine_precedente)} · entière : ${fmt(r.depenses_semaine_precedente_totale)}`
+               : `semaine préc. : ${fmt(r.depenses_semaine_precedente)}`} />
         <Kpi label="Revenus" icone={IconArrowDownLeft} teinte="bleu" valeur={fmt(r.total_revenus)} couleur={T.rev}
-             badge={<Variation actuel={r.total_revenus} precedent={r.revenus_semaine_precedente} inverse />} />
+             badge={<Variation actuel={r.total_revenus} precedent={r.revenus_semaine_precedente} inverse libelle={vsSemPrec} />} />
         <Kpi label="Solde de la semaine" icone={IconScale} teinte="emeraude" valeur={fmt(r.epargne)} couleur={signe(r.epargne)} />
         <Kpi label="Reste budget hebdo" icone={IconWallet} teinte="marque" valeur={fmt(r.reste_budget_hebdo)} couleur={signe(r.reste_budget_hebdo)}
-             aide={`sur ${fmt(r.budget_hebdo)}`} />
+             aide={`sur ${fmt(r.budget_hebdo)}${r.charges_fixes ? ' · hors charges fixes' : ''}`} />
       </GrilleKpi>
       <Carte titre="Dépenses et revenus par jour">
         <Graphique type="bar" hauteur={320} options={optionsSeries()} data={{
@@ -282,10 +295,10 @@ export function VueAnnee({ nav }: { nav: NavDashboard }) {
       <GrilleKpi>
         <Kpi label={`Revenus ${nav.annee}`} icone={IconArrowDownLeft} teinte="bleu" valeur={fmt(r.total_revenus)} couleur={T.rev} />
         <Kpi label={`Dépenses ${nav.annee}`} icone={IconArrowUpRight} teinte="rose" valeur={fmt(r.total_depenses)} couleur={T.dep}
-             aide={`moyenne : ${fmt(r.moyenne_dep_mois)} / mois actif`} />
+             aide={r.nb_mois_actifs ? `moyenne : ${fmt(r.moyenne_dep_mois)} / mois terminé` : 'aucun mois terminé'} />
         <Kpi label={`Épargne ${nav.annee}`} icone={IconPigMoney} teinte="emeraude" valeur={fmt(r.epargne)} couleur={signe(r.epargne)} aide={`taux : ${r.taux_epargne}%`} />
         <Kpi label="Objectif atteint" icone={IconTarget} teinte="marque" valeur={`${r.nb_mois_objectif} / ${r.nb_mois_actifs}`}
-             aide={`mois à ≥ ${fmt(r.objectif_epargne)} d'épargne`} />
+             aide={`mois terminés à ≥ ${fmt(r.objectif_epargne)} d'épargne`} />
         {r.meilleur_mois && <Kpi label="Meilleur mois" icone={IconTrophy} teinte="emeraude" valeur={MOIS_FR[r.meilleur_mois.m - 1]} couleur={T.ep}
                                  aide={`épargne : ${fmt(r.meilleur_mois.ep)}`} />}
         {r.pire_mois && <Kpi label="Mois le plus difficile" icone={IconAlertTriangle} teinte="rouge" valeur={MOIS_FR[r.pire_mois.m - 1]} couleur={T.neg}
@@ -368,14 +381,14 @@ export function VueGlobal({ nav }: { nav: NavDashboard }) {
     <>
       <EnTetePeriode nav={nav} titre={titre} />
       <GrilleKpi>
-        <Kpi label="Revenus totaux" icone={IconArrowDownLeft} teinte="bleu" valeur={fmt(r.total_revenus)} couleur={T.rev} aide={`moyenne : ${fmt(r.moyenne_rev_mois)} / mois actif`} />
-        <Kpi label="Dépenses totales" icone={IconArrowUpRight} teinte="rose" valeur={fmt(r.total_depenses)} couleur={T.dep} aide={`moyenne : ${fmt(r.moyenne_dep_mois)} / mois actif`} />
+        <Kpi label="Revenus totaux" icone={IconArrowDownLeft} teinte="bleu" valeur={fmt(r.total_revenus)} couleur={T.rev} aide={r.nb_mois_actifs ? `moyenne : ${fmt(r.moyenne_rev_mois)} / mois terminé` : undefined} />
+        <Kpi label="Dépenses totales" icone={IconArrowUpRight} teinte="rose" valeur={fmt(r.total_depenses)} couleur={T.dep} aide={r.nb_mois_actifs ? `moyenne : ${fmt(r.moyenne_dep_mois)} / mois terminé` : undefined} />
         {bourse
           ? <Kpi label="Patrimoine net" icone={IconPigMoney} teinte="emeraude" valeur={fmt(patrimoineNet)} couleur={signe(patrimoineNet)}
                  aide={`liquidités : ${fmt(liquidites)} · Bourse : ${fmt(bourse.patrimoine_total)}`} />
           : <Kpi label="Épargne totale" icone={IconPigMoney} teinte="emeraude" valeur={fmt(r.epargne)} couleur={signe(r.epargne)} aide={`taux : ${r.taux_epargne}%`} />}
         <Kpi label="Objectif atteint" icone={IconTarget} teinte="marque" valeur={`${r.nb_mois_objectif} / ${r.nb_mois_actifs}`}
-             aide={`mois à ≥ ${fmt(r.objectif_epargne)} d'épargne`} />
+             aide={`mois terminés à ≥ ${fmt(r.objectif_epargne)} d'épargne`} />
         {r.meilleur_mois && <Kpi label="Meilleur mois" icone={IconTrophy} teinte="emeraude" valeur={moisCourt(r.meilleur_mois.m)} couleur={T.ep}
                                  aide={`épargne : ${fmt(r.meilleur_mois.ep)}`} />}
         {r.pire_mois && <Kpi label="Mois le plus difficile" icone={IconAlertTriangle} teinte="rouge" valeur={moisCourt(r.pire_mois.m)} couleur={T.neg}
@@ -418,9 +431,42 @@ export function VueGlobal({ nav }: { nav: NavDashboard }) {
         ) : <Vide>Aucune donnée</Vide>}
       </Carte>
 
+      <TableTags />
+
       <Carte titre="Top dépenses (tout l'historique)">
         <TableTop top={r.top} vide="Aucune dépense enregistrée" format={jjmmaa} />
       </Carte>
     </>
+  );
+}
+
+/** Coût de chaque tag (« combien a coûté ce voyage ? ») ; le détail se cherche dans Saisie avec #tag */
+function TableTags() {
+  const { data: tags } = useTags();
+  if (!tags?.length) return null;
+  return (
+    <Carte titre="Tags" description="Total de chaque tag, toutes catégories confondues. Le détail : recherche « #tag » dans Saisie.">
+      <Tableau minWidth={520}>
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th>Tag</Table.Th><Table.Th className="num">Opérations</Table.Th><Table.Th className="num">Dépenses</Table.Th>
+            <Table.Th className="num">Revenus</Table.Th><Table.Th>Période</Table.Th>
+          </Table.Tr>
+        </Table.Thead>
+        <Table.Tbody>
+          {tags.map(t => (
+            <Table.Tr key={t.tag}>
+              <Table.Td fw={600}>#{t.tag}</Table.Td>
+              <Table.Td className="num chiffre">{t.nb}</Table.Td>
+              <Table.Td className="num chiffre" c={T.dep}>{t.depenses ? fmt(t.depenses) : '—'}</Table.Td>
+              <Table.Td className="num chiffre" c={T.rev}>{t.revenus ? fmt(t.revenus) : '—'}</Table.Td>
+              <Table.Td c="dimmed" fz="xs" style={{ whiteSpace: 'nowrap' }}>
+                {t.premier === t.dernier ? jjmmaa(t.premier) : `${jjmmaa(t.premier)} → ${jjmmaa(t.dernier)}`}
+              </Table.Td>
+            </Table.Tr>
+          ))}
+        </Table.Tbody>
+      </Tableau>
+    </Carte>
   );
 }

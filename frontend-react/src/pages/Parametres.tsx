@@ -1,11 +1,15 @@
 import { useEffect, useState } from 'react';
-import { ActionIcon, Button, Divider, Grid, Group, NumberInput, PasswordInput, Stack, Text, TextInput, Tooltip } from '@mantine/core';
-import { IconBriefcase, IconCategory, IconDeviceFloppy, IconLock, IconPlus, IconTarget } from '@tabler/icons-react';
+import { ActionIcon, Badge, Button, Checkbox, Divider, Grid, Group, NumberInput, PasswordInput, Stack, Table, Text, TextInput, Tooltip } from '@mantine/core';
+import { MonthPickerInput } from '@mantine/dates';
+import { modals } from '@mantine/modals';
+import { IconBriefcase, IconCategory, IconDeviceFloppy, IconHistory, IconLock, IconPlus, IconTarget } from '@tabler/icons-react';
 
 import { api, toast } from '../lib/api';
+import { auj, fmt, libelleMois } from '../lib/format';
 import type { Categorie, Source } from '../lib/types';
-import { useConfig, useEcriture } from '../lib/queries';
-import { BoutonSuppr, Carte, Chargement, confirmer, EnTetePage, Pastille, Vide } from '../components/ui';
+import { useConfig, useEcriture, useHistoriqueBudget } from '../lib/queries';
+import { ImportExport } from '../components/ImportExport';
+import { BoutonSuppr, Carte, Chargement, confirmer, EnTetePage, Info, Pastille, Tableau, Vide } from '../components/ui';
 
 const nombre = (v: string | number) => (typeof v === 'number' ? v : parseFloat(v)) || 0;
 
@@ -19,17 +23,65 @@ function BoutonSauver({ modifie, onClick, loading }: { modifie: boolean; onClick
   );
 }
 
-function LigneCategorie({ c }: { c: Categorie }) {
+const AIDE_FIXE = 'Charge fixe (loyer, factures) : payée une fois par mois, elle ne compte pas dans le budget journalier '
+  + 'et hebdomadaire, et la projection de fin de mois la compte pour son budget au lieu de l’extrapoler';
+
+function CaseFixe({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <Tooltip label={AIDE_FIXE} multiline w={280} withArrow>
+      <Checkbox label="Fixe" checked={checked} onChange={e => onChange(e.currentTarget.checked)} style={{ flexShrink: 0 }} />
+    </Tooltip>
+  );
+}
+
+/** Budgets successifs d'une catégorie ; retirer un changement rétablit le budget précédent */
+function HistoriqueBudget({ c }: { c: Categorie }) {
+  const { data, isPending } = useHistoriqueBudget(c.id);
+  const ecrire = useEcriture('budget');
+  if (isPending) return <Chargement lignes={3} />;
+  return (
+    <Tableau>
+      <Table.Thead>
+        <Table.Tr><Table.Th>À partir de</Table.Th><Table.Th className="num">Budget</Table.Th><Table.Th /><Table.Th /></Table.Tr>
+      </Table.Thead>
+      <Table.Tbody>
+        {data?.map(h => (
+          <Table.Tr key={h.mois_debut}>
+            <Table.Td>{h.mois_debut === '1900-01' ? 'Toujours' : libelleMois(h.mois_debut)}</Table.Td>
+            <Table.Td className="num chiffre">{fmt(h.budget)}</Table.Td>
+            <Table.Td>{h.fixe && <Badge size="xs" variant="light" color="gray">fixe</Badge>}</Table.Td>
+            <Table.Td style={{ width: 40 }}>
+              {data.length > 1 && <BoutonSuppr label="Retirer ce changement" onClick={() =>
+                ecrire.mutate({ path: `/api/categories/${c.id}/historique/${h.mois_debut}`, method: 'DELETE', succes: 'Changement retiré' })} />}
+            </Table.Td>
+          </Table.Tr>
+        ))}
+      </Table.Tbody>
+    </Tableau>
+  );
+}
+
+function LigneCategorie({ c, aPartirDe }: { c: Categorie; aPartirDe: string }) {
   const ecrire = useEcriture('budget');
   const [nom, setNom] = useState(c.nom);
   const [budget, setBudget] = useState<string | number>(c.budget);
+  const [fixe, setFixe] = useState(c.fixe);
   return (
     <Group gap="xs" wrap="nowrap">
       <TextInput value={nom} onChange={e => setNom(e.currentTarget.value)} style={{ flex: 2 }} aria-label="Nom" />
       <NumberInput value={budget} onChange={setBudget} min={0} allowNegative={false} decimalSeparator="," thousandSeparator=" "
                    style={{ flex: 1 }} rightSection="DH" aria-label="Budget mensuel" />
-      <BoutonSauver modifie={nom !== c.nom || nombre(budget) !== c.budget} loading={ecrire.isPending}
-        onClick={() => ecrire.mutate({ path: '/api/categories/' + c.id, method: 'PUT', body: { nom, budget: nombre(budget) }, succes: 'Catégorie mise à jour ✓' })} />
+      <CaseFixe checked={fixe} onChange={setFixe} />
+      <BoutonSauver modifie={nom !== c.nom || nombre(budget) !== c.budget || fixe !== c.fixe} loading={ecrire.isPending}
+        onClick={() => ecrire.mutate({ path: '/api/categories/' + c.id, method: 'PUT', body: { nom, budget: nombre(budget), fixe, a_partir_de: aPartirDe },
+                                       succes: 'Catégorie mise à jour ✓' })} />
+      <Tooltip label="Historique du budget" withArrow>
+        <ActionIcon variant="subtle" color="gray" aria-label="Historique du budget" onClick={() => modals.open({
+          title: <Text fw={650}>Budget de « {c.nom} »</Text>, centered: true, children: <HistoriqueBudget c={c} />,
+        })}>
+          <IconHistory size={16} stroke={1.7} />
+        </ActionIcon>
+      </Tooltip>
       <BoutonSuppr label="Désactiver" onClick={() => confirmer('Désactiver cette catégorie ? (les dépenses existantes sont conservées)',
         () => ecrire.mutate({ path: '/api/categories/' + c.id, method: 'DELETE', succes: 'Catégorie désactivée' }), 'Désactiver')} />
     </Group>
@@ -56,6 +108,9 @@ export function Parametres({ onMdpChange }: { onMdpChange: () => void }) {
   const [objectif, setObjectif] = useState<string | number>('');
   const [nouvCat, setNouvCat] = useState('');
   const [nouvBudget, setNouvBudget] = useState<string | number>('');
+  const [nouvFixe, setNouvFixe] = useState(false);
+  // Mois à partir duquel un changement de budget s'applique (les mois antérieurs gardent l'ancien)
+  const [aPartirDe, setAPartirDe] = useState(auj().slice(0, 7));
   const [nouvSource, setNouvSource] = useState('');
   const [mdpActuel, setMdpActuel] = useState('');
   const [mdpNouveau, setMdpNouveau] = useState('');
@@ -66,8 +121,8 @@ export function Parametres({ onMdpChange }: { onMdpChange: () => void }) {
   function ajouterCategorie() {
     const nom = nouvCat.trim();
     if (!nom) return toast('Nom requis', false);
-    ecrire.mutate({ path: '/api/categories', method: 'POST', body: { nom, budget: nombre(nouvBudget) }, succes: 'Catégorie ajoutée ✓' },
-      { onSuccess: () => { setNouvCat(''); setNouvBudget(''); } });
+    ecrire.mutate({ path: '/api/categories', method: 'POST', body: { nom, budget: nombre(nouvBudget), fixe: nouvFixe, a_partir_de: aPartirDe }, succes: 'Catégorie ajoutée ✓' },
+      { onSuccess: () => { setNouvCat(''); setNouvBudget(''); setNouvFixe(false); } });
   }
 
   function ajouterSource() {
@@ -105,19 +160,26 @@ export function Parametres({ onMdpChange }: { onMdpChange: () => void }) {
   );
 
   const categoriesCarte = (
-      <Carte titre="Catégories et budgets mensuels" description="Budget en DH par mois ; désactiver garde les dépenses existantes" icone={<Pastille icone={IconCategory} couleur="marque" />}>
+      <Carte titre="Catégories et budgets mensuels" description="Budget en DH par mois ; « Fixe » pour le loyer et les factures ; désactiver garde les dépenses existantes" icone={<Pastille icone={IconCategory} couleur="marque" />}>
+        <Group gap="xs" mb="sm" wrap="wrap" align="center">
+          <Text fz="sm" c="dimmed">Les changements de budget s'appliquent à partir de</Text>
+          <MonthPickerInput size="xs" w={150} value={aPartirDe + '-01'} onChange={v => v && setAPartirDe(v.slice(0, 7))}
+                            valueFormat="MMMM YYYY" aria-label="Mois à partir duquel le budget s'applique" />
+        </Group>
         {isPending ? <Chargement /> : (
           <Stack gap="xs">
             {/* key incluant les valeurs : la ligne se réinitialise après un rechargement */}
-            {config?.categories.map(c => <LigneCategorie key={`${c.id}|${c.nom}|${c.budget}`} c={c} />)}
+            {config?.categories.map(c => <LigneCategorie key={`${c.id}|${c.nom}|${c.budget}|${c.fixe}`} c={c} aPartirDe={aPartirDe} />)}
           </Stack>
         )}
+        <Info>Les mois antérieurs gardent leur budget : le « prévu » du passé n'est pas réécrit.</Info>
         <Divider my="md" color="var(--bordure-douce)" />
         <Text fz="xs" fw={700} c="dimmed" tt="uppercase" lts={0.5} mb={8}>Ajouter une catégorie</Text>
         <Group gap="xs" wrap="nowrap">
           <TextInput placeholder="Nom" value={nouvCat} onChange={e => setNouvCat(e.currentTarget.value)} style={{ flex: 2 }} />
           <NumberInput placeholder="Budget" value={nouvBudget} onChange={setNouvBudget} min={0} allowNegative={false}
                        decimalSeparator="," thousandSeparator=" " style={{ flex: 1 }} rightSection="DH" />
+          <CaseFixe checked={nouvFixe} onChange={setNouvFixe} />
           <ActionIcon size={36} onClick={ajouterCategorie} aria-label="Ajouter la catégorie"><IconPlus size={18} /></ActionIcon>
         </Group>
       </Carte>
@@ -157,6 +219,7 @@ export function Parametres({ onMdpChange }: { onMdpChange: () => void }) {
       <Grid gap="lg" align="flex-start">
         <Grid.Col span={{ base: 12, md: 7 }}><Stack gap="lg">{categoriesCarte}{sourcesCarte}</Stack></Grid.Col>
         <Grid.Col span={{ base: 12, md: 5 }}><Stack gap="lg">{objectifCarte}{mdpCarte}</Stack></Grid.Col>
+        <Grid.Col span={12}><ImportExport /></Grid.Col>
       </Grid>
     </Stack>
   );

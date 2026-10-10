@@ -18,34 +18,45 @@ import pytest
 from fastapi import HTTPException
 
 from database import db
-from schemas import TransactionBourseCreate
-from routes.bourse import _positions_et_gains, obtenir_dashboard, creer_transaction, remplir_tpcvm_manquantes
+from datetime import date
+from schemas import (CiblesIn, CibleSecteur, DividendeCreate, FraisBourseCreate, TitreBourseIn,
+                     TransactionBourseCreate)
+from routes.bourse import (_positions_et_gains, obtenir_dashboard, creer_transaction, remplir_tpcvm_manquantes,
+                           supprimer_transaction, creer_dividende, ajouter_titre, modifier_titre,
+                           modifier_transaction, modifier_dividende, creer_frais, modifier_frais,
+                           calculer_positions, recapitulatif_fiscal, lister_cibles, remplacer_cibles)
 
 TITRE_TEST = "ZZTEST"
 
 
 def _nettoyer():
     with db() as c:
-        c.execute("DELETE FROM bourse_transactions WHERE titre = %s", (TITRE_TEST,))
-        c.execute("DELETE FROM bourse_prix WHERE titre = %s", (TITRE_TEST,))
+        c.execute("DELETE FROM bourse_transactions WHERE titre LIKE %s", (TITRE_TEST + "%",))
+        c.execute("DELETE FROM bourse_dividendes WHERE titre LIKE %s", (TITRE_TEST + "%",))
+        c.execute("DELETE FROM bourse_prix WHERE titre LIKE %s", (TITRE_TEST + "%",))
+        c.execute("DELETE FROM bourse_titres WHERE code LIKE %s", (TITRE_TEST + "%",))
+        c.execute("DELETE FROM bourse_frais WHERE libelle LIKE %s", (TITRE_TEST + "%",))
 
 
 @pytest.fixture(autouse=True)
 def isolation():
     _nettoyer()
+    # Le titre de test doit exister dans la liste des titres (cf. _valider_titre)
+    with db() as c:
+        c.execute("INSERT INTO bourse_titres(code, nom) VALUES (%s, 'Titre de test')", (TITRE_TEST,))
     yield
     _nettoyer()
 
 
 def _acheter(date, qte, prix, frais=0):
-    creer_transaction(TransactionBourseCreate(
+    return creer_transaction(TransactionBourseCreate(
         date_operation=date, titre=TITRE_TEST, type_instrument="Action",
         type_operation="Achat", quantite=qte, cours_unitaire=prix, autres_frais=frais,
     ))
 
 
 def _vendre(date, qte, prix, frais=0, tpcvm=0):
-    creer_transaction(TransactionBourseCreate(
+    return creer_transaction(TransactionBourseCreate(
         date_operation=date, titre=TITRE_TEST, type_instrument="Action",
         type_operation="Vente", quantite=qte, cours_unitaire=prix, autres_frais=frais, tpcvm=tpcvm,
     ))
@@ -213,3 +224,134 @@ def test_vente_antidatee_entre_deux_achats_refusee_si_insuffisante():
     # Le 1er février, seules les 5 actions de janvier étaient détenues : vendre 8 doit échouer.
     with pytest.raises(HTTPException):
         _vendre("2026-02-01", 8, 120)
+
+
+# ---------------------------------------------------------------------------
+# B1 — supprimer un achat dont dépendent des ventes postérieures
+# ---------------------------------------------------------------------------
+def test_suppression_achat_refusee_si_ventes_posterieures():
+    achat = _acheter("2026-01-10", 10, 100)
+    vente = _vendre("2026-02-10", 10, 120)
+    with pytest.raises(HTTPException) as exc:
+        supprimer_transaction(achat["id"])
+    assert exc.value.status_code == 400
+    # Dans l'ordre inverse (la vente d'abord), la suppression passe
+    supprimer_transaction(vente["id"])
+    supprimer_transaction(achat["id"])
+
+
+def test_suppression_achat_acceptee_si_le_reste_couvre_les_ventes():
+    _acheter("2026-01-10", 10, 100)
+    petit = _acheter("2026-01-20", 5, 100)
+    _vendre("2026-02-10", 10, 120)
+    supprimer_transaction(petit["id"])   # les 10 de janvier couvrent la vente
+    pos = _position_test(_positions_et_gains()[0])
+    assert pos.quantite_detenue == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Problème 4 — titre inconnu et dividende sans achat
+# ---------------------------------------------------------------------------
+def test_transaction_sur_titre_inconnu_refusee():
+    with pytest.raises(HTTPException) as exc:
+        creer_transaction(TransactionBourseCreate(
+            date_operation="2026-01-10", titre=TITRE_TEST + "XX", type_operation="Achat", quantite=1, cours_unitaire=10,
+        ))
+    assert exc.value.status_code == 400
+
+
+def test_dividende_refuse_sans_achat_prealable():
+    _acheter("2026-03-10", 10, 100)
+    with pytest.raises(HTTPException) as exc:
+        creer_dividende(DividendeCreate(date_operation="2026-03-01", titre=TITRE_TEST, montant=50))
+    assert exc.value.status_code == 400
+    assert creer_dividende(DividendeCreate(date_operation="2026-06-01", titre=TITRE_TEST, montant=50))["montant"] == 50
+
+
+# ---------------------------------------------------------------------------
+# B2 — renommer un code de titre vers un code déjà pris
+# ---------------------------------------------------------------------------
+def test_renommer_titre_vers_un_code_existant_renvoie_409():
+    autre = ajouter_titre(TitreBourseIn(code=TITRE_TEST + "B", nom="Autre"))
+    with pytest.raises(HTTPException) as exc:
+        modifier_titre(autre["id"], TitreBourseIn(code=TITRE_TEST, nom="Autre"))
+    assert exc.value.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# Modification des transactions, dividendes et frais
+# ---------------------------------------------------------------------------
+def _tx(date_op, type_op, qte, prix=100, titre=TITRE_TEST, tpcvm=0):
+    return TransactionBourseCreate(date_operation=date_op, titre=titre, type_operation=type_op,
+                                   quantite=qte, cours_unitaire=prix, tpcvm=tpcvm)
+
+
+def test_modifier_une_transaction():
+    achat = _acheter("2026-01-10", 10, 100)
+    modifie = modifier_transaction(achat["id"], _tx("2026-01-12", "Achat", 12, prix=90))
+    assert (modifie["quantite"], modifie["cours_unitaire"]) == (12, 90)
+    assert _position_test(_positions_et_gains()[0]).pru == 90.0
+
+
+def test_modification_refusee_si_les_ventes_ne_sont_plus_couvertes():
+    achat = _acheter("2026-01-10", 10, 100)
+    vente = _vendre("2026-02-10", 8, 120)
+    with pytest.raises(HTTPException):
+        modifier_transaction(achat["id"], _tx("2026-01-10", "Achat", 5))       # 5 < 8 vendus
+    with pytest.raises(HTTPException):
+        modifier_transaction(achat["id"], _tx("2026-03-01", "Achat", 10))      # achat après la vente
+    with pytest.raises(HTTPException):
+        modifier_transaction(vente["id"], _tx("2026-02-10", "Vente", 11))      # vente > détenu
+    with db() as c:
+        c.execute("INSERT INTO bourse_titres(code, nom) VALUES (%s, 'Autre')", (TITRE_TEST + "B",))
+    with pytest.raises(HTTPException):
+        modifier_transaction(achat["id"], _tx("2026-01-10", "Achat", 10, titre=TITRE_TEST + "B"))  # ventes orphelines
+
+
+def test_modifier_dividende_et_frais():
+    _acheter("2026-01-10", 10, 100)
+    d = creer_dividende(DividendeCreate(date_operation="2026-06-01", titre=TITRE_TEST, montant=50))
+    assert modifier_dividende(d["id"], DividendeCreate(date_operation="2026-06-02", titre=TITRE_TEST, montant=55))["montant"] == 55
+    with pytest.raises(HTTPException):
+        modifier_dividende(d["id"], DividendeCreate(date_operation="2025-06-02", titre=TITRE_TEST, montant=55))
+    f = creer_frais(FraisBourseCreate(date_operation="2026-01-31", libelle=TITRE_TEST + " abonnement", montant=19))
+    assert modifier_frais(f["id"], FraisBourseCreate(date_operation="2026-01-31", libelle=TITRE_TEST + " abo", montant=21))["montant"] == 21
+
+
+# ---------------------------------------------------------------------------
+# Rendement des dividendes, récapitulatif fiscal, cibles par secteur
+# ---------------------------------------------------------------------------
+def test_rendement_des_dividendes_sur_12_mois():
+    _acheter("1901-01-10", 10, 100)
+    creer_dividende(DividendeCreate(date_operation="1901-06-01", titre=TITRE_TEST, montant=50))
+    with db() as c:
+        c.execute("INSERT INTO bourse_prix (titre, cours_actuel) VALUES (%s, 125)", (TITRE_TEST,))
+    pos = _position_test(calculer_positions(date(1901, 12, 31)))
+    assert (pos.dividendes_12m, pos.rendement_cout, pos.rendement_marche) == (50, 0.05, 0.04)
+    assert _position_test(calculer_positions(date(1902, 7, 1))).dividendes_12m == 0
+
+
+def test_recapitulatif_fiscal_annuel():
+    _acheter("1901-01-10", 10, 100)
+    _vendre("1901-03-10", 5, 140, tpcvm=30)          # +200
+    _vendre("1901-04-10", 5, 80)                     # −100
+    creer_dividende(DividendeCreate(date_operation="1901-06-01", titre=TITRE_TEST, montant=40))
+    creer_frais(FraisBourseCreate(date_operation="1901-02-01", libelle=TITRE_TEST + " garde", montant=12))
+    r = recapitulatif_fiscal(1901)
+    assert (r["nb_ventes"], r["plus_values_brutes"], r["moins_values_brutes"], r["resultat_cessions"]) == (2, 200, -100, 100)
+    assert (r["tpcvm_retenue"], r["dividendes_nets"], r["frais_compte"]) == (30, 40, 12)
+    assert r["tpcvm_theorique"] == round(100 * r["taux_tpcvm"], 2)
+    ligne = next(t for t in r["par_titre"] if t["titre"] == TITRE_TEST)
+    assert (ligne["nb_ventes"], ligne["gain_brut"], ligne["dividendes"]) == (2, 100, 40)
+
+
+def test_cibles_par_secteur():
+    avant = lister_cibles()
+    try:
+        r = remplacer_cibles(CiblesIn(cibles=[CibleSecteur(secteur="ZZTEST Banques", cible=0.4),
+                                              CibleSecteur(secteur="ZZTEST Télécoms", cible=0)]))
+        assert r == [{"secteur": "ZZTEST Banques", "cible": 0.4}]      # une cible à 0 est retirée
+        with pytest.raises(ValueError):
+            CiblesIn(cibles=[CibleSecteur(secteur="A", cible=0.7), CibleSecteur(secteur="B", cible=0.4)])
+    finally:
+        remplacer_cibles(CiblesIn(cibles=[CibleSecteur(**x) for x in avant]))

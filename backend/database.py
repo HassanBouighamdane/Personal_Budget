@@ -183,6 +183,8 @@ def init_db():
             montant DOUBLE PRECISION NOT NULL,
             cree_le TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
+        -- Charge fixe (loyer, factures) : exclue du budget journalier/hebdo, traitée à part dans la projection
+        ALTER TABLE categories ADD COLUMN IF NOT EXISTS fixe BOOLEAN NOT NULL DEFAULT false;
         -- Description libre d'un revenu (ajoutée après coup : les bases existantes la reçoivent ici)
         ALTER TABLE revenus ADD COLUMN IF NOT EXISTS description TEXT DEFAULT '';
         CREATE TABLE IF NOT EXISTS params (
@@ -213,6 +215,24 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_depenses_date ON depenses(date);
         CREATE INDEX IF NOT EXISTS idx_revenus_date ON revenus(date);
+
+        -- Tags libres, transverses aux catégories (« voyage été 2026 », « mariage »), en minuscules
+        ALTER TABLE depenses ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}';
+        ALTER TABLE revenus ADD COLUMN IF NOT EXISTS tags TEXT[] NOT NULL DEFAULT '{}';
+        CREATE INDEX IF NOT EXISTS idx_depenses_tags ON depenses USING GIN (tags);
+        CREATE INDEX IF NOT EXISTS idx_revenus_tags ON revenus USING GIN (tags);
+
+        -- Budget de chaque catégorie mois par mois : un mois utilise la dernière ligne dont
+        -- mois_debut (AAAA-MM) est antérieur ou égal. Changer un budget ajoute une ligne au lieu
+        -- de réécrire le « prévu » des mois passés. categories.budget/fixe gardent la valeur du
+        -- mois en cours (lecture rapide pour les formulaires). '1900-01' = depuis toujours.
+        CREATE TABLE IF NOT EXISTS budgets_historique (
+            categorie_id INTEGER NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+            mois_debut   TEXT NOT NULL,
+            budget       DOUBLE PRECISION NOT NULL,
+            fixe         BOOLEAN NOT NULL DEFAULT false,
+            PRIMARY KEY (categorie_id, mois_debut)
+        );
 
         -- ================================================================
         -- Bourse — schéma final (Action / Obligation / OPCVM / IPO)
@@ -329,6 +349,46 @@ def init_db():
             actif INTEGER NOT NULL DEFAULT 1
         );
 
+        -- ISBN et couverture (Open Library), facultatifs
+        ALTER TABLE lectures_livres ADD COLUMN IF NOT EXISTS isbn VARCHAR(20) NOT NULL DEFAULT '';
+        ALTER TABLE lectures_livres ADD COLUMN IF NOT EXISTS couverture TEXT NOT NULL DEFAULT '';
+
+        -- Livres à lire, ou en cours (date_debut renseignée). « Terminé » le déplace dans
+        -- lectures_livres : ces tables restent séparées pour que le bilan ne compte que les livres finis.
+        CREATE TABLE IF NOT EXISTS lectures_a_lire (
+            id          SERIAL PRIMARY KEY,
+            titre       VARCHAR(200) NOT NULL,
+            auteur      VARCHAR(150) NOT NULL DEFAULT '',
+            genre       VARCHAR(100) NOT NULL DEFAULT '',
+            pages       INTEGER CHECK (pages > 0),
+            isbn        VARCHAR(20) NOT NULL DEFAULT '',
+            couverture  TEXT NOT NULL DEFAULT '',
+            commentaire TEXT NOT NULL DEFAULT '',
+            date_debut  DATE,
+            cree_le     TIMESTAMP NOT NULL DEFAULT now()
+        );
+
+        -- Notes et citations, rattachées à un livre terminé OU à un livre à lire / en cours
+        -- (elles suivent le livre quand il est terminé)
+        CREATE TABLE IF NOT EXISTS lectures_notes (
+            id        SERIAL PRIMARY KEY,
+            livre_id  INTEGER REFERENCES lectures_livres(id) ON DELETE CASCADE,
+            a_lire_id INTEGER REFERENCES lectures_a_lire(id) ON DELETE CASCADE,
+            type      VARCHAR(10) NOT NULL DEFAULT 'note' CHECK (type IN ('note', 'citation')),
+            texte     TEXT NOT NULL,
+            page      INTEGER CHECK (page > 0),
+            cree_le   TIMESTAMP NOT NULL DEFAULT now(),
+            CHECK ((livre_id IS NULL) <> (a_lire_id IS NULL))
+        );
+        CREATE INDEX IF NOT EXISTS idx_lectures_notes_livre ON lectures_notes (livre_id);
+        CREATE INDEX IF NOT EXISTS idx_lectures_notes_a_lire ON lectures_notes (a_lire_id);
+
+        -- Bourse : poids cible de chaque secteur dans le portefeuille (0 à 1)
+        CREATE TABLE IF NOT EXISTS bourse_cibles_secteur (
+            secteur VARCHAR(100) PRIMARY KEY,
+            cible   NUMERIC(6,4) NOT NULL CHECK (cible >= 0 AND cible <= 1)
+        );
+
         """)
 
         # ------------------------------------------------------------------
@@ -398,9 +458,14 @@ def init_db():
 
         with c.cursor() as cur:
             if c.execute("SELECT COUNT(*) n FROM categories").fetchone()["n"] == 0:
-                cur.executemany("INSERT INTO categories(nom,budget) VALUES(%s,%s)", CATEGORIES_DEFAUT)
+                cur.executemany("INSERT INTO categories(nom,budget,fixe) VALUES(%s,%s,%s)", CATEGORIES_DEFAUT)
             if c.execute("SELECT COUNT(*) n FROM sources_revenus").fetchone()["n"] == 0:
                 cur.executemany("INSERT INTO sources_revenus(nom) VALUES(%s)", SOURCES_DEFAUT)
+        # Historique des budgets : une catégorie sans historique (base antérieure) reçoit son budget
+        # actuel « depuis toujours » ; une catégorie déjà désactivée, 0 (comme avant, elle ne compte plus).
+        c.execute("""INSERT INTO budgets_historique(categorie_id, mois_debut, budget, fixe)
+                     SELECT id, '1900-01', CASE WHEN actif=1 THEN budget ELSE 0 END, fixe FROM categories c
+                     WHERE NOT EXISTS (SELECT 1 FROM budgets_historique h WHERE h.categorie_id = c.id)""")
         c.execute("INSERT INTO params(cle,valeur) VALUES('objectif_epargne',5000) ON CONFLICT DO NOTHING")
         c.execute("INSERT INTO params(cle,valeur) VALUES('objectif_lecture_annuel',%s),('objectif_lecture_mensuel',%s) "
                   "ON CONFLICT DO NOTHING", (OBJECTIF_LECTURE_ANNUEL_DEFAUT, OBJECTIF_LECTURE_MENSUEL_DEFAUT))

@@ -27,12 +27,14 @@ portefeuille (coût d'acquisition, valeur de marché, plus-value latente) reste
 toujours celle d'aujourd'hui : l'application ne conserve pas d'historique de
 cours, donc une valorisation « à une date passée » n'est pas calculable.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
+from psycopg.errors import UniqueViolation
 
+from config import aujourdhui
 from cours_bvc import telecharger_cours
 from database import db
 from securite import utilisateur_courant
@@ -40,7 +42,7 @@ from schemas import (
     ParametresBourse, TransactionBourseCreate, TransactionBourseOut,
     PrixMaj, PositionBourse, GainRealise, DashboardBourse, TitreBourse, TitreBourseIn, CoursActualisation,
     DividendeCreate, DividendeOut, FraisBourseCreate, FraisBourseOut,
-    MouvementBourseCreate, MouvementBourseOut,
+    MouvementBourseCreate, MouvementBourseOut, CiblesIn,
 )
 
 router = APIRouter(prefix="/api/bourse", tags=["bourse"],
@@ -161,21 +163,25 @@ def ajouter_titre(t: TitreBourseIn):
 @router.put("/titres/{titre_id}", response_model=TitreBourse)
 def modifier_titre(titre_id: int, t: TitreBourseIn):
     nouveau_code = t.code.strip().upper()
-    with db() as conn:
-        ancien = conn.execute("SELECT code FROM bourse_titres WHERE id = %s", (titre_id,)).fetchone()
-        if not ancien:
-            raise HTTPException(404, "Titre introuvable")
-        row = conn.execute(
-            """UPDATE bourse_titres SET code = %s, nom = %s, secteur = %s, isin = %s WHERE id = %s
-               RETURNING id, code, nom, secteur, isin""",
-            (nouveau_code, t.nom.strip(), t.secteur.strip(), _isin(t.isin), titre_id),
-        ).fetchone()
-        if nouveau_code != ancien["code"]:
-            # Le code sert de clé de rapprochement (texte libre) dans les transactions,
-            # dividendes et cours actuels — le renommer les détacherait sinon.
-            conn.execute("UPDATE bourse_transactions SET titre = %s WHERE titre = %s", (nouveau_code, ancien["code"]))
-            conn.execute("UPDATE bourse_dividendes SET titre = %s WHERE titre = %s", (nouveau_code, ancien["code"]))
-            conn.execute("UPDATE bourse_prix SET titre = %s WHERE titre = %s", (nouveau_code, ancien["code"]))
+    try:
+        with db() as conn:
+            ancien = conn.execute("SELECT code FROM bourse_titres WHERE id = %s", (titre_id,)).fetchone()
+            if not ancien:
+                raise HTTPException(404, "Titre introuvable")
+            row = conn.execute(
+                """UPDATE bourse_titres SET code = %s, nom = %s, secteur = %s, isin = %s WHERE id = %s
+                   RETURNING id, code, nom, secteur, isin""",
+                (nouveau_code, t.nom.strip(), t.secteur.strip(), _isin(t.isin), titre_id),
+            ).fetchone()
+            if nouveau_code != ancien["code"]:
+                # Le code sert de clé de rapprochement (texte libre) dans les transactions,
+                # dividendes et cours actuels — le renommer les détacherait sinon.
+                conn.execute("UPDATE bourse_transactions SET titre = %s WHERE titre = %s", (nouveau_code, ancien["code"]))
+                conn.execute("UPDATE bourse_dividendes SET titre = %s WHERE titre = %s", (nouveau_code, ancien["code"]))
+                conn.execute("UPDATE bourse_prix SET titre = %s WHERE titre = %s", (nouveau_code, ancien["code"]))
+    except UniqueViolation:
+        # Code déjà pris par un autre titre (ou cours déjà enregistré sous ce code)
+        raise HTTPException(409, f"Le code « {nouveau_code} » est déjà utilisé par un autre titre")
     return dict(row)
 
 
@@ -203,33 +209,56 @@ def lister_transactions(mois: Optional[str] = None, annee: Optional[int] = None)
     return [_calc_transaction(dict(r)) for r in rows]
 
 
-def _valider_vente(conn, titre: str, date_operation, quantite: Decimal, exclude_id: Optional[int] = None):
-    """Refuse une vente qui ferait passer la quantité détenue sous zéro, à quelque
-    moment de l'historique que ce soit (utile aussi pour une vente antidatée insérée
-    entre deux transactions existantes)."""
+def _historique_negatif(conn, titre: str, exclude_id: Optional[int] = None, ajout: Optional[tuple] = None) -> bool:
+    """Rejoue l'historique de `titre` dans l'ordre chronologique et indique si la quantité
+    détenue passe sous zéro à un moment quelconque. `exclude_id` retire une transaction
+    (suppression ou modification), `ajout` = (date, type_operation, quantité) en ajoute une."""
     rows = conn.execute(
         "SELECT id, date_operation, type_operation, quantite FROM bourse_transactions WHERE titre = %s",
         (titre,),
     ).fetchall()
     evenements = [(r["date_operation"], r["id"], r["type_operation"], _d(r["quantite"]))
                   for r in rows if r["id"] != exclude_id]
-    # La nouvelle vente : id=+inf pour être triée après les transactions existantes de la même date
-    evenements.append((date_operation, float("inf"), "Vente", quantite))
+    if ajout:
+        # La nouvelle opération : id=+inf pour être triée après les transactions existantes de la même date
+        evenements.append((ajout[0], float("inf"), ajout[1], ajout[2]))
     evenements.sort(key=lambda e: (e[0], e[1]))
 
     qte = Decimal(0)
     for _, _, type_operation, q in evenements:
         qte += q if type_operation == "Achat" else -q
         if qte < 0:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Vente refusée : quantité détenue insuffisante pour {titre} à cette date",
-            )
+            return True
+    return False
+
+
+def _valider_vente(conn, titre: str, date_operation, quantite: Decimal, exclude_id: Optional[int] = None):
+    """Refuse une vente qui ferait passer la quantité détenue sous zéro, à quelque
+    moment de l'historique que ce soit (utile aussi pour une vente antidatée insérée
+    entre deux transactions existantes)."""
+    if _historique_negatif(conn, titre, exclude_id, ajout=(date_operation, "Vente", quantite)):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Vente refusée : quantité détenue insuffisante pour {titre} à cette date",
+        )
+
+
+def _valider_titre(conn, titre: str):
+    """Le code doit être un titre de la liste (Paramètres > Titres), même retiré depuis, ou un
+    titre déjà présent dans le journal : sinon une faute de frappe créerait une position à part,
+    sans cours ni secteur."""
+    if not conn.execute(
+        """SELECT 1 FROM bourse_titres WHERE code = %s
+           UNION ALL SELECT 1 FROM bourse_transactions WHERE titre = %s LIMIT 1""",
+        (titre, titre),
+    ).fetchone():
+        raise HTTPException(400, f"Titre inconnu : « {titre} ». Ajoute-le d'abord dans Bourse > Paramètres > Titres.")
 
 
 @router.post("/transactions", response_model=TransactionBourseOut, status_code=201)
 def creer_transaction(t: TransactionBourseCreate):
     with db() as conn:
+        _valider_titre(conn, t.titre.strip().upper())
         if t.type_operation == "Vente":
             _valider_vente(conn, t.titre.strip().upper(), t.date_operation, _d(t.quantite))
         row = conn.execute(
@@ -244,12 +273,47 @@ def creer_transaction(t: TransactionBourseCreate):
     return _calc_transaction(dict(row))
 
 
+@router.put("/transactions/{transaction_id}", response_model=TransactionBourseOut)
+def modifier_transaction(transaction_id: int, t: TransactionBourseCreate):
+    """Modifie une transaction, à condition que l'historique reste cohérent : ni l'ancien titre
+    (si elle en change) ni le nouveau ne doivent avoir une quantité détenue négative."""
+    titre = t.titre.strip().upper()
+    with db() as conn:
+        ancienne = conn.execute("SELECT titre, type_operation FROM bourse_transactions WHERE id = %s",
+                                (transaction_id,)).fetchone()
+        if not ancienne:
+            raise HTTPException(status_code=404, detail="Transaction introuvable")
+        _valider_titre(conn, titre)
+        if ancienne["titre"] != titre and _historique_negatif(conn, ancienne["titre"], exclude_id=transaction_id):
+            raise HTTPException(400, f"Modification refusée : des ventes de {ancienne['titre']} reposent sur cet achat.")
+        if _historique_negatif(conn, titre, exclude_id=transaction_id,
+                               ajout=(t.date_operation, t.type_operation, _d(t.quantite))):
+            raise HTTPException(400, f"Modification refusée : la quantité détenue de {titre} deviendrait négative.")
+        row = conn.execute(
+            f"""UPDATE bourse_transactions SET date_operation=%s, titre=%s, isin=%s, type_instrument=%s,
+                       type_operation=%s, quantite=%s, cours_unitaire=%s, autres_frais=%s, tpcvm=%s
+                WHERE id=%s RETURNING {TX_COLONNES}""",
+            (t.date_operation, titre, t.isin, t.type_instrument, t.type_operation, t.quantite,
+             t.cours_unitaire, t.autres_frais, t.tpcvm if t.type_operation == "Vente" else 0, transaction_id),
+        ).fetchone()
+    return _calc_transaction(dict(row))
+
+
 @router.delete("/transactions/{transaction_id}", status_code=204)
 def supprimer_transaction(transaction_id: int):
     with db() as conn:
-        res = conn.execute("DELETE FROM bourse_transactions WHERE id = %s", (transaction_id,))
-        if res.rowcount == 0:
+        tx = conn.execute("SELECT titre, type_operation FROM bourse_transactions WHERE id = %s",
+                          (transaction_id,)).fetchone()
+        if not tx:
             raise HTTPException(status_code=404, detail="Transaction introuvable")
+        # Sans cet achat, une vente postérieure porterait sur des titres jamais détenus
+        # (quantité négative, PRU et gains faux)
+        if tx["type_operation"] == "Achat" and _historique_negatif(conn, tx["titre"], exclude_id=transaction_id):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Suppression refusée : des ventes de {tx['titre']} reposent sur cet achat. Supprime d'abord ces ventes.",
+            )
+        conn.execute("DELETE FROM bourse_transactions WHERE id = %s", (transaction_id,))
 
 
 # ---------------------------------------------------------------- prix courants
@@ -353,15 +417,40 @@ def lister_dividendes(mois: Optional[str] = None, annee: Optional[int] = None):
     return _dividendes(mois, annee)
 
 
+def _valider_dividende(conn, titre: str, date_operation):
+    """Un dividende n'est versé que sur un titre acheté au plus tard à cette date."""
+    if not conn.execute(
+        "SELECT 1 FROM bourse_transactions WHERE titre = %s AND type_operation = 'Achat' AND date_operation <= %s LIMIT 1",
+        (titre, date_operation),
+    ).fetchone():
+        raise HTTPException(400, f"Aucun achat de « {titre} » à cette date ou avant : vérifie le titre et la date.")
+
+
 @router.post("/dividendes", response_model=DividendeOut, status_code=201)
 def creer_dividende(d: DividendeCreate):
+    titre = d.titre.strip().upper()
     with db() as conn:
+        _valider_dividende(conn, titre, d.date_operation)
         row = conn.execute(
             f"""INSERT INTO bourse_dividendes (date_operation, titre, montant)
                 VALUES (%s,%s,%s)
                 RETURNING {DIV_COLONNES}""",
-            (d.date_operation, d.titre.strip().upper(), d.montant),
+            (d.date_operation, titre, d.montant),
         ).fetchone()
+    return {**dict(row), "montant": _r(row["montant"])}
+
+
+@router.put("/dividendes/{dividende_id}", response_model=DividendeOut)
+def modifier_dividende(dividende_id: int, d: DividendeCreate):
+    titre = d.titre.strip().upper()
+    with db() as conn:
+        _valider_dividende(conn, titre, d.date_operation)
+        row = conn.execute(
+            f"UPDATE bourse_dividendes SET date_operation=%s, titre=%s, montant=%s WHERE id=%s RETURNING {DIV_COLONNES}",
+            (d.date_operation, titre, d.montant, dividende_id),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Dividende introuvable")
     return {**dict(row), "montant": _r(row["montant"])}
 
 
@@ -405,6 +494,18 @@ def creer_frais(f: FraisBourseCreate):
     return {**dict(row), "montant": _r(row["montant"])}
 
 
+@router.put("/frais/{frais_id}", response_model=FraisBourseOut)
+def modifier_frais(frais_id: int, f: FraisBourseCreate):
+    with db() as conn:
+        row = conn.execute(
+            f"UPDATE bourse_frais SET date_operation=%s, libelle=%s, montant=%s WHERE id=%s RETURNING {FRAIS_COLONNES}",
+            (f.date_operation, f.libelle.strip(), f.montant, frais_id),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Frais introuvable")
+    return {**dict(row), "montant": _r(row["montant"])}
+
+
 @router.delete("/frais/{frais_id}", status_code=204)
 def supprimer_frais(frais_id: int):
     with db() as conn:
@@ -442,6 +543,19 @@ def creer_mouvement(m: MouvementBourseCreate):
                 RETURNING {MVT_COLONNES}""",
             (m.date_operation, m.type_mouvement, m.montant, m.libelle.strip()),
         ).fetchone()
+    return {**dict(row), "montant": _r(row["montant"])}
+
+
+@router.put("/mouvements/{mouvement_id}", response_model=MouvementBourseOut)
+def modifier_mouvement(mouvement_id: int, m: MouvementBourseCreate):
+    with db() as conn:
+        row = conn.execute(
+            f"""UPDATE bourse_mouvements SET date_operation=%s, type_mouvement=%s, montant=%s, libelle=%s
+                WHERE id=%s RETURNING {MVT_COLONNES}""",
+            (m.date_operation, m.type_mouvement, m.montant, m.libelle.strip(), mouvement_id),
+        ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Mouvement introuvable")
     return {**dict(row), "montant": _r(row["montant"])}
 
 
@@ -560,8 +674,101 @@ def remplir_tpcvm_manquantes():
 
 @router.get("/positions", response_model=List[PositionBourse])
 def obtenir_positions():
+    return calculer_positions(aujourdhui())
+
+
+def calculer_positions(auj) -> List[PositionBourse]:
+    """Positions + rendement des dividendes : dividendes nets des 12 derniers mois rapportés
+    au coût (valeur comptable) et à la valeur de marché de la position actuelle."""
     positions, _, _ = _positions_et_gains()
+    with db() as conn:
+        div = {r["titre"]: _d(r["t"]) for r in conn.execute(
+            "SELECT titre, SUM(montant) t FROM bourse_dividendes WHERE date_operation > %s GROUP BY titre",
+            (auj - timedelta(days=365),),
+        ).fetchall()}
+    for p in positions:
+        d = div.get(p.titre, Decimal(0))
+        p.dividendes_12m = _r(d)
+        p.rendement_cout = _r4(d / _d(p.valeur_comptable)) if p.valeur_comptable > 0 else 0
+        p.rendement_marche = _r4(d / _d(p.valeur_marche)) if p.valeur_marche > 0 else 0
     return positions
+
+
+# ---------------------------------------------------------------- allocation cible par secteur
+@router.get("/cibles")
+def lister_cibles():
+    with db() as conn:
+        return [{"secteur": r["secteur"], "cible": float(r["cible"])}
+                for r in conn.execute("SELECT secteur, cible FROM bourse_cibles_secteur ORDER BY secteur").fetchall()]
+
+
+@router.put("/cibles")
+def remplacer_cibles(c: CiblesIn):
+    """Remplace toutes les cibles (une cible à 0 est simplement retirée)."""
+    with db() as conn:
+        conn.execute("DELETE FROM bourse_cibles_secteur")
+        for x in c.cibles:
+            if x.cible > 0:
+                conn.execute("INSERT INTO bourse_cibles_secteur(secteur, cible) VALUES(%s,%s)", (x.secteur.strip(), x.cible))
+    return lister_cibles()
+
+
+# ---------------------------------------------------------------- récapitulatif fiscal
+@router.get("/fiscalite")
+def recapitulatif_fiscal(annee: int):
+    """Pour la déclaration de l'année : ventes (plus et moins-values brutes, TPCVM retenue),
+    dividendes nets reçus, et détail par titre. La TPCVM « théorique » applique le taux des
+    paramètres au résultat net de cession (gains − pertes de l'année) : un simple repère pour
+    vérifier les retenues, pas un calcul fiscal officiel."""
+    _, gains, _ = _positions_et_gains()
+    ventes = [g for g in gains if g.date_operation.year == annee]
+    with db() as conn:
+        taux = _d(_parametres_dict(conn)["taux_tpcvm"])
+        div = conn.execute(
+            "SELECT titre, SUM(montant) t, COUNT(*) n FROM bourse_dividendes WHERE date_operation >= %s AND date_operation < %s GROUP BY titre",
+            (f"{annee}-01-01", f"{annee + 1}-01-01"),
+        ).fetchall()
+        frais = conn.execute(
+            "SELECT COALESCE(SUM(montant),0) t FROM bourse_frais WHERE date_operation >= %s AND date_operation < %s",
+            (f"{annee}-01-01", f"{annee + 1}-01-01"),
+        ).fetchone()["t"]
+
+    plus_values = sum(_d(g.gain_brut) for g in ventes if g.gain_brut > 0)
+    moins_values = sum(_d(g.gain_brut) for g in ventes if g.gain_brut < 0)
+    resultat = plus_values + moins_values
+    tpcvm = sum(_d(g.tpcvm) for g in ventes)
+    theorique = resultat * taux if resultat > 0 else Decimal(0)
+
+    par_titre = {}
+    for g in ventes:
+        t = par_titre.setdefault(g.titre, {"titre": g.titre, "nb_ventes": 0, "cessions": Decimal(0),
+                                           "gain_brut": Decimal(0), "tpcvm": Decimal(0), "dividendes": Decimal(0)})
+        t["nb_ventes"] += 1
+        t["cessions"] += _d(g.montant_net)
+        t["gain_brut"] += _d(g.gain_brut)
+        t["tpcvm"] += _d(g.tpcvm)
+    for r in div:
+        par_titre.setdefault(r["titre"], {"titre": r["titre"], "nb_ventes": 0, "cessions": Decimal(0),
+                                          "gain_brut": Decimal(0), "tpcvm": Decimal(0), "dividendes": Decimal(0)})
+        par_titre[r["titre"]]["dividendes"] += _d(r["t"])
+
+    return {
+        "annee": annee,
+        "nb_ventes": len(ventes),
+        "montant_cessions": _r(sum(_d(g.montant_net) for g in ventes)),
+        "plus_values_brutes": _r(plus_values),
+        "moins_values_brutes": _r(moins_values),
+        "resultat_cessions": _r(resultat),
+        "tpcvm_retenue": _r(tpcvm),
+        "taux_tpcvm": float(taux),
+        "tpcvm_theorique": _r(theorique),
+        "ecart_tpcvm": _r(tpcvm - theorique),
+        "dividendes_nets": _r(sum(_d(r["t"]) for r in div)),
+        "frais_compte": _r(frais),
+        "par_titre": sorted(({**t, "cessions": _r(t["cessions"]), "gain_brut": _r(t["gain_brut"]),
+                              "tpcvm": _r(t["tpcvm"]), "dividendes": _r(t["dividendes"])} for t in par_titre.values()),
+                            key=lambda t: t["titre"]),
+    }
 
 
 @router.get("/gains", response_model=List[GainRealise])

@@ -1,24 +1,36 @@
 import { useState } from 'react';
 import { ActionIcon, Button, Group, ScrollArea, Stack, Tabs, Text, Tooltip } from '@mantine/core';
-import { IconBook2, IconChartBar, IconChevronLeft, IconChevronRight, IconSettings } from '@tabler/icons-react';
+import { IconBook2, IconBookmark, IconChartBar, IconChevronLeft, IconChevronRight, IconSettings } from '@tabler/icons-react';
 
+import { estAnnee, parmi } from '../../lib/routes';
 import { EnTetePage } from '../../components/ui';
 import { JournalLivres } from './Journal';
+import { ListeALire } from './ALire';
 import { BilanLecture } from './Bilan';
 import { ParametresLectures } from './ParametresLectures';
 
-export type VueLectures = 'bilan' | 'journal' | 'parametres';
+export type VueLectures = 'bilan' | 'journal' | 'a_lire' | 'parametres';
+const VUES_LECTURES = ['journal', 'a_lire', 'bilan', 'parametres'] as const;
+// L'année ne concerne que le journal et le bilan
+const AVEC_ANNEE: VueLectures[] = ['journal', 'bilan'];
 
-/** État de navigation du module Lectures, gardé par App pour survivre aux changements d'onglet */
-export function useNavLectures() {
-  const [vue, setVue] = useState<VueLectures>('journal');
-  const [annee, setAnnee] = useState(new Date().getFullYear());
-  return { vue, setVue, annee, setAnnee };
+/** État de navigation du module Lectures, gardé par App pour survivre aux changements d'onglet.
+ *  `initial` : segments de l'URL après « lectures » (ex : ['bilan', '2025']). */
+export function useNavLectures(initial: string[] = []) {
+  const [vue, setVue] = useState<VueLectures>(parmi(initial[0], VUES_LECTURES, 'journal'));
+  const [annee, setAnnee] = useState(estAnnee(initial[1]) ? +initial[1] : new Date().getFullYear());
+  const chemin = () => AVEC_ANNEE.includes(vue) ? [vue, String(annee)] : [vue];
+  function appliquer([v, a]: string[]) {
+    setVue(parmi(v, VUES_LECTURES, 'journal'));
+    if (estAnnee(a)) setAnnee(+a);
+  }
+  return { vue, setVue, annee, setAnnee, chemin, appliquer };
 }
 export type NavLectures = ReturnType<typeof useNavLectures>;
 
 const VUES: { value: VueLectures; label: string; Icone: typeof IconBook2 }[] = [
   { value: 'journal', label: 'Journal', Icone: IconBook2 },
+  { value: 'a_lire', label: 'À lire', Icone: IconBookmark },
   { value: 'bilan', label: 'Bilan annuel', Icone: IconChartBar },
   { value: 'parametres', label: 'Paramètres', Icone: IconSettings },
 ];
@@ -50,8 +62,8 @@ export function Lectures({ nav }: { nav: NavLectures }) {
   return (
     <Stack gap="lg">
       <Stack gap="sm">
-        <EnTetePage titre="Lectures" description="Les livres que tu as terminés, et ton bilan de l'année"
-                    actions={nav.vue !== 'parametres' && <NavAnnee nav={nav} />} />
+        <EnTetePage titre="Lectures" description="Les livres que tu as terminés, ceux à lire, et ton bilan de l'année"
+                    actions={AVEC_ANNEE.includes(nav.vue) && <NavAnnee nav={nav} />} />
         <ScrollArea type="never" offsetScrollbars={false}>
           <Tabs value={nav.vue} onChange={v => v && nav.setVue(v as VueLectures)} color="marque">
             <Tabs.List style={{ flexWrap: 'nowrap' }}>
@@ -66,6 +78,7 @@ export function Lectures({ nav }: { nav: NavLectures }) {
         </ScrollArea>
       </Stack>
       {nav.vue === 'journal' && <JournalLivres annee={nav.annee} />}
+      {nav.vue === 'a_lire' && <ListeALire />}
       {nav.vue === 'bilan' && <BilanLecture annee={nav.annee} />}
       {nav.vue === 'parametres' && <ParametresLectures />}
     </Stack>

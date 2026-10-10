@@ -22,6 +22,33 @@ def _valider_date_iso(v: str) -> str:
 DateISO = Annotated[str, AfterValidator(_valider_date_iso)]
 
 
+def _valider_mois(v: Optional[str]) -> Optional[str]:
+    if v is None:
+        return v
+    try:
+        if datetime.strptime(v, "%Y-%m").strftime("%Y-%m") != v:
+            raise ValueError
+    except ValueError:
+        raise ValueError("Mois attendu au format AAAA-MM")
+    return v
+
+
+def _valider_tags(v: List[str]) -> List[str]:
+    """Tags en minuscules, espaces normalisés, sans doublon ; 10 au plus, 40 caractères chacun."""
+    tags = []
+    for t in v:
+        t = " ".join(t.split()).lower().lstrip("#")[:40]
+        if t and t not in tags:
+            tags.append(t)
+    if len(tags) > 10:
+        raise ValueError("10 tags au maximum")
+    return tags
+
+
+MoisISO = Annotated[Optional[str], AfterValidator(_valider_mois)]
+Tags = Annotated[List[str], AfterValidator(_valider_tags)]
+
+
 class LoginIn(BaseModel):
     utilisateur: str
     mot_de_passe: str
@@ -35,16 +62,42 @@ class DepenseIn(BaseModel):
     categorie: str
     description: str = ""
     montant: float = Field(gt=0)
+    tags: Tags = []
 
 class RevenuIn(BaseModel):
     date: DateISO
     source: str = ""
     description: str = ""
     montant: float = Field(gt=0)
+    tags: Tags = []
+
+class DepenseRestauree(DepenseIn):
+    """Dépense supprimée remise en place (« Annuler ») sous son identifiant d'origine."""
+    id: int
+
+class RevenuRestaure(RevenuIn):
+    id: int
+
+class LigneImport(BaseModel):
+    """Ligne d'un relevé importé : `nom` = catégorie (dépense) ou source (revenu)."""
+    type: Literal["depense", "revenu"]
+    date: DateISO
+    nom: str = ""
+    description: str = ""
+    montant: float = Field(gt=0)
+    tags: Tags = []
+
+class ImportIn(BaseModel):
+    lignes: List[LigneImport] = Field(max_length=5000)
+    simulation: bool = False    # true : statut de chaque ligne sans rien enregistrer (aperçu)
 
 class CategorieIn(BaseModel):
     nom: str = Field(min_length=1)
     budget: float = Field(ge=0)
+    fixe: bool = False      # charge fixe (loyer, factures) : hors budget journalier/hebdo
+    # Mois (AAAA-MM) à partir duquel le budget et « fixe » s'appliquent ; par défaut le mois en cours.
+    # Les mois antérieurs gardent leur budget (cf. budgets_historique).
+    a_partir_de: MoisISO = None
 
 class ObjectifIn(BaseModel):
     objectif: float = Field(ge=0)
@@ -103,6 +156,23 @@ class TitreBourse(BaseModel):
     isin: Optional[str] = None
 
 
+class CibleSecteur(BaseModel):
+    secteur: str = Field(min_length=1, max_length=100)
+    cible: float = Field(ge=0, le=1)      # part du portefeuille, 0,25 = 25 %
+
+
+class CiblesIn(BaseModel):
+    cibles: List[CibleSecteur]
+
+    @model_validator(mode="after")
+    def _total(self):
+        if sum(c.cible for c in self.cibles) > 1.0001:
+            raise ValueError("La somme des cibles dépasse 100 %")
+        if len({c.secteur.strip() for c in self.cibles}) != len(self.cibles):
+            raise ValueError("Secteur en double")
+        return self
+
+
 class TitreBourseIn(BaseModel):
     code: str = Field(min_length=1)
     nom: str = Field(min_length=1)
@@ -125,6 +195,10 @@ class PositionBourse(BaseModel):
     isin: Optional[str] = None
     cours_manuel: bool = False              # cours saisi à la main : verrouillé jusqu'à remise en automatique
     cours_maj_le: Optional[datetime] = None
+    # Dividendes nets reçus sur les 12 derniers mois, rapportés au coût et à la valeur de marché
+    dividendes_12m: float = 0
+    rendement_cout: float = 0
+    rendement_marche: float = 0
 
 
 class CoursActualisation(BaseModel):
@@ -234,6 +308,8 @@ class LivreIn(BaseModel):
     pages: Optional[int] = Field(default=None, gt=0)
     note: Optional[int] = Field(default=None, ge=1, le=5)
     commentaire: str = ""
+    isbn: str = Field(default="", max_length=20)
+    couverture: str = Field(default="", max_length=500)    # URL de l'image (Open Library)
 
     @model_validator(mode="after")
     def _dates_coherentes(self):
@@ -252,6 +328,58 @@ class LivreOut(BaseModel):
     pages: Optional[int]
     note: Optional[int]
     commentaire: str
+    isbn: str = ""
+    couverture: str = ""
+    nb_notes: int = 0
+
+
+class ALireIn(BaseModel):
+    """Livre à lire ; `date_debut` renseignée = en cours de lecture."""
+    titre: str = Field(min_length=1, max_length=200)
+    auteur: str = Field(default="", max_length=150)
+    genre: str = Field(default="", max_length=100)
+    pages: Optional[int] = Field(default=None, gt=0)
+    isbn: str = Field(default="", max_length=20)
+    couverture: str = Field(default="", max_length=500)
+    commentaire: str = ""
+    date_debut: Optional[date] = None
+
+
+class ALireOut(ALireIn):
+    id: int
+    nb_notes: int = 0
+
+
+class NoteIn(BaseModel):
+    """Note ou citation, rattachée à un livre terminé OU à un livre à lire / en cours."""
+    livre_id: Optional[int] = None
+    a_lire_id: Optional[int] = None
+    type: Literal["note", "citation"] = "note"
+    texte: str = Field(min_length=1, max_length=5000)
+    page: Optional[int] = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def _un_seul_livre(self):
+        if (self.livre_id is None) == (self.a_lire_id is None):
+            raise ValueError("Indique soit livre_id, soit a_lire_id")
+        return self
+
+
+class NoteOut(BaseModel):
+    id: int
+    livre_id: Optional[int]
+    a_lire_id: Optional[int]
+    type: str
+    texte: str
+    page: Optional[int]
+
+
+class FicheIsbn(BaseModel):
+    isbn: str
+    titre: str
+    auteur: str
+    pages: Optional[int]
+    couverture: str
 
 
 class GenreOut(BaseModel):

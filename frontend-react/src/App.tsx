@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActionIcon, AppShell, Avatar, Box, Center, Container, Divider, Group, Loader, NavLink, Stack, Text, Tooltip,
   UnstyledButton, useComputedColorScheme, useMantineColorScheme,
@@ -10,17 +10,22 @@ import {
 } from '@tabler/icons-react';
 
 import { api, definirSurNonAuthentifie, toast } from './lib/api';
+import { ecrireChemin, lireChemin } from './lib/routes';
 import { appliquerThemeGraphiques } from './components/Graphique';
 import { Logo } from './components/Logo';
 import { Protection } from './components/Protection';
 import { Connexion } from './pages/Connexion';
-import { Saisie } from './pages/Saisie';
+import { Saisie, useNavSaisie } from './pages/Saisie';
 import { Dashboard, useNavDashboard } from './pages/dashboard/Dashboard';
 import { Bourse, useNavBourse } from './pages/bourse/Bourse';
 import { Lectures, useNavLectures } from './pages/lectures/Lectures';
 import { Parametres } from './pages/Parametres';
 
 type Onglet = 'saisie' | 'dash' | 'bourse' | 'lectures' | 'params';
+
+// Nom de chaque onglet dans l'URL (#/dashboard/…)
+const URL_ONGLET: Record<Onglet, string> = { saisie: 'saisie', dash: 'dashboard', bourse: 'bourse', lectures: 'lectures', params: 'parametres' };
+const ongletDeUrl = (s?: string) => (Object.keys(URL_ONGLET) as Onglet[]).find(o => URL_ONGLET[o] === s) ?? 'saisie';
 
 const ONGLETS: { id: Onglet; label: string; aide: string; Icone: typeof IconChartPie }[] = [
   { id: 'saisie', label: 'Saisie', aide: 'Dépenses et revenus', Icone: IconPencilPlus },
@@ -33,11 +38,39 @@ const ONGLETS: { id: Onglet; label: string; aide: string; Icone: typeof IconChar
 export default function App() {
   const [etat, setEtat] = useState<'verification' | 'connecte' | 'deconnecte'>('verification');
   const [utilisateur, setUtilisateur] = useState('');
-  const [onglet, setOnglet] = useState<Onglet>('saisie');
+  // État initial lu dans l'URL : un rechargement revient sur la même page
+  const [cheminInitial] = useState(lireChemin);
+  const [onglet, setOnglet] = useState<Onglet>(() => ongletDeUrl(cheminInitial[0]));
+  const initial = (o: Onglet) => ongletDeUrl(cheminInitial[0]) === o ? cheminInitial.slice(1) : [];
   // État de navigation conservé quand on change d'onglet (comme les variables globales de l'ancien app.js)
-  const navDash = useNavDashboard();
-  const navBourse = useNavBourse();
-  const navLectures = useNavLectures();
+  const navSaisie = useNavSaisie(initial('saisie'));
+  const navDash = useNavDashboard(initial('dash'));
+  const navBourse = useNavBourse(initial('bourse'));
+  const navLectures = useNavLectures(initial('lectures'));
+  const navs = { saisie: navSaisie, dash: navDash, bourse: navBourse, lectures: navLectures, params: null };
+
+  // État → URL : nouvelle entrée d'historique quand l'onglet ou la vue change, remplacement sinon
+  const cheminCourant = [URL_ONGLET[onglet], ...(navs[onglet]?.chemin() ?? [])];
+  const precedent = useRef(cheminCourant);
+  useEffect(() => {
+    if (etat !== 'connecte') return;
+    const avant = precedent.current;
+    ecrireChemin(cheminCourant, avant[0] !== cheminCourant[0] || (onglet !== 'saisie' && avant[1] !== cheminCourant[1]));
+    precedent.current = cheminCourant;
+  });
+
+  // URL → état : boutons Retour / Avancer du navigateur, ou adresse modifiée à la main
+  useEffect(() => {
+    function surNavigation() {
+      const [o, ...reste] = lireChemin();
+      const nouvel = ongletDeUrl(o);
+      setOnglet(nouvel);
+      navs[nouvel]?.appliquer(reste);
+      precedent.current = [URL_ONGLET[nouvel], ...reste];
+    }
+    window.addEventListener('popstate', surNavigation);
+    return () => window.removeEventListener('popstate', surNavigation);
+  });
   const qc = useQueryClient();
   const mobile = useMediaQuery('(max-width: 47.99em)') ?? false;
 
@@ -60,7 +93,7 @@ export default function App() {
   }, [qc]);
 
   function demarrer() {
-    setOnglet('saisie');
+    // Après connexion : la page demandée dans l'URL (l'état de navigation n'a pas changé entre-temps)
     verifierSession().catch(() => setEtat('deconnecte'));
   }
 
@@ -142,7 +175,7 @@ export default function App() {
         <Container size={1180} px={0} pb="md">
           {/* key = onglet : changer d'onglet efface une éventuelle erreur d'affichage */}
           <Protection key={onglet}>
-            {onglet === 'saisie' && <Saisie />}
+            {onglet === 'saisie' && <Saisie nav={navSaisie} />}
             {onglet === 'dash' && <Dashboard nav={navDash} />}
             {onglet === 'bourse' && <Bourse nav={navBourse} />}
             {onglet === 'lectures' && <Lectures nav={navLectures} />}

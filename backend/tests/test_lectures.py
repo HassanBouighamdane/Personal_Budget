@@ -35,6 +35,7 @@ def _nettoyer():
     with db() as c:
         c.execute("DELETE FROM lectures_livres WHERE titre LIKE %s OR genre LIKE %s", (PREFIXE + "%", PREFIXE + "%"))
         c.execute("DELETE FROM lectures_genres WHERE nom LIKE %s", (PREFIXE + "%",))
+        c.execute("DELETE FROM lectures_a_lire WHERE titre LIKE %s", (PREFIXE + "%",))
 
 
 @pytest.fixture(autouse=True)
@@ -156,3 +157,60 @@ def test_renommer_genre_vers_un_nom_existant_409():
     with pytest.raises(HTTPException) as e:
         modifier_genre(gid, NomIn(nom=f"{PREFIXE}B"))
     assert e.value.status_code == 409
+
+
+# ---------------------------------------------------------------------------
+# À lire / en cours, notes et citations, ISBN
+# ---------------------------------------------------------------------------
+from fastapi import HTTPException as _HTTPException
+from routes.lectures import (ajouter_a_lire, lister_a_lire, modifier_a_lire, terminer_a_lire, ajouter_note,
+                             lister_notes, modifier_note, supprimer_note, lister_livres, valider_isbn,
+                             lire_fiche_open_library)
+from schemas import ALireIn, NoteIn
+
+
+def test_livre_a_lire_puis_termine_avec_ses_notes():
+    a = ajouter_a_lire(ALireIn(titre=f"{PREFIXE} Dune", auteur="Herbert", pages=600, isbn="978-0-441-17271-9"))
+    assert a["isbn"] == "9780441172719" and a["date_debut"] is None
+    modifier_a_lire(a["id"], ALireIn(**{**a, "date_debut": date(ANNEE, 3, 1)}))
+    en_cours = next(x for x in lister_a_lire() if x["id"] == a["id"])
+    assert en_cours["date_debut"] == date(ANNEE, 3, 1)
+
+    ajouter_note(NoteIn(a_lire_id=a["id"], type="citation", texte="La peur tue l'esprit.", page=8))
+    livre = terminer_a_lire(a["id"], LivreIn(titre=a["titre"], auteur="Herbert", date_debut=date(ANNEE, 3, 1),
+                                             date_fin=date(ANNEE, 4, 2), pages=600, isbn=a["isbn"]))
+    assert not any(x["id"] == a["id"] for x in lister_a_lire())
+    assert livre["nb_notes"] == 1 and livre["isbn"] == "9780441172719"
+    notes = lister_notes(livre_id=livre["id"])
+    assert notes[0]["type"] == "citation" and notes[0]["a_lire_id"] is None
+
+
+def test_notes_d_un_livre():
+    l = _livre(5, titre="Essai")
+    n1 = ajouter_note(NoteIn(livre_id=l["id"], texte="Idée sans page"))
+    ajouter_note(NoteIn(livre_id=l["id"], texte="Page 12", page=12))
+    assert [n["texte"] for n in lister_notes(livre_id=l["id"])] == ["Page 12", "Idée sans page"]
+    assert modifier_note(n1["id"], NoteIn(livre_id=l["id"], texte="Idée modifiée", page=3))["page"] == 3
+    supprimer_note(n1["id"])
+    assert next(x for x in lister_livres(ANNEE) if x["id"] == l["id"])["nb_notes"] == 1
+    with pytest.raises(ValueError):
+        NoteIn(livre_id=l["id"], a_lire_id=1, texte="x")      # un seul livre de rattachement
+
+
+def test_validation_isbn():
+    assert valider_isbn("978-2-07-036002-4") == "9782070360024"
+    assert valider_isbn("0-306-40615-2") == "0306406152"
+    for faux in ("9782070360025", "123", "030640615X"):
+        with pytest.raises(_HTTPException):
+            valider_isbn(faux)
+
+
+def test_lecture_de_la_fiche_open_library():
+    reponse = {"ISBN:9782070360024": {
+        "title": "L'Étranger", "authors": [{"name": "Albert Camus"}], "number_of_pages": 186,
+        "cover": {"small": "s.jpg", "medium": "m.jpg"}}}
+    assert lire_fiche_open_library(reponse, "9782070360024") == {
+        "isbn": "9782070360024", "titre": "L'Étranger", "auteur": "Albert Camus", "pages": 186, "couverture": "m.jpg"}
+    assert lire_fiche_open_library({}, "9782070360024") is None
+    sans_image = lire_fiche_open_library({"ISBN:9782070360024": {"title": "X"}}, "9782070360024")
+    assert sans_image["couverture"].startswith("https://covers.openlibrary.org/b/isbn/9782070360024")

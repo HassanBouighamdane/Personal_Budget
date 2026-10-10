@@ -6,3 +6,4 @@ psycopg[binary]
 psycopg-pool>=3.2
 python-dotenv
 pytest
+tzdata          # fuseaux horaires pour zoneinfo (absents sous Windows)

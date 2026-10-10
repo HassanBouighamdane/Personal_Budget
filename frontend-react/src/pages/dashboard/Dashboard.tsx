@@ -4,23 +4,28 @@ import { IconChevronLeft, IconChevronRight } from '@tabler/icons-react';
 
 import { auj, decalerDate, decalerMois } from '../../lib/format';
 import { useCoursAuto } from '../../lib/queries';
+import { estAnnee, estDate, estMois, parmi } from '../../lib/routes';
 import { EnTetePage } from '../../components/ui';
 import { VueAnnee, VueGlobal, VueJour, VueMois, VueSemaine } from './Vues';
 
 export type VueDash = 'jour' | 'semaine' | 'mois' | 'annee' | 'global';
+const VUES_DASH = ['jour', 'semaine', 'mois', 'annee', 'global'] as const;
 
 const lundiDe = (d: string) => {
   const [a, m, j] = d.split('-').map(Number);
   return decalerDate(d, -((new Date(a, m - 1, j).getDay() + 6) % 7));
 };
 
-/** État de navigation du dashboard, gardé par App pour survivre aux changements d'onglet */
-export function useNavDashboard() {
-  const [vue, setVue] = useState<VueDash>('mois');
-  const [jour, setJour] = useState(auj());
-  const [semaine, setSemaine] = useState(auj());   // n'importe quel jour de la semaine affichée
-  const [mois, setMois] = useState(auj().slice(0, 7));
-  const [annee, setAnnee] = useState(new Date().getFullYear());
+/** État de navigation du dashboard, gardé par App pour survivre aux changements d'onglet.
+ *  `initial` : segments de l'URL après « dashboard » (ex : ['mois', '2026-10']). */
+export function useNavDashboard(initial: string[] = []) {
+  const [vueUrl, valeurUrl] = initial;
+  const vueInit = parmi(vueUrl, VUES_DASH, 'mois');
+  const [vue, setVue] = useState<VueDash>(vueInit);
+  const [jour, setJour] = useState(vueInit === 'jour' && estDate(valeurUrl) ? valeurUrl : auj());
+  const [semaine, setSemaine] = useState(vueInit === 'semaine' && estDate(valeurUrl) ? valeurUrl : auj());   // n'importe quel jour de la semaine affichée
+  const [mois, setMois] = useState(vueInit === 'mois' && estMois(valeurUrl) ? valeurUrl : auj().slice(0, 7));
+  const [annee, setAnnee] = useState(vueInit === 'annee' && estAnnee(valeurUrl) ? +valeurUrl : new Date().getFullYear());
 
   function naviguer(delta: number) {
     if (vue === 'annee') setAnnee(a => a + delta);
@@ -35,7 +40,19 @@ export function useNavDashboard() {
     || (vue === 'jour' && jour === auj()) || (vue === 'mois' && mois === auj().slice(0, 7))
     || (vue === 'annee' && annee === new Date().getFullYear())
     || (vue === 'semaine' && lundiDe(semaine) === lundiDe(auj()));
-  return { vue, setVue, jour, semaine, mois, annee, naviguer, aujourdhui, surPeriodeCourante };
+  function chemin(): string[] {
+    const valeur = { jour, semaine: lundiDe(semaine), mois, annee: String(annee), global: '' }[vue];
+    return valeur ? [vue, valeur] : [vue];
+  }
+  function appliquer([v, valeur]: string[]) {
+    const nv = parmi(v, VUES_DASH, 'mois');
+    setVue(nv);
+    if (nv === 'jour' && estDate(valeur)) setJour(valeur);
+    if (nv === 'semaine' && estDate(valeur)) setSemaine(valeur);
+    if (nv === 'mois' && estMois(valeur)) setMois(valeur);
+    if (nv === 'annee' && estAnnee(valeur)) setAnnee(+valeur);
+  }
+  return { vue, setVue, jour, semaine, mois, annee, naviguer, aujourdhui, surPeriodeCourante, chemin, appliquer };
 }
 export type NavDashboard = ReturnType<typeof useNavDashboard>;
 

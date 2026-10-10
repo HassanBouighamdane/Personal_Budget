@@ -1,9 +1,10 @@
 /* Briques d'interface partagées par tous les écrans */
 import { useMemo, useState, type ReactNode } from 'react';
 import {
-  ActionIcon, Alert, Badge, Box, Card, Group, SimpleGrid, Skeleton, Stack, Table, Text, ThemeIcon, Title, Tooltip, UnstyledButton,
+  ActionIcon, Alert, Badge, Box, Button, Card, Group, SimpleGrid, Skeleton, Stack, Table, Text, ThemeIcon, Title, Tooltip, UnstyledButton,
 } from '@mantine/core';
 import { modals } from '@mantine/modals';
+import { notifications } from '@mantine/notifications';
 import { IconArrowDownRight, IconArrowUpRight, IconChevronDown, IconChevronUp, IconInbox, IconInfoCircle, IconSelector, IconTrash } from '@tabler/icons-react';
 
 /* ---------- En-tête de page ---------- */
@@ -108,7 +109,9 @@ export function TitreSection({ children }: { children: ReactNode }) {
 }
 
 /** Variation par rapport à la période précédente (repris de badge() de l'ancien app.js) */
-export function Variation({ actuel, precedent, inverse = false }: { actuel: number; precedent: number; inverse?: boolean }) {
+export function Variation({ actuel, precedent, inverse = false, libelle = 'par rapport à la période précédente' }: {
+  actuel: number; precedent: number; inverse?: boolean; libelle?: string;
+}) {
   if (!precedent) return null;
   const delta = (actuel - precedent) / precedent * 100;
   if (Math.abs(delta) < 0.5) return <Badge variant="light" color="gray" size="sm" radius="sm">＝ 0%</Badge>;
@@ -116,7 +119,7 @@ export function Variation({ actuel, precedent, inverse = false }: { actuel: numb
   const bon = inverse ? hausse : !hausse;   // hausse de revenus = bon ; hausse de dépenses = mauvais
   const Fleche = hausse ? IconArrowUpRight : IconArrowDownRight;
   return (
-    <Tooltip label="par rapport à la période précédente">
+    <Tooltip label={libelle}>
       <Badge variant="light" color={bon ? 'emeraude' : 'rouge'} size="sm" radius="sm" leftSection={<Fleche size={12} stroke={2.4} />}>
         {Math.abs(delta).toFixed(0)}%
       </Badge>
@@ -138,6 +141,19 @@ export function confirmer(message: string, action: () => void, libelle = 'Suppri
     labels: { confirm: libelle, cancel: 'Annuler' },
     confirmProps: { color: 'rouge' },
     onConfirm: action,
+  });
+}
+
+/** Notification avec un bouton « Annuler » (suppression immédiate, rattrapable quelques secondes) */
+export function notifierAnnulable(message: string, annuler: () => void) {
+  const id = notifications.show({
+    color: 'gray', autoClose: 7000,
+    message: (
+      <Group justify="space-between" wrap="nowrap" gap="sm">
+        <Text fz="sm">{message}</Text>
+        <Button size="compact-sm" variant="light" onClick={() => { notifications.hide(id); annuler(); }}>Annuler</Button>
+      </Group>
+    ),
   });
 }
 

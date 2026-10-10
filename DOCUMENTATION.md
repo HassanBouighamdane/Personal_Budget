@@ -62,7 +62,7 @@ Personal_Budget/
 ### Déroulement d'une requête
 
 ```
-Navigateur (index.html + app.js)
+Navigateur (application React de frontend-react/dist)
    │  fetch('/api/...')  + cookie "session" (HttpOnly)
    ▼
 FastAPI (app.py)
@@ -334,11 +334,19 @@ Toutes les routes sauf `/api/login` et `/api/logout` exigent le cookie `session`
 | GET | `/api/me` | — | `{utilisateur}` |
 | PUT | `/api/mot_de_passe` | `{actuel, nouveau}` | `{ok, message}` |
 | GET | `/api/categories` | — | `{categories, sources, objectif_epargne}` |
-| POST / PUT / DELETE | `/api/categories[/{id}]` | `{nom, budget}` | `{ok}` |
+| POST / PUT / DELETE | `/api/categories[/{id}]` | `{nom, budget, fixe, a_partir_de}` | `{ok}` ; budget et « fixe » valables à partir du mois `a_partir_de` (AAAA-MM, mois en cours par défaut), les mois antérieurs gardent les leurs ; 409 si le nom existe déjà |
+| GET | `/api/categories/{id}/historique` | — | `[{mois_debut, budget, fixe}]` (table `budgets_historique`) |
+| DELETE | `/api/categories/{id}/historique/{mois}` | — | `{ok}` ; retire un changement de budget (pas le dernier restant) |
 | PUT | `/api/objectif` | `{objectif}` | `{ok}` |
 | POST / PUT / DELETE | `/api/sources[/{id}]` | `{nom}` | `{ok}` |
-| POST / PUT / DELETE | `/api/depenses[/{id}]` | `{date, categorie, description, montant}` | `{id}` / `{ok}` |
-| POST / PUT / DELETE | `/api/revenus[/{id}]` | `{date, source, description, montant}` | `{id}` / `{ok}` |
+| POST / PUT / DELETE | `/api/depenses[/{id}]` | `{date, categorie, description, montant, tags}` | `{id}` / `{ok}` / la ligne supprimée ; catégorie active obligatoire |
+| POST / PUT / DELETE | `/api/revenus[/{id}]` | `{date, source, description, montant, tags}` | `{id}` / `{ok}` / la ligne supprimée |
+| POST | `/api/depenses/restaurer`, `/api/revenus/restaurer` | la ligne renvoyée par DELETE | `{id}` ; « Annuler » une suppression (même identifiant) |
+| GET | `/api/recherche` | `?q=&limite=&decalage=` ; `#tag`, montant exact, texte | `{resultats, nb, total_depenses, total_revenus}` sur tout l'historique |
+| GET | `/api/suggestions` | `?type=depenses\|revenus&nom=` | 5 dernières descriptions `[{description, montant}]` |
+| GET | `/api/tags` | — | `[{tag, nb, depenses, revenus, premier, dernier}]` |
+| GET | `/api/export/csv` | `?debut=&fin=` (AAAA-MM-JJ, facultatifs) | fichier CSV (« ; », virgule décimale, BOM) |
+| POST | `/api/import` | `{lignes: [{type, date, nom, description, montant, tags}], simulation}` | statut de chaque ligne (`ajoutee`, `doublon`, `erreur`) ; rien n'est écrit si `simulation` |
 | GET | `/api/transactions?mois=` | — | `{depenses, revenus}` |
 | GET | `/api/resume_jour?date=` | — | résumé du jour |
 | GET | `/api/resume_semaine?date=` | — | résumé de la semaine |
@@ -348,18 +356,24 @@ Toutes les routes sauf `/api/login` et `/api/logout` exigent le cookie `session`
 | GET / PUT | `/api/bourse/parametres` | `{taux_tpcvm}` | `ParametresBourse` |
 | GET / POST / PUT / DELETE | `/api/bourse/titres[/{id}]` | `{code, nom, secteur, isin}` | `TitreBourse` / `[TitreBourse]` |
 | GET / POST | `/api/bourse/transactions` | `?mois=&annee=` / `TransactionBourseCreate` | `[TransactionBourseOut]` |
-| DELETE | `/api/bourse/transactions/{id}` | — | 204 |
+| PUT / DELETE | `/api/bourse/transactions/{id}` | `TransactionBourseCreate` / — | `TransactionBourseOut` / 204 ; refusé si une quantité détenue deviendrait négative |
 | PUT | `/api/bourse/prix/{titre}` | `{cours_actuel}` | `{titre, cours_actuel}` ; passe le titre en cours manuel (verrouillé) |
 | PUT | `/api/bourse/prix/{titre}/auto` | — | `CoursActualisation` ; déverrouille le titre puis récupère les cours |
 | POST | `/api/bourse/cours/actualiser` | `?force=` | `CoursActualisation` |
-| GET / POST / DELETE | `/api/bourse/dividendes[/{id}]` | `?mois=&annee=` / `{date_operation, titre, montant}` | `[DividendeOut]` |
-| GET / POST / DELETE | `/api/bourse/frais[/{id}]` | `?mois=&annee=` / `{date_operation, libelle, montant}` | `[FraisBourseOut]` |
-| GET / POST / DELETE | `/api/bourse/mouvements[/{id}]` | `?mois=&annee=` / `{date_operation, type_mouvement, montant, libelle}` | `[MouvementBourseOut]` |
-| GET | `/api/bourse/positions` | — | `[PositionBourse]` |
+| GET / POST / PUT / DELETE | `/api/bourse/dividendes[/{id}]` | `?mois=&annee=` / `{date_operation, titre, montant}` | `[DividendeOut]` |
+| GET / POST / PUT / DELETE | `/api/bourse/frais[/{id}]` | `?mois=&annee=` / `{date_operation, libelle, montant}` | `[FraisBourseOut]` |
+| GET / POST / PUT / DELETE | `/api/bourse/mouvements[/{id}]` | `?mois=&annee=` / `{date_operation, type_mouvement, montant, libelle}` | `[MouvementBourseOut]` |
+| GET | `/api/bourse/positions` | — | `[PositionBourse]`, avec dividendes des 12 derniers mois et rendement (sur coût, sur valeur de marché) |
+| GET / PUT | `/api/bourse/cibles` | `{cibles: [{secteur, cible}]}` (ratio, somme ≤ 1) | `[{secteur, cible}]` ; PUT remplace toutes les cibles |
+| GET | `/api/bourse/fiscalite` | `?annee=` | plus et moins-values, résultat de cession, TPCVM retenue et « au taux », dividendes, détail par titre |
 | GET | `/api/bourse/gains` | `?mois=&annee=` | `[GainRealise]` |
 | GET | `/api/bourse/dashboard` | `?mois=&annee=` | `DashboardBourse` |
 | GET / POST / PUT / DELETE | `/api/lectures/livres[/{id}]` | `?annee=` / `LivreIn` | `[LivreOut]` / `LivreOut` / 204 |
 | GET | `/api/lectures/auteurs` | — | `[str]` (autocomplétion) |
+| GET / POST / PUT / DELETE | `/api/lectures/a_lire[/{id}]` | `ALireIn` (`date_debut` renseignée = en cours) | `[ALireOut]` / `ALireOut` / 204 |
+| POST | `/api/lectures/a_lire/{id}/terminer` | `LivreIn` | `LivreOut` ; le livre passe au journal avec ses notes |
+| GET / POST / PUT / DELETE | `/api/lectures/notes[/{id}]` | `?livre_id=` ou `?a_lire_id=` / `{livre_id \| a_lire_id, type, texte, page}` | `[NoteOut]` / `NoteOut` / 204 |
+| GET | `/api/lectures/isbn/{isbn}` | — | `{isbn, titre, auteur, pages, couverture}` d'après Open Library ; 400 ISBN invalide, 404 inconnu, 502 injoignable |
 | GET / POST / PUT / DELETE | `/api/lectures/genres[/{id}]` | `{nom}` | `[GenreOut]` / `{ok}` ; 409 si le nouveau nom existe déjà |
 | GET / PUT | `/api/lectures/objectifs` | `{annuel, mensuel}` | `ObjectifsLecture` |
 | GET | `/api/lectures/bilan` | `?annee=` | bilan de l'année (voir §9) |
@@ -377,10 +391,12 @@ Toutes les routes sauf `/api/login` et `/api/logout` exigent le cookie `session`
 | Liquidités (vue Globale) | épargne totale − apports nets Bourse |
 | Patrimoine net (vue Globale) | liquidités + patrimoine Bourse (titres au cours actuel + espèces) ; remplace la carte « Épargne totale » quand les données Bourse sont disponibles |
 | Reste à dépenser (mois) | somme des budgets des catégories actives − dépenses |
-| Budget journalier | budget mensuel ÷ 30,44 |
-| Budget hebdomadaire | budget mensuel × 12 ÷ 52 |
-| Projection fin de mois | dépenses à ce jour ÷ jour actuel × nombre de jours du mois |
-| Badge ▲/▼ | (actuel − précédent) ÷ précédent × 100 ; « ＝ » si l'écart est inférieur à 0,5 % |
+| Budget journalier | budget mensuel des catégories variables ÷ 30,44, comparé aux dépenses variables du jour (les catégories cochées « Fixe » — loyer, factures — en sont exclues) |
+| Budget hebdomadaire | budget mensuel des catégories variables × 12 ÷ 52, comparé aux dépenses variables de la semaine |
+| Projection fin de mois | Σ catégories fixes max(dépensé, budget) + dépenses variables à ce jour ÷ jour actuel × nombre de jours du mois |
+| Badge ▲/▼ | (actuel − précédent) ÷ précédent × 100 ; « ＝ » si l'écart est inférieur à 0,5 %. Pour le mois ou la semaine en cours, la période précédente est prise jusqu'au même jour (le 1er–10 contre le 1er–10) |
+| Moyennes, meilleur/pire mois, objectif atteint (vues Année et Globale) | calculés sur les mois terminés uniquement : le mois en cours est exclu |
+| Budget annuel par catégorie (vue Année) | budget mensuel × mois écoulés (ex : 9,3 au 10 octobre) pour l'année en cours, × 12 pour une année passée |
 | Couleur « budget vs réel » | vert ≤ 80 %, jaune ≤ 100 %, rouge au-delà |
 
 ### 6.2 Bourse
@@ -470,8 +486,8 @@ src/
     ├── Saisie.tsx
     ├── Parametres.tsx
     ├── dashboard/        Dashboard.tsx (navigation ‹ ›, choix de vue) + Vues.tsx (Jour/Semaine/Mois/Année/Global)
-    ├── bourse/           Bourse.tsx (sous-onglets) + Journaux, Portefeuille, ParametresBourse
-    └── lectures/         Lectures.tsx (sous-onglets, navigation par année) + Journal, Bilan, ParametresLectures
+    ├── bourse/           Bourse.tsx (sous-onglets) + Journaux, Portefeuille, Fiscalite, ParametresBourse
+    └── lectures/         Lectures.tsx (sous-onglets, navigation par année) + Journal, ALire, Bilan, ParametresLectures, communs (ISBN, couverture, notes)
 ```
 
 ### 7.3 Données
@@ -482,6 +498,9 @@ src/
 - **Résumé Bourse du dashboard Budget** : `useResumeBourseSilencieux()` ne notifie jamais d'erreur, pour qu'un problème Bourse ne casse pas le dashboard Budget.
 
 ### 7.4 Comportements à connaître
+
+- **Navigation dans l'URL** (`lib/routes.ts`) : l'onglet, la vue et la période sont dans l'adresse (`#/dashboard/mois/2026-10`, `#/bourse/fiscalite/2026`, `#/lectures/bilan/2025`, `#/saisie/recherche/%23voyage`). Chaque module expose `chemin()` et `appliquer(segments)` ; `App.tsx` lit l'adresse au démarrage, l'écrit à chaque changement (nouvelle entrée d'historique pour un onglet ou une vue, remplacement pour une période) et suit les boutons Retour / Avancer.
+- **Suppression dans Saisie** : immédiate, avec « Annuler » dans la notification (la ligne revient sous son identifiant d'origine). Les autres modules gardent une confirmation.
 
 - React échappe automatiquement tout texte affiché : une saisie contenant du HTML s'affiche telle quelle, sans être interprétée.
 - Le thème est mémorisé dans `localStorage` sous la clé `theme` (`light` / `dark`), la même que l'ancien frontend. Un script dans `index.html` l'applique avant le premier affichage.

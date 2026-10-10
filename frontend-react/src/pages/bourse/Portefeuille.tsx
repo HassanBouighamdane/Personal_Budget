@@ -1,6 +1,6 @@
 /* Bourse — positions, gains réalisés et tableau de bord */
-import { useState } from 'react';
-import { ActionIcon, Box, Button, Group, SegmentedControl, Stack, Table, Text, TextInput, Title, Tooltip } from '@mantine/core';
+import { useEffect, useState } from 'react';
+import { ActionIcon, Box, Button, Group, NumberInput, SegmentedControl, Stack, Table, Text, TextInput, Title, Tooltip } from '@mantine/core';
 import {
   IconChevronLeft, IconChevronRight, IconArrowsExchange, IconBuildingBank, IconCash, IconChartDonut, IconChartLine, IconCoins, IconReceipt, IconReceiptTax, IconRefresh, IconReportMoney, IconScale, IconTrendingUp,
 } from '@tabler/icons-react';
@@ -9,7 +9,7 @@ import { toast } from '../../lib/api';
 import { decalerMois, fmt, jjmm, libelleMois } from '../../lib/format';
 import { regrouperAutres, signe, T } from '../../lib/palette';
 import type { Position } from '../../lib/types';
-import { useActualiserCours, useDashboardBourse, useEcriture, useGains, usePositions } from '../../lib/queries';
+import { useActualiserCours, useCibles, useDashboardBourse, useEcriture, useGains, usePositions } from '../../lib/queries';
 import { Donut } from '../../components/Graphique';
 import { Carte, Chargement, Grille2, GrilleKpi, Kpi, Tableau, ThTri, TitreSection, useTri, Vide } from '../../components/ui';
 import type { NavBourse, PeriodeBourse } from './Bourse';
@@ -78,12 +78,81 @@ function Repartitions({ liste }: { liste: Position[] }) {
   );
 }
 
+/* ---------- Allocation par secteur : poids actuel comparé à une cible ---------- */
+function Allocation({ liste }: { liste: Position[] }) {
+  const { data: cibles } = useCibles();
+  const ecrire = useEcriture('bourse');
+  const [saisies, setSaisies] = useState<Record<string, string | number>>({});
+  useEffect(() => {
+    if (cibles) setSaisies(Object.fromEntries(cibles.map(c => [c.secteur, Math.round(c.cible * 10000) / 100])));
+  }, [cibles]);
+
+  const valeurs: Record<string, number> = {};
+  liste.forEach(p => { valeurs[p.secteur || 'Non classé'] = (valeurs[p.secteur || 'Non classé'] ?? 0) + p.valeur_marche; });
+  const total = Object.values(valeurs).reduce((a, b) => a + b, 0);
+  const secteurs = [...new Set([...Object.keys(valeurs), ...(cibles ?? []).map(c => c.secteur)])]
+    .sort((a, b) => (valeurs[b] ?? 0) - (valeurs[a] ?? 0));
+  const pct = (s: string) => { const v = saisies[s]; return typeof v === 'number' ? v : parseFloat(v ?? '') || 0; };
+  const sommeCibles = secteurs.reduce((a, s) => a + pct(s), 0);
+  const modifie = secteurs.some(s => pct(s) !== Math.round((cibles?.find(c => c.secteur === s)?.cible ?? 0) * 10000) / 100);
+
+  if (!secteurs.length) return null;
+  return (
+    <Carte titre="Allocation par secteur" description="Poids actuel (valeur de marché) comparé à ta cible ; le dernier chiffre indique combien acheter (+) ou alléger (−) pour l'atteindre"
+           droite={<Button size="xs" variant={modifie ? 'filled' : 'default'} loading={ecrire.isPending} disabled={sommeCibles > 100.001}
+                           onClick={() => ecrire.mutate({ path: '/api/bourse/cibles', method: 'PUT', succes: 'Cibles enregistrées ✓',
+                             body: { cibles: secteurs.filter(s => pct(s) > 0).map(s => ({ secteur: s, cible: pct(s) / 100 })) } })}>
+                     Enregistrer les cibles
+                   </Button>}>
+      <Tableau minWidth={640}>
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th>Secteur</Table.Th><Table.Th className="num">Valeur</Table.Th><Table.Th className="num">Poids</Table.Th>
+            <Table.Th className="num">Cible</Table.Th><Table.Th className="num">Écart</Table.Th><Table.Th className="num">Pour atteindre la cible</Table.Th>
+          </Table.Tr>
+        </Table.Thead>
+        <Table.Tbody>
+          {secteurs.map(s => {
+            const valeur = valeurs[s] ?? 0;
+            const poids = total ? valeur / total * 100 : 0;
+            const cible = pct(s);
+            const ecart = poids - cible;
+            const aInvestir = cible / 100 * total - valeur;
+            return (
+              <Table.Tr key={s}>
+                <Table.Td fw={600}>{s}</Table.Td>
+                <Table.Td className="num chiffre">{fmt(valeur)}</Table.Td>
+                <Table.Td className="num chiffre">{poids.toFixed(1)} %</Table.Td>
+                <Table.Td className="num">
+                  <NumberInput size="xs" w={90} ml="auto" min={0} max={100} decimalScale={2} suffix=" %" value={saisies[s] ?? ''}
+                               onChange={v => setSaisies(x => ({ ...x, [s]: v }))} aria-label={`Cible ${s}`} />
+                </Table.Td>
+                <Table.Td className="num chiffre" c={cible ? (Math.abs(ecart) < 2 ? T.ep : T.warn) : 'dimmed'}>
+                  {cible ? (ecart >= 0 ? '+' : '') + ecart.toFixed(1) + ' pts' : '—'}
+                </Table.Td>
+                <Table.Td className="num chiffre" c={cible ? signe(aInvestir) : 'dimmed'}>
+                  {cible ? (aInvestir >= 0 ? '+' : '') + fmt(Math.round(aInvestir)) : '—'}
+                </Table.Td>
+              </Table.Tr>
+            );
+          })}
+        </Table.Tbody>
+      </Tableau>
+      <Text fz="xs" c={sommeCibles > 100.001 ? T.neg : 'dimmed'} mt="xs">
+        Total des cibles : {sommeCibles.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} %
+        {sommeCibles > 100.001 ? ' — dépasse 100 %' : sommeCibles < 100 && sommeCibles > 0 ? ' (le reste : sans cible, ou en espèces)' : ''}
+      </Text>
+    </Carte>
+  );
+}
+
 export function Positions() {
   const { data, isPending } = usePositions();
   const liste = (data ?? []).filter(p => p.quantite_detenue > 0);
-  type Cle = 'titre' | 'secteur' | 'valeur' | 'pv' | 'perf';
+  type Cle = 'titre' | 'secteur' | 'valeur' | 'pv' | 'perf' | 'rdt';
   const { triees, tri, basculer } = useTri<Position, Cle>(liste, (p, c) =>
-    c === 'titre' ? p.titre : c === 'secteur' ? p.secteur : c === 'valeur' ? p.valeur_marche : c === 'pv' ? p.plus_value_latente : p.performance_latente,
+    c === 'titre' ? p.titre : c === 'secteur' ? p.secteur : c === 'valeur' ? p.valeur_marche : c === 'pv' ? p.plus_value_latente
+      : c === 'rdt' ? p.rendement_cout : p.performance_latente,
     { cle: 'valeur', desc: true });
   const th = { tri, basculer };
   const actualiser = useActualiserCours();
@@ -96,13 +165,18 @@ export function Positions() {
              droite={<Button variant="default" size="xs" leftSection={<IconRefresh size={14} />} loading={actualiser.isPending}
                              onClick={() => actualiser.mutate(null)}>Actualiser les cours</Button>}>
         {isPending ? <Chargement /> : !liste.length ? <Vide>Aucune position ouverte pour le moment.</Vide> : (
-          <Tableau minWidth={820}>
+          <Tableau minWidth={900}>
             <Table.Thead>
               <Table.Tr>
                 <ThTri cle="titre" {...th}>Titre</ThTri><ThTri cle="secteur" {...th}>Secteur</ThTri>
                 <Table.Th className="num">Qté détenue</Table.Th><Table.Th className="num">PRU</Table.Th>
                 <Table.Th className="num">Cours actuel</Table.Th><ThTri cle="valeur" num {...th}>Valeur marché</ThTri>
                 <ThTri cle="pv" num {...th}>+/- value latente</ThTri><ThTri cle="perf" num {...th}>Perf.</ThTri>
+                <ThTri cle="rdt" num {...th}>
+                  <Tooltip label="Dividendes nets des 12 derniers mois ÷ coût de la position (÷ valeur de marché dessous)" multiline w={240}>
+                    <span>Rdt div.</span>
+                  </Tooltip>
+                </ThTri>
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
@@ -121,12 +195,23 @@ export function Positions() {
                   <Table.Td className="num chiffre">{fmt(p.valeur_marche)}</Table.Td>
                   <Table.Td className="num chiffre" c={signe(p.plus_value_latente)} fw={600}>{fmt(p.plus_value_latente)}</Table.Td>
                   <Table.Td className="num chiffre" c={signe(p.performance_latente)}>{pctFr(p.performance_latente)}</Table.Td>
+                  <Table.Td className="num chiffre">
+                    {p.dividendes_12m ? (
+                      <Tooltip label={`${fmt(p.dividendes_12m)} reçus sur 12 mois`} withArrow>
+                        <Stack gap={0} align="flex-end">
+                          <span>{pctFr(p.rendement_cout)}</span>
+                          <Text fz={10} c="dimmed">{pctFr(p.rendement_marche)} au cours</Text>
+                        </Stack>
+                      </Tooltip>
+                    ) : <Text c="dimmed" span>—</Text>}
+                  </Table.Td>
                 </Table.Tr>
               ))}
             </Table.Tbody>
           </Tableau>
         )}
       </Carte>
+      <Allocation liste={liste} />
     </>
   );
 }

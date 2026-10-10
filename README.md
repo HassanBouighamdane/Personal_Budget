@@ -110,7 +110,6 @@ backend/
 frontend-react/
   src/              code React (pages, composants, appels API)
   dist/             build de production servi par FastAPI
-frontend/           ancien frontend HTML/JS (servi seulement si dist/ est absent)
 ```
 
 ## Documentation

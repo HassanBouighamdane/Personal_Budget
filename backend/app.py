@@ -56,8 +56,10 @@ app.include_router(bourse.router)
 app.include_router(lectures.router)
 
 # Frontend statique — monté APRÈS les routes /api pour garder leur priorité
-if FRONT_DIR.exists():
+if (FRONT_DIR / "index.html").exists():
     app.mount("/", StaticFiles(directory=FRONT_DIR, html=True), name="frontend")
+else:
+    print(f"⚠️  Frontend introuvable ({FRONT_DIR}) : lance « npm run build » dans frontend-react/. L'API reste disponible.")
 
 @app.on_event("shutdown")
 def fermer_pool():

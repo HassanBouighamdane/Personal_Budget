@@ -1,13 +1,29 @@
 /* Types des réponses de l'API (dates en chaîne AAAA-MM-JJ) */
 
 /* ---------- Budget ---------- */
-export type Categorie = { id: number; nom: string; budget: number };
+/** `fixe` : charge fixe (loyer, factures), hors budget journalier/hebdo */
+export type Categorie = { id: number; nom: string; budget: number; fixe: boolean };
 export type Source = { id: number; nom: string };
 export type Config = { categories: Categorie[]; sources: Source[]; objectif_epargne: number };
 
-export type Depense = { id: number; date: string; categorie: string; description: string; montant: number };
-export type Revenu = { id: number; date: string; source: string; description: string; montant: number };
+export type Depense = { id: number; date: string; categorie: string; description: string; montant: number; tags: string[] };
+export type Revenu = { id: number; date: string; source: string; description: string; montant: number; tags: string[] };
 export type TransactionsMois = { depenses: Depense[]; revenus: Revenu[] };
+
+/** Ligne de recherche : `nom` = catégorie (dépense) ou source (revenu) */
+export type ResultatRecherche = {
+  type: 'depenses' | 'revenus'; id: number; date: string; nom: string; description: string; montant: number; tags: string[];
+};
+export type Recherche = { resultats: ResultatRecherche[]; nb: number; total_depenses: number; total_revenus: number };
+export type Suggestion = { description: string; montant: number };
+export type ResumeTag = { tag: string; nb: number; depenses: number; revenus: number; premier: string; dernier: string };
+/** Budget d'une catégorie à partir d'un mois (AAAA-MM ; 1900-01 = depuis toujours) */
+export type BudgetHistorique = { mois_debut: string; budget: number; fixe: boolean };
+export type LigneImport = { type: 'depense' | 'revenu'; date: string; nom: string; description: string; montant: number; tags: string[] };
+export type ResultatImport = {
+  statuts: { statut: 'ajoutee' | 'doublon' | 'erreur'; message: string }[];
+  nb_ajoutees: number; nb_doublons: number; nb_erreurs: number; simulation: boolean;
+};
 
 type PartCategorie = { cat: string; montant: number };
 type TopDepense = { date: string; categorie: string; description: string; montant: number };
@@ -16,6 +32,8 @@ export type ResumeJour = {
   date: string;
   total_depenses: number;
   total_revenus: number;
+  depenses_variables: number;
+  charges_fixes: boolean;
   depenses_veille: number;
   nb_transactions: number;
   moyenne_jour_mois: number;
@@ -31,8 +49,13 @@ export type ResumeSemaine = {
   total_depenses: number;
   total_revenus: number;
   epargne: number;
+  /** semaine précédente jusqu'au même jour si `comparaison_partielle` */
   depenses_semaine_precedente: number;
   revenus_semaine_precedente: number;
+  depenses_semaine_precedente_totale: number;
+  comparaison_partielle: boolean;
+  depenses_variables: number;
+  charges_fixes: boolean;
   budget_hebdo: number;
   reste_budget_hebdo: number;
   par_jour: { date: string; dep: number; rev: number }[];
@@ -50,8 +73,14 @@ export type ResumeMois = {
   objectif_epargne: number;
   budget_total: number;
   reste_budget: number;
+  /** mois précédent jusqu'au jour `jour_comparaison` s'il est renseigné */
   depenses_mois_precedent: number;
   revenus_mois_precedent: number;
+  depenses_mois_precedent_total: number;
+  revenus_mois_precedent_total: number;
+  jour_comparaison: number | null;
+  depenses_variables: number;
+  charges_fixes: boolean;
   projection_fin_mois: number | null;
   budget_vs_reel: { cat: string; budget: number; reel: number; pct: number }[];
   cumul_quotidien: number[];
@@ -67,15 +96,17 @@ export type ResumeAnnee = {
   total_revenus: number;
   epargne: number;
   taux_epargne: number;
+  /** statistiques sur les mois terminés uniquement */
   moyenne_dep_mois: number;
   nb_mois_actifs: number;
   nb_mois_objectif: number;
+  mois_en_cours: number | null;
   objectif_epargne: number;
   meilleur_mois: MoisAnnee | null;
   pire_mois: MoisAnnee | null;
   par_mois: MoisAnnee[];
   epargne_cumulee: number[];
-  categories: { cat: string; total: number; budget_annuel: number; pct: number }[];
+  categories: { cat: string; total: number; budget_annuel: number; budget_a_date: number; pct: number }[];
   grille: Record<string, number[]>;
 };
 
@@ -138,6 +169,27 @@ export type Position = {
   isin: string | null;
   cours_manuel: boolean;        // saisi à la main : verrouillé jusqu'à remise en automatique
   cours_maj_le: string | null;
+  dividendes_12m: number;
+  rendement_cout: number;       // ratio
+  rendement_marche: number;     // ratio
+};
+
+export type CibleSecteur = { secteur: string; cible: number };   // cible : ratio (0,25 = 25 %)
+
+export type Fiscalite = {
+  annee: number;
+  nb_ventes: number;
+  montant_cessions: number;
+  plus_values_brutes: number;
+  moins_values_brutes: number;
+  resultat_cessions: number;
+  tpcvm_retenue: number;
+  taux_tpcvm: number;
+  tpcvm_theorique: number;
+  ecart_tpcvm: number;
+  dividendes_nets: number;
+  frais_compte: number;
+  par_titre: { titre: string; nb_ventes: number; cessions: number; gain_brut: number; tpcvm: number; dividendes: number }[];
 };
 
 export type Gain = {
@@ -191,7 +243,18 @@ export type Livre = {
   pages: number | null;
   note: number | null;
   commentaire: string;
+  isbn: string;
+  couverture: string;
+  nb_notes: number;
 };
+
+/** Livre à lire ; `date_debut` renseignée = en cours de lecture */
+export type ALire = {
+  id: number; titre: string; auteur: string; genre: string; pages: number | null; isbn: string; couverture: string;
+  commentaire: string; date_debut: string | null; nb_notes: number;
+};
+export type NoteLecture = { id: number; livre_id: number | null; a_lire_id: number | null; type: 'note' | 'citation'; texte: string; page: number | null };
+export type FicheIsbn = { isbn: string; titre: string; auteur: string; pages: number | null; couverture: string };
 
 export type Genre = { id: number; nom: string };
 export type ObjectifsLecture = { annuel: number; mensuel: number };

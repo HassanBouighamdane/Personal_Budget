@@ -9,27 +9,31 @@ import { IconBook, IconCalendar, IconPencil } from '@tabler/icons-react';
 
 import { toast } from '../../lib/api';
 import { auj, dateFr, MOIS_FR } from '../../lib/format';
-import type { Livre } from '../../lib/types';
+import type { ALire, Livre } from '../../lib/types';
 import { useAuteurs, useEcriture, useGenres, useLivres } from '../../lib/queries';
 import { ChampDate } from '../../components/champs';
 import { BoutonSuppr, Carte, Chargement, confirmer, Pastille, Vide } from '../../components/ui';
+import { BoutonNotes, ChampIsbn, Couverture, ouvrirNotes } from './communs';
 
-/* ---------- Formulaire (ajout, ou modification dans une fenêtre) ---------- */
-function FormLivre({ livre, onTermine }: { livre?: Livre; onTermine?: () => void }) {
+/* ---------- Formulaire (ajout, modification dans une fenêtre, ou livre « à lire » terminé) ---------- */
+export function FormLivre({ livre, depuis, onTermine }: { livre?: Livre; depuis?: ALire; onTermine?: () => void }) {
   const ecrire = useEcriture('lectures');
   const { data: genres } = useGenres();
   const { data: auteurs } = useAuteurs();
-  const [titre, setTitre] = useState(livre?.titre ?? '');
-  const [auteur, setAuteur] = useState(livre?.auteur ?? '');
-  const [genre, setGenre] = useState<string | null>(livre?.genre || null);
-  const [dateDebut, setDateDebut] = useState<string | null>(livre?.date_debut ?? null);
+  const base = livre ?? depuis;
+  const [isbn, setIsbn] = useState(base?.isbn ?? '');
+  const [couverture, setCouverture] = useState(base?.couverture ?? '');
+  const [titre, setTitre] = useState(base?.titre ?? '');
+  const [auteur, setAuteur] = useState(base?.auteur ?? '');
+  const [genre, setGenre] = useState<string | null>(base?.genre || null);
+  const [dateDebut, setDateDebut] = useState<string | null>(base?.date_debut ?? null);
   const [dateFin, setDateFin] = useState(livre?.date_fin ?? auj());
-  const [pages, setPages] = useState<string | number>(livre?.pages ?? '');
+  const [pages, setPages] = useState<string | number>(base?.pages ?? '');
   const [note, setNote] = useState(livre?.note ?? 0);
-  const [commentaire, setCommentaire] = useState(livre?.commentaire ?? '');
+  const [commentaire, setCommentaire] = useState(base?.commentaire ?? '');
 
   // Un genre désactivé depuis reste proposé pour le livre qui le porte déjà
-  const nomsGenres = [...new Set([...(genres ?? []).map(g => g.nom), ...(livre?.genre ? [livre.genre] : [])])];
+  const nomsGenres = [...new Set([...(genres ?? []).map(g => g.nom), ...(base?.genre ? [base.genre] : [])])];
 
   function enregistrer() {
     if (!titre.trim()) return toast('Indique le titre', false);
@@ -37,15 +41,18 @@ function FormLivre({ livre, onTermine }: { livre?: Livre; onTermine?: () => void
     const p = typeof pages === 'number' ? pages : parseInt(pages);
     const body = {
       titre: titre.trim(), auteur: auteur.trim(), genre: genre ?? '', date_debut: dateDebut, date_fin: dateFin,
-      pages: p > 0 ? p : null, note: note || null, commentaire: commentaire.trim(),
+      pages: p > 0 ? p : null, note: note || null, commentaire: commentaire.trim(), isbn: isbn.trim(), couverture,
     };
     ecrire.mutate(
-      livre
-        ? { path: `/api/lectures/livres/${livre.id}`, method: 'PUT', body, succes: 'Livre modifié ✓' }
+      livre ? { path: `/api/lectures/livres/${livre.id}`, method: 'PUT', body, succes: 'Livre modifié ✓' }
+        : depuis ? { path: `/api/lectures/a_lire/${depuis.id}/terminer`, method: 'POST', body, succes: 'Livre terminé ✓ Bravo !' }
         : { path: '/api/lectures/livres', method: 'POST', body, succes: 'Livre ajouté ✓ Bonne lecture pour la suite !' },
       {
         onSuccess: () => {
-          if (!livre) { setTitre(''); setAuteur(''); setGenre(null); setDateDebut(null); setPages(''); setNote(0); setCommentaire(''); }
+          if (!livre && !depuis) {
+            setTitre(''); setAuteur(''); setGenre(null); setDateDebut(null); setPages(''); setNote(0); setCommentaire('');
+            setIsbn(''); setCouverture('');
+          }
           onTermine?.();
         },
       },
@@ -54,6 +61,16 @@ function FormLivre({ livre, onTermine }: { livre?: Livre; onTermine?: () => void
 
   return (
     <Stack gap="sm">
+      <Group gap="sm" wrap="nowrap" align="flex-start">
+        <Box style={{ flex: 1 }}>
+          <ChampIsbn value={isbn} onChange={setIsbn} onFiche={f => {
+            setIsbn(f.isbn); setTitre(f.titre); setCouverture(f.couverture);
+            if (f.auteur) setAuteur(f.auteur);
+            if (f.pages) setPages(f.pages);
+          }} />
+        </Box>
+        <Couverture url={couverture} largeur={48} />
+      </Group>
       <TextInput label="Titre" placeholder="ex : L'Étranger" value={titre} onChange={e => setTitre(e.currentTarget.value)} />
       <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
         <Autocomplete label="Auteur" placeholder="ex : Albert Camus" data={auteurs ?? []} value={auteur} onChange={setAuteur} limit={20} />
@@ -78,7 +95,7 @@ function FormLivre({ livre, onTermine }: { livre?: Livre; onTermine?: () => void
       </SimpleGrid>
       <Textarea label="Note personnelle (optionnel)" placeholder="Ce que tu en retiens, une citation…" autosize minRows={2} maxRows={6}
                 value={commentaire} onChange={e => setCommentaire(e.currentTarget.value)} />
-      <Button mt="xs" onClick={enregistrer} loading={ecrire.isPending}>{livre ? 'Enregistrer' : 'Ajouter le livre'}</Button>
+      <Button mt="xs" onClick={enregistrer} loading={ecrire.isPending}>{livre ? 'Enregistrer' : depuis ? 'Terminé !' : 'Ajouter le livre'}</Button>
     </Stack>
   );
 }
@@ -98,7 +115,7 @@ function LigneLivre({ l }: { l: Livre }) {
   const details = [l.auteur, l.genre, l.pages ? `${l.pages} pages` : ''].filter(Boolean).join(' · ');
   return (
     <Group className="ligne-op" wrap="nowrap" gap="sm" px={6} py={8} align="flex-start">
-      <Pastille icone={IconBook} couleur="marque" taille={34} />
+      {l.couverture ? <Couverture url={l.couverture} /> : <Pastille icone={IconBook} couleur="marque" taille={34} />}
       <Box style={{ flex: 1, minWidth: 0 }}>
         <Text fz="sm" fw={600} truncate>{l.titre}</Text>
         {details && <Text fz="xs" c="dimmed" truncate>{details}</Text>}
@@ -108,6 +125,7 @@ function LigneLivre({ l }: { l: Livre }) {
         {l.note ? <Rating value={l.note} readOnly size="xs" /> : null}
         <Text fz="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{dateFr(l.date_fin, false)}</Text>
       </Stack>
+      <BoutonNotes nb={l.nb_notes} onClick={() => ouvrirNotes(l.titre, { livre_id: l.id })} />
       <Tooltip label="Modifier" withArrow>
         <ActionIcon variant="subtle" color="gray" onClick={() => modifier(l)} aria-label="Modifier" className="suppr">
           <IconPencil size={16} stroke={1.7} />

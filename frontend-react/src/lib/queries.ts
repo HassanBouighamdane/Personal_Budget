@@ -5,8 +5,9 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 
 import { api, apiSilencieux, toast } from './api';
 import type {
-  BilanLecture, Config, CoursActualisation, DashboardBourse, Dividende, FraisBourse, Gain, Genre, Livre, Mouvement, ObjectifsLecture, Position,
-  ResumeAnnee, ResumeGlobal, ResumeJour, ResumeMois, ResumeSemaine, Titre, TransactionBourse, TransactionsMois,
+  ALire, BilanLecture, BudgetHistorique, CibleSecteur, Config, CoursActualisation, DashboardBourse, Dividende, Fiscalite, FraisBourse, Gain, Genre,
+  Livre, Mouvement, NoteLecture, ObjectifsLecture, Position, Recherche, ResumeAnnee, ResumeGlobal, ResumeJour, ResumeMois, ResumeSemaine, ResumeTag,
+  Suggestion, Titre, TransactionBourse, TransactionsMois,
 } from './types';
 
 type Module = 'budget' | 'bourse' | 'lectures';
@@ -24,6 +25,20 @@ export const useResumeJour = (date: string) => lire<ResumeJour>(['budget', 'jour
 export const useResumeSemaine = (date: string) => lire<ResumeSemaine>(['budget', 'semaine', date], '/api/resume_semaine?date=' + date);
 export const useResumeAnnee = (annee: number) => lire<ResumeAnnee>(['budget', 'annee', annee], '/api/resume_annuel?annee=' + annee);
 export const useResumeGlobal = () => lire<ResumeGlobal>(['budget', 'global'], '/api/resume_global');
+export const useRecherche = (q: string, decalage: number) => useQuery({
+  queryKey: ['budget', 'recherche', q, decalage],
+  queryFn: () => api<Recherche>(`/api/recherche?q=${encodeURIComponent(q)}&limite=50&decalage=${decalage}`),
+  placeholderData: keepPreviousData,
+  enabled: q.trim().length > 0,
+});
+/** Dernières descriptions d'une catégorie / source (aucune requête sans nom choisi) */
+export const useSuggestions = (type: 'depenses' | 'revenus', nom: string | null) => useQuery({
+  queryKey: ['budget', 'suggestions', type, nom],
+  queryFn: () => apiSilencieux<Suggestion[]>(`/api/suggestions?type=${type}&nom=${encodeURIComponent(nom ?? '')}`),
+  enabled: !!nom,
+});
+export const useTags = () => lire<ResumeTag[]>(['budget', 'tags'], '/api/tags');
+export const useHistoriqueBudget = (cid: number) => lire<BudgetHistorique[]>(['budget', 'historique', cid], `/api/categories/${cid}/historique`);
 
 /* ---------- Bourse ---------- */
 export const useTransactionsBourse = () => lire<TransactionBourse[]>(['bourse', 'transactions'], '/api/bourse/transactions');
@@ -33,6 +48,8 @@ export const useDividendes = () => lire<Dividende[]>(['bourse', 'dividendes'], '
 export const useFraisBourse = () => lire<FraisBourse[]>(['bourse', 'frais'], '/api/bourse/frais');
 export const useMouvements = () => lire<Mouvement[]>(['bourse', 'mouvements'], '/api/bourse/mouvements');
 export const useTitres = () => lire<Titre[]>(['bourse', 'titres'], '/api/bourse/titres');
+export const useCibles = () => lire<CibleSecteur[]>(['bourse', 'cibles'], '/api/bourse/cibles');
+export const useFiscalite = (annee: number) => lire<Fiscalite>(['bourse', 'fiscalite', annee], '/api/bourse/fiscalite?annee=' + annee);
 export const useDashboardBourse = (requete: string) =>
   lire<DashboardBourse>(['bourse', 'dashboard', requete], '/api/bourse/dashboard' + (requete ? '?' + requete : ''));
 
@@ -74,6 +91,9 @@ export const useAuteurs = () => lire<string[]>(['lectures', 'auteurs'], '/api/le
 export const useGenres = () => lire<Genre[]>(['lectures', 'genres'], '/api/lectures/genres');
 export const useObjectifsLecture = () => lire<ObjectifsLecture>(['lectures', 'objectifs'], '/api/lectures/objectifs');
 export const useBilanLecture = (annee: number) => lire<BilanLecture>(['lectures', 'bilan', annee], '/api/lectures/bilan?annee=' + annee);
+export const useALire = () => lire<ALire[]>(['lectures', 'a_lire'], '/api/lectures/a_lire');
+/** Notes d'un livre terminé (`livre_id=…`) ou à lire (`a_lire_id=…`) */
+export const useNotes = (filtre: string) => lire<NoteLecture[]>(['lectures', 'notes', filtre], '/api/lectures/notes?' + filtre);
 
 /* ---------- Écritures ---------- */
 type Ecriture = { path: string; method: string; body?: unknown; succes?: string };
