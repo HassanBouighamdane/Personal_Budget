@@ -219,7 +219,7 @@ Ces modèles valident automatiquement les données reçues. En cas d'échec, Fas
 ### 3.5 `app.py` — point d'entrée
 
 1. Ajoute `backend/` au `sys.path`, pour que l'application se lance depuis n'importe quel dossier.
-2. Appelle `init_db()`.
+2. Déclare le cycle de vie (`lifespan`) : `init_db()` et `remplir_tpcvm_manquantes()` s'exécutent au démarrage du serveur, pas à l'import du module ; le pool de connexions est fermé à l'arrêt. Importer `app` (tests, build Vercel) ne touche donc pas la base.
 3. Crée l'application FastAPI. CORS n'est activé que si `CORS_ORIGINS` est renseigné, et seulement pour ces origines.
 4. Branche les 6 routeurs.
 5. Monte `FRONT_DIR` sur `/` **après** les routes API, pour que `/api/...` reste prioritaire.

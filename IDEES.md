@@ -24,10 +24,9 @@ From a review of the code on 2026-10-05, updated on 2026-10-10. Everything below
 
 ## 5. Backend best practices
 
-- **Real migrations** (M): `init_db()` runs all the DDL at import time, on every start, with no record of what ran. A `schema_version` table plus numbered SQL files in `backend/migrations/` (applied in order, once) is enough without an ORM, and makes data migrations (like the `TEXT` dates) safe.
+- **Real migrations** (M): `init_db()` runs all the DDL on every start (every cold start on Vercel), with no record of what ran. A `schema_version` table plus numbered SQL files in `backend/migrations/` (applied in order, once) is enough without an ORM, and makes data migrations (like the `TEXT` dates) safe.
 - **`DATE` and `NUMERIC` in the Budget tables** (M): Bourse already uses them. `DOUBLE PRECISION` amounts accumulate rounding errors. Do it as the first real migration; `rapports.py` now has its first tests, extend them to the day and global views before.
 - **Foreign keys instead of manual cascades** (M): `depenses.categorie`, `revenus.source` and Bourse `titre` reference names without constraints, and renames are cascaded by hand. `FOREIGN KEY ... ON UPDATE CASCADE` on the name would replace the `_verifier_categorie` and `_valider_titre` checks and the rename code. (`budgets_historique` already uses the category id.)
-- **`lifespan` instead of `@app.on_event`** (S): `on_event` is deprecated in FastAPI. Move `init_db()` and the pool close into a `lifespan` function, so importing `app` (in tests) no longer touches the database.
 - **Health check** (S): `GET /api/health` doing `SELECT 1`, for Render's health check and uptime monitoring.
 - **Logging** (S): no logging is configured; a 500 on Render leaves only a stack trace. Log unhandled exceptions with the route, and the start-up migrations.
 - **`updated_at` columns** (S): only `depenses` and `revenus` have `cree_le`. A modification date on every table helps debugging and any future sync or export.
@@ -76,6 +75,8 @@ Built on 2026-10-10, with tests in `backend/tests/` and checked in a browser.
 - **Lectures: notes and quotes** per book (page, note or quote), also while reading.
 - **Lectures: ISBN lookup** from Open Library (title, author, pages, cover, checksum validated), on both forms; covers shown in the lists.
 - **URL navigation**: tab, view and period in the address; refresh keeps the page, back/forward work, views can be bookmarked.
+- **Startup in `lifespan`**: `init_db()` and the pool close moved from import time / `@app.on_event` into FastAPI's lifespan, so importing `app` no longer touches the database (needed for Vercel's build).
+- **Vercel hosting**: `pyproject.toml`, `vercel.json` and DEPLOY_VERCEL.md, alongside Render.
 - **Old frontend removed**: `frontend/` (HTML/JS, no longer maintained) is deleted; the server only serves `frontend-react/dist/` and prints a warning if it is missing.
 
 **Bugs**

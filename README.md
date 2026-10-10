@@ -97,6 +97,8 @@ cd backend && gunicorn app:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$
 
 Pense à définir `COOKIE_SECURE=true` quand le site est servi en HTTPS.
 
+L'application peut aussi être hébergée gratuitement sur Vercel, sans mise en veille d'une minute : voir [DEPLOY_VERCEL.md](DEPLOY_VERCEL.md). Vercel lit `pyproject.toml` et `vercel.json` à la racine ; Render les ignore.
+
 ## Structure du projet
 
 ```

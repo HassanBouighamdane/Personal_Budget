@@ -16,8 +16,10 @@ Architecture modulaire :
 
 Installation :  pip install -r requirements.txt
 Lancement    :  python app.py
+Hébergement  :  Render (gunicorn, cf. README) ou Vercel (pyproject.toml + vercel.json, cf. DEPLOY_VERCEL.md)
 """
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 # Garantit que le dossier backend/ est dans le chemin des modules,
@@ -32,10 +34,17 @@ from config import FRONT_DIR, DATABASE_URL, PORT, CORS_ORIGINS
 from database import init_db, _pool
 from routes import auth, configuration, transactions, rapports, bourse, lectures
 
-init_db()
-bourse.remplir_tpcvm_manquantes()
+@asynccontextmanager
+async def cycle_de_vie(_app: FastAPI):
+    """Au démarrage du serveur (et non à l'import du module) : schéma de la base et migrations.
+    Importer `app` (tests, analyse du build Vercel) ne touche donc plus la base de données."""
+    init_db()
+    bourse.remplir_tpcvm_manquantes()
+    yield
+    _pool.close()
 
-app = FastAPI(title="Mon Budget — API", version="2.2")
+
+app = FastAPI(title="Mon Budget — API", version="2.2", lifespan=cycle_de_vie)
 
 # CORS fermé par défaut : le frontend est servi par ce même serveur (même origine), il n'en
 # a pas besoin. N'ouvre l'API qu'aux origines listées explicitement dans CORS_ORIGINS.
@@ -60,10 +69,6 @@ if (FRONT_DIR / "index.html").exists():
     app.mount("/", StaticFiles(directory=FRONT_DIR, html=True), name="frontend")
 else:
     print(f"⚠️  Frontend introuvable ({FRONT_DIR}) : lance « npm run build » dans frontend-react/. L'API reste disponible.")
-
-@app.on_event("shutdown")
-def fermer_pool():
-    _pool.close()
 
 if __name__ == "__main__":
     import uvicorn
