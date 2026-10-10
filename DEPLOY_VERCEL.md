@@ -107,13 +107,13 @@ Open the Vercel address on your computer **and your phone**, then check:
 
 **If something goes wrong**, look at the logs: Vercel project → **Logs**. On the free plan they are kept for **1 hour only**, so check right after the problem.
 
-## Optional — Reminders and the weekly summary
+## Optional — Reminders and the weekly and monthly summaries
 
-The app can send deadline reminders every morning and a summary of your week every Monday, by Telegram or e-mail. `vercel.json` already schedules the daily call (`/api/cron/quotidien` at 07:00 UTC; on the Hobby plan it runs once a day, some time within that hour).
+The app can send deadline reminders every morning, a summary of your week every Monday and a summary of the past month on the 1st, by Telegram or e-mail. `vercel.json` already schedules the daily call (`/api/cron/quotidien` at 07:00 UTC; on the Hobby plan it runs once a day, some time within that hour).
 
 1. Get your Telegram token and chat id, or a Gmail app password: see DOCUMENTATION.md §10, "Configurer l'envoi".
 2. In **Settings → Environment Variables**, add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` (or the `SMTP_…` variables), plus `CRON_SECRET` with a long random value. Vercel sends this secret with each scheduled call by itself.
-3. **Redeploy**, then open **Paramètres → Rappels et résumé hebdomadaire**: the three badges should be green. "Aperçu" shows the message, and "Envoyer maintenant" sends it to you.
+3. **Redeploy**, then open **Paramètres → Rappels et résumés**: the three badges should be green. "Aperçu et envoi" shows the weekly or monthly message, and "Envoyer maintenant" sends it to you.
 
 If Render is still running on the same database, only one of the two sends each day's messages.
 

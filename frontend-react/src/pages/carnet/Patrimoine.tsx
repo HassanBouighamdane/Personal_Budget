@@ -1,0 +1,310 @@
+/* Carnet — patrimoine net : liquidités, Bourse, autres actifs (valeur saisie à la main), dettes et prêts.
+ * Deux indicateurs en découlent : la réserve de sécurité et une estimation de la zakat. */
+import { useEffect, useState, type ReactNode } from 'react';
+import {
+  ActionIcon, Alert, Badge, Box, Button, Checkbox, Divider, Grid, Group, Progress, Select, SimpleGrid, Stack, Text, TextInput, Tooltip,
+} from '@mantine/core';
+import { DatePickerInput } from '@mantine/dates';
+import { modals } from '@mantine/modals';
+import { IconBuildingBank, IconCoin, IconInfoCircle, IconMoonStars, IconPencil, IconShieldCheck, IconWallet } from '@tabler/icons-react';
+
+import { toast } from '../../lib/api';
+import { auj, dateFr, fmt, lireMontant } from '../../lib/format';
+import { T, signe } from '../../lib/palette';
+import type { Actif, Patrimoine } from '../../lib/types';
+import { useEcriture, usePatrimoine } from '../../lib/queries';
+import { ChampDate, ChampMontant } from '../../components/champs';
+import { BoutonSuppr, Carte, Chargement, confirmer, Info, Kpi, Pastille, Vide } from '../../components/ui';
+
+const texte = (n: number) => String(n).replace('.', ',');
+const nombre = (n: number) => String(n).replace('.', ',');
+
+/* ---------- Autres actifs ---------- */
+function FormActif({ p, existant, onTermine }: { p: Patrimoine; existant?: Actif; onTermine?: () => void }) {
+  const ecrire = useEcriture('patrimoine');
+  const [nom, setNom] = useState(existant?.nom ?? '');
+  const [type, setType] = useState(existant?.type ?? p.types_actifs[0].type);
+  const [valeur, setValeur] = useState(existant ? texte(existant.valeur) : '');
+  const [verse, setVerse] = useState(existant?.verse ? texte(existant.verse) : '');
+  const [zakat, setZakat] = useState(existant?.zakat ?? p.types_actifs[0].zakat);
+  const [date, setDate] = useState(existant?.maj_le ?? auj());
+  const [note, setNote] = useState(existant?.note ?? '');
+  const types = [...new Set([...p.types_actifs.map(t => t.type), ...(existant ? [existant.type] : [])])];
+
+  function enregistrer() {
+    const v = lireMontant(valeur);
+    const s = verse.trim() ? lireMontant(verse) : 0;
+    if (!nom.trim()) return toast('Indique le nom', false);
+    if (isNaN(v) || v < 0) return toast('Valeur invalide', false);
+    if (isNaN(s) || s < 0) return toast('Montant versé invalide', false);
+    const body = { nom: nom.trim(), type, valeur: v, verse: s, zakat, maj_le: date, note: note.trim() };
+    ecrire.mutate(
+      existant ? { path: `/api/patrimoine/actifs/${existant.id}`, method: 'PUT', body, succes: 'Actif mis à jour ✓' }
+               : { path: '/api/patrimoine/actifs', method: 'POST', body, succes: 'Actif ajouté ✓' },
+      { onSuccess: () => { if (!existant) { setNom(''); setValeur(''); setVerse(''); setNote(''); } onTermine?.(); } },
+    );
+  }
+
+  return (
+    <Stack gap="sm">
+      <TextInput label="Nom" placeholder="ex : Livret CIH, lingot 10 g, appartement" value={nom} onChange={e => setNom(e.currentTarget.value)} maxLength={100} />
+      <Select label="Type" data={types} value={type} allowDeselect={false}
+              onChange={v => { if (v) { setType(v); setZakat(p.types_actifs.find(t => t.type === v)?.zakat ?? zakat); } }} />
+      <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
+        <ChampMontant label="Valeur actuelle" value={valeur} onChange={setValeur} />
+        <ChampDate label="Valeur relevée le" value={date} onChange={setDate} />
+      </SimpleGrid>
+      <ChampMontant label="Argent versé depuis ton épargne" placeholder="0" value={verse} onChange={setVerse}
+                    description="Ce que tu y as mis sans le saisir en dépense. Laisse vide s'il date d'avant l'application, ou si tu l'as saisi en dépense." />
+      <Checkbox label="Compte pour la zakat" checked={zakat} onChange={e => setZakat(e.currentTarget.checked)} />
+      <TextInput label="Note (optionnel)" value={note} onChange={e => setNote(e.currentTarget.value)} maxLength={1000} />
+      <Button mt="xs" onClick={enregistrer} loading={ecrire.isPending}>{existant ? 'Enregistrer' : "Ajouter l'actif"}</Button>
+    </Stack>
+  );
+}
+
+function LigneActif({ a, p }: { a: Actif; p: Patrimoine }) {
+  const ecrire = useEcriture('patrimoine');
+  const gain = a.verse > 0 ? a.valeur - a.verse : null;
+  const ouvrir = (titre: string, contenu: (fermer: () => void) => ReactNode) => {
+    const id = modals.open({ title: <Text fw={650}>{titre}</Text>, centered: true, children: contenu(() => modals.close(id)) });
+  };
+  return (
+    <Group className="ligne-op" wrap="nowrap" gap="sm" px={6} py={8} align="flex-start">
+      <Pastille icone={IconCoin} couleur="marque" taille={34} />
+      <Box style={{ flex: 1, minWidth: 0 }}>
+        <Group justify="space-between" wrap="nowrap" gap="xs">
+          <Text fz="sm" fw={600} truncate>{a.nom}</Text>
+          <Text fz="sm" fw={700} className="chiffre" style={{ whiteSpace: 'nowrap' }}>{fmt(a.valeur)}</Text>
+        </Group>
+        <Text fz="xs" c="dimmed" truncate>{a.type} · valeur du {dateFr(a.maj_le)}</Text>
+        {a.note && <Text fz="xs" c="dimmed" fs="italic" lineClamp={2} mt={2}>{a.note}</Text>}
+        {gain !== null && (
+          <Badge size="xs" variant="light" color={gain >= 0 ? 'emeraude' : 'rouge'} mt={4}>
+            {gain >= 0 ? '+' : '−'}{fmt(Math.abs(gain))} sur {fmt(a.verse)} versés
+          </Badge>
+        )}
+      </Box>
+      <Group gap={0} wrap="nowrap">
+        <Tooltip label="Mettre à jour" withArrow>
+          <ActionIcon variant="subtle" color="gray" className="suppr" aria-label="Mettre à jour"
+                      onClick={() => ouvrir(a.nom, fermer => <FormActif p={p} existant={a} onTermine={fermer} />)}>
+            <IconPencil size={16} stroke={1.7} />
+          </ActionIcon>
+        </Tooltip>
+        <BoutonSuppr onClick={() => confirmer(`Supprimer « ${a.nom} » de ton patrimoine ?`, () =>
+          ecrire.mutate({ path: `/api/patrimoine/actifs/${a.id}`, method: 'DELETE', succes: 'Actif supprimé' }))} />
+      </Group>
+    </Group>
+  );
+}
+
+/* ---------- Composition ---------- */
+function Composition({ p }: { p: Patrimoine }) {
+  const lignes: { nom: string; aide: string; valeur: number }[] = [
+    { nom: 'Liquidités', aide: 'Solde de départ + épargne du Budget, moins ce qui est parti en Bourse, dans tes actifs ou en prêts', valeur: p.liquidites },
+    { nom: 'Compte Bourse', aide: 'Titres à leur valeur de marché + espèces', valeur: p.bourse },
+    { nom: 'Autres actifs', aide: 'Valeurs saisies ci-dessous', valeur: p.autres_actifs },
+    { nom: 'On me doit', aide: 'Prêts en cours (onglet Dettes et prêts)', valeur: p.creances },
+    { nom: 'Je dois', aide: 'Emprunts en cours', valeur: -p.dettes },
+  ].filter(l => l.valeur !== 0);
+  const base = lignes.reduce((s, l) => s + Math.abs(l.valeur), 0) || 1;
+  return (
+    <Stack gap="sm">
+      {!lignes.length && <Info>Rien à afficher pour l'instant.</Info>}
+      {lignes.map(l => (
+        <Box key={l.nom}>
+          <Group justify="space-between" wrap="nowrap" gap="xs">
+            <Tooltip label={l.aide} multiline w={260} withArrow><Text fz="sm">{l.nom}</Text></Tooltip>
+            <Text fz="sm" fw={600} className="chiffre" c={l.valeur < 0 ? T.neg : undefined}>{fmt(l.valeur)}</Text>
+          </Group>
+          <Progress value={Math.abs(l.valeur) / base * 100} color={l.valeur < 0 ? 'rouge' : 'marque'} size={6} radius="xl" mt={4} />
+        </Box>
+      ))}
+    </Stack>
+  );
+}
+
+/* ---------- Réglages : solde de départ ---------- */
+function reglages(p: Patrimoine) {
+  return { solde_depart: p.solde_depart, prix_or_gramme: p.zakat.prix_or_gramme, debut_hawl: p.zakat.debut_hawl };
+}
+
+function SoldeDepart({ p }: { p: Patrimoine }) {
+  const ecrire = useEcriture('patrimoine');
+  const [solde, setSolde] = useState(texte(p.solde_depart));
+  useEffect(() => setSolde(texte(p.solde_depart)), [p.solde_depart]);
+  function enregistrer() {
+    const v = solde.trim() ? lireMontant(solde) : 0;
+    if (isNaN(v)) return toast('Montant invalide', false);
+    ecrire.mutate({ path: '/api/patrimoine/reglages', method: 'PUT', body: { ...reglages(p), solde_depart: v }, succes: 'Solde de départ enregistré ✓' });
+  }
+  return (
+    <Stack gap="xs">
+      <Group gap="xs" wrap="nowrap" align="flex-end">
+        <ChampMontant label="Solde de départ" style={{ flex: 1 }} value={solde} onChange={setSolde} />
+        <Button variant="default" onClick={enregistrer} loading={ecrire.isPending}>Enregistrer</Button>
+      </Group>
+      <Info>L'argent que tu avais déjà (banque, espèces) avant ta première saisie dans l'application : sans lui, tes liquidités ne comptent que l'épargne faite depuis.</Info>
+    </Stack>
+  );
+}
+
+/* ---------- Réserve de sécurité ---------- */
+function Reserve({ p }: { p: Patrimoine }) {
+  const r = p.reserve;
+  if (r.mois_couverts === null) {
+    return <Info>Il faut au moins un mois terminé avec des dépenses pour estimer combien de temps ton argent te ferait tenir.</Info>;
+  }
+  const couleur = r.mois_couverts >= 6 ? 'emeraude' : r.mois_couverts >= 3 ? 'ambre' : 'rouge';
+  const conseil = r.mois_couverts >= 6 ? 'Réserve confortable : au-delà de 6 mois, le surplus peut travailler ailleurs.'
+    : r.mois_couverts >= 3 ? 'Réserve correcte. On vise en général entre 3 et 6 mois de dépenses.'
+    : `Réserve fragile : il manque ${fmt(Math.max(0, r.depense_moyenne * 3 - r.disponible))} pour atteindre 3 mois de dépenses.`;
+  return (
+    <Stack gap="sm">
+      <Text fz="sm">
+        Ton argent disponible couvre <Text span fw={700} className="chiffre">{nombre(r.mois_couverts)} mois</Text> de dépenses.
+      </Text>
+      <Progress value={Math.min(100, r.mois_couverts / 6 * 100)} color={couleur} size={10} radius="xl" />
+      <Info>
+        {fmt(r.disponible)} disponibles (liquidités et comptes épargne), pour {fmt(r.depense_moyenne)} dépensés par mois en moyenne
+        sur {r.nb_mois_base === 1 ? 'le dernier mois terminé' : `les ${r.nb_mois_base} derniers mois terminés`}. {conseil}
+      </Info>
+    </Stack>
+  );
+}
+
+/* ---------- Zakat ---------- */
+function Zakat({ p }: { p: Patrimoine }) {
+  const z = p.zakat;
+  const ecrire = useEcriture('patrimoine');
+  const [prix, setPrix] = useState(z.prix_or_gramme ? texte(z.prix_or_gramme) : '');
+  const [debut, setDebut] = useState<string | null>(z.debut_hawl);
+  useEffect(() => { setPrix(z.prix_or_gramme ? texte(z.prix_or_gramme) : ''); setDebut(z.debut_hawl); }, [z.prix_or_gramme, z.debut_hawl]);
+
+  function enregistrer(nouveauDebut: string | null = debut, succes = 'Réglages de la zakat enregistrés ✓') {
+    const v = prix.trim() ? lireMontant(prix) : 0;
+    if (isNaN(v) || v < 0) return toast("Prix de l'or invalide", false);
+    ecrire.mutate({ path: '/api/patrimoine/reglages', method: 'PUT', body: { ...reglages(p), prix_or_gramme: v, debut_hawl: nouveauDebut }, succes });
+  }
+  const detail: [string, number][] = [
+    ['Liquidités', z.detail.liquidites], ['Compte Bourse', z.detail.bourse], ['Actifs cochés', z.detail.actifs],
+    ['On me doit', z.detail.creances], ['Je dois', -z.detail.dettes],
+  ];
+
+  return (
+    <Stack gap="sm">
+      <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
+        <ChampMontant label="Prix du gramme d'or" value={prix} onChange={setPrix} />
+        <DatePickerInput label="Début de l'année en cours" placeholder="—"
+                         value={debut} onChange={setDebut} clearable valueFormat="DD/MM/YYYY" maxDate={auj()} popoverProps={{ withinPortal: true }} />
+      </SimpleGrid>
+      <Group gap="sm" wrap="nowrap" align="flex-start">
+        <Button variant="default" onClick={() => enregistrer()} loading={ecrire.isPending} style={{ flexShrink: 0 }}>Enregistrer</Button>
+        <Text fz="xs" c="dimmed" lh={1.5}>Le nisab vaut 85 g d'or. L'année démarre le jour où ton avoir l'a atteint, ou à ta dernière zakat.</Text>
+      </Group>
+
+      {z.nisab === null ? <Info>Indique le prix du gramme d'or pour comparer ton avoir au nisab.</Info> : (
+        <>
+          <Divider color="var(--bordure-douce)" />
+          <Group justify="space-between" align="flex-end" wrap="wrap" gap="xs">
+            <Box>
+              <Text fz="xs" c="dimmed">{z.atteint ? 'Zakat estimée (2,5 %)' : 'Sous le nisab : rien à payer'}</Text>
+              <Text className="chiffre" fz={24} fw={700} c={z.atteint ? T.ep : 'dimmed'}>{fmt(z.montant)}</Text>
+            </Box>
+            <Text fz="xs" c="dimmed" ta="right">avoir compté : {fmt(z.assiette)}<br />nisab : {fmt(z.nisab)}</Text>
+          </Group>
+          <Progress value={Math.min(100, z.assiette / z.nisab * 100)} color={z.atteint ? 'emeraude' : 'gray'} size={8} radius="xl" />
+          <Box>
+            {detail.filter(([, v]) => v !== 0).map(([nom, v]) => (
+              <Group key={nom} justify="space-between" gap="xs">
+                <Text fz="xs" c="dimmed">{nom}</Text>
+                <Text fz="xs" className="chiffre" c={v < 0 ? T.neg : 'dimmed'}>{fmt(v)}</Text>
+              </Group>
+            ))}
+          </Box>
+          {z.atteint && z.echeance && z.jours_restants !== null && (
+            <Alert variant="light" color={z.jours_restants <= 0 ? 'ambre' : 'gray'} p="xs" icon={<IconMoonStars size={18} />}>
+              <Group justify="space-between" gap="xs" wrap="wrap">
+                <Text fz="sm">
+                  {z.jours_restants > 0 ? <>À payer le <b>{dateFr(z.echeance)}</b>, dans {z.jours_restants} jour{z.jours_restants > 1 ? 's' : ''}.</>
+                    : z.jours_restants === 0 ? <>À payer <b>aujourd'hui</b>.</>
+                    : <>Due depuis le <b>{dateFr(z.echeance)}</b>.</>}
+                </Text>
+                {z.jours_restants <= 0 && (
+                  <Button size="compact-sm" variant="light" color="emeraude"
+                          onClick={() => confirmer("Démarrer une nouvelle année à partir d'aujourd'hui ?", () => enregistrer(auj(), 'Nouvelle année démarrée ✓'), 'Zakat payée')}>
+                    Zakat payée
+                  </Button>
+                )}
+              </Group>
+            </Alert>
+          )}
+          {z.atteint && !z.echeance && <Info>Indique le début de l'année en cours pour connaître la date d'échéance (une année lunaire, 354 jours, plus tard).</Info>}
+        </>
+      )}
+      <Alert variant="light" color="gray" p="xs" icon={<IconInfoCircle size={18} />}>
+        <Text fz="xs" c="dimmed" lh={1.55}>
+          Estimation à vérifier : les règles varient selon les avis (actions gardées longtemps, dettes déductibles, nisab calculé sur l'or
+          ou sur l'argent). Le compte Bourse est pris à sa valeur de marché ; décoche un actif pour le sortir du calcul.
+        </Text>
+      </Alert>
+    </Stack>
+  );
+}
+
+/* ---------- Page ---------- */
+export function VuePatrimoine() {
+  const { data: p, isPending } = usePatrimoine();
+  if (isPending || !p) return <Chargement lignes={6} />;
+  const r = p.reserve;
+
+  return (
+    <Stack gap="lg">
+      <SimpleGrid cols={{ base: 2, sm: 3 }} spacing={{ base: 'xs', sm: 'md' }}>
+        <Kpi label="Patrimoine net" valeur={fmt(p.total)} couleur={signe(p.total)} icone={IconBuildingBank} teinte="emeraude"
+             aide="Tout ce que tu possèdes, moins ce que tu dois" />
+        <Kpi label="Réserve de sécurité" icone={IconShieldCheck} teinte="marque"
+             valeur={r.mois_couverts === null ? '—' : `${nombre(r.mois_couverts)} mois`}
+             couleur={r.mois_couverts === null ? undefined : r.mois_couverts >= 3 ? T.ep : T.neg}
+             aide={r.mois_couverts === null ? 'pas encore de mois terminé' : `de dépenses couverts par ${fmt(r.disponible)}`} />
+        <Kpi label="Zakat estimée" icone={IconMoonStars} teinte="ambre"
+             valeur={p.zakat.nisab === null ? '—' : fmt(p.zakat.montant)}
+             aide={p.zakat.nisab === null ? "indique le prix de l'or" : p.zakat.atteint
+               ? (p.zakat.echeance ? `à payer le ${dateFr(p.zakat.echeance)}` : 'nisab atteint') : 'sous le nisab'} />
+      </SimpleGrid>
+      <Grid gap="lg" align="flex-start">
+        <Grid.Col span={{ base: 12, md: 5 }}>
+          <Stack gap="lg">
+            <Carte titre="Ajouter un actif" description="Or, compte épargne, placement, bien immobilier : ce qui n'est ni dans le Budget ni en Bourse"
+                   icone={<Pastille icone={IconCoin} couleur="marque" />}>
+              <FormActif p={p} />
+            </Carte>
+            <Carte titre="Argent d'avant l'application" icone={<Pastille icone={IconWallet} couleur="gray" />}>
+              <SoldeDepart p={p} />
+            </Carte>
+          </Stack>
+        </Grid.Col>
+        <Grid.Col span={{ base: 12, md: 7 }}>
+          <Stack gap="lg">
+            <Carte titre="Composition" description="Survole un nom pour voir ce qu'il contient"
+                   droite={<Text className="chiffre" fz="xl" fw={700} c={signe(p.total)}>{fmt(p.total)}</Text>}>
+              <Composition p={p} />
+            </Carte>
+            <Carte titre="Autres actifs" description={p.actifs.length ? 'Mets leur valeur à jour de temps en temps' : undefined}
+                   droite={p.actifs.length > 0 && <Text className="chiffre" fw={700}>{fmt(p.autres_actifs)}</Text>}>
+              {!p.actifs.length ? <Vide icone={IconCoin}>Aucun actif saisi : ajoute ton or, ton compte épargne ou un bien</Vide>
+                : <Stack gap={2}>{p.actifs.map(a => <LigneActif key={a.id} a={a} p={p} />)}</Stack>}
+            </Carte>
+            <Carte titre="Réserve de sécurité" description="Combien de temps tu tiendrais sans revenu" icone={<Pastille icone={IconShieldCheck} couleur="marque" />}>
+              <Reserve p={p} />
+            </Carte>
+            <Carte titre="Zakat" description="Ton avoir comparé au nisab, et la date d'échéance" icone={<Pastille icone={IconMoonStars} couleur="ambre" />}>
+              <Zakat p={p} />
+            </Carte>
+          </Stack>
+        </Grid.Col>
+      </Grid>
+    </Stack>
+  );
+}

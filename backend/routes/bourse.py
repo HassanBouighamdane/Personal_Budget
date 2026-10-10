@@ -38,6 +38,7 @@ from config import aujourdhui
 from cours_bvc import telecharger_cours
 from database import db
 from securite import utilisateur_courant
+from routes.carnet import ajouter_mois
 from schemas import (
     ParametresBourse, TransactionBourseCreate, TransactionBourseOut,
     PrixMaj, PositionBourse, GainRealise, DashboardBourse, TitreBourse, TitreBourseIn, CoursActualisation,
@@ -194,7 +195,7 @@ def desactiver_titre(titre_id: int):
 
 
 # ---------------------------------------------------------------- transactions
-TX_COLONNES = "id, date_operation, titre, isin, type_instrument, type_operation, quantite, cours_unitaire, autres_frais, tpcvm"
+TX_COLONNES = "id, date_operation, titre, isin, type_instrument, type_operation, quantite, cours_unitaire, autres_frais, tpcvm, note"
 
 
 @router.get("/transactions", response_model=List[TransactionBourseOut])
@@ -263,12 +264,12 @@ def creer_transaction(t: TransactionBourseCreate):
             _valider_vente(conn, t.titre.strip().upper(), t.date_operation, _d(t.quantite))
         row = conn.execute(
             f"""INSERT INTO bourse_transactions
-                    (date_operation, titre, isin, type_instrument, type_operation, quantite, cours_unitaire, autres_frais, tpcvm)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                    (date_operation, titre, isin, type_instrument, type_operation, quantite, cours_unitaire, autres_frais, tpcvm, note)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
                 RETURNING {TX_COLONNES}""",
             (t.date_operation, t.titre.strip().upper(), t.isin, t.type_instrument,
              t.type_operation, t.quantite, t.cours_unitaire, t.autres_frais,
-             t.tpcvm if t.type_operation == "Vente" else 0),
+             t.tpcvm if t.type_operation == "Vente" else 0, t.note.strip()),
         ).fetchone()
     return _calc_transaction(dict(row))
 
@@ -291,10 +292,10 @@ def modifier_transaction(transaction_id: int, t: TransactionBourseCreate):
             raise HTTPException(400, f"Modification refusée : la quantité détenue de {titre} deviendrait négative.")
         row = conn.execute(
             f"""UPDATE bourse_transactions SET date_operation=%s, titre=%s, isin=%s, type_instrument=%s,
-                       type_operation=%s, quantite=%s, cours_unitaire=%s, autres_frais=%s, tpcvm=%s
+                       type_operation=%s, quantite=%s, cours_unitaire=%s, autres_frais=%s, tpcvm=%s, note=%s
                 WHERE id=%s RETURNING {TX_COLONNES}""",
             (t.date_operation, titre, t.isin, t.type_instrument, t.type_operation, t.quantite,
-             t.cours_unitaire, t.autres_frais, t.tpcvm if t.type_operation == "Vente" else 0, transaction_id),
+             t.cours_unitaire, t.autres_frais, t.tpcvm if t.type_operation == "Vente" else 0, t.note.strip(), transaction_id),
         ).fetchone()
     return _calc_transaction(dict(row))
 
@@ -415,6 +416,46 @@ def _dividendes(mois: Optional[str] = None, annee: Optional[int] = None) -> list
 def lister_dividendes(mois: Optional[str] = None, annee: Optional[int] = None):
     _valider_periode(mois, annee)
     return _dividendes(mois, annee)
+
+
+def calculer_calendrier_dividendes(auj) -> dict:
+    """Dividendes attendus sur les 12 mois à venir : chaque dividende reçu depuis un an sur un
+    titre encore détenu est supposé revenir un an plus tard, au même montant PAR ACTION, sur la
+    quantité détenue aujourd'hui. C'est une estimation : la société peut changer son dividende."""
+    positions, _, _ = _positions_et_gains()
+    detenues = {p.titre: _d(p.quantite_detenue) for p in positions if p.quantite_detenue > 0}
+    with db() as conn:
+        dividendes = conn.execute(
+            "SELECT titre, date_operation, montant FROM bourse_dividendes WHERE date_operation > %s AND date_operation <= %s",
+            (auj - timedelta(days=365), auj)).fetchall()
+        mouvements = conn.execute(
+            "SELECT titre, date_operation, type_operation, quantite FROM bourse_transactions").fetchall()
+        noms = {r["code"]: r["nom"] for r in conn.execute("SELECT code, nom FROM bourse_titres").fetchall()}
+
+    lignes = []
+    for d in dividendes:
+        if d["titre"] not in detenues:
+            continue
+        # Quantité détenue le jour du versement, pour retrouver le dividende par action
+        qte = sum((_d(m["quantite"]) if m["type_operation"] == "Achat" else -_d(m["quantite"]))
+                  for m in mouvements if m["titre"] == d["titre"] and m["date_operation"] <= d["date_operation"])
+        if qte <= 0:
+            continue
+        par_action = _d(d["montant"]) / qte
+        lignes.append({
+            "titre": d["titre"], "nom": noms.get(d["titre"], ""),
+            "date_prevue": ajouter_mois(d["date_operation"], 12),
+            "montant_prevu": _r(par_action * detenues[d["titre"]]), "par_action": _r4(par_action),
+            "quantite": _r(detenues[d["titre"]]),
+            "dernier_montant": _r(d["montant"]), "derniere_date": d["date_operation"],
+        })
+    lignes.sort(key=lambda l: (l["date_prevue"], l["titre"]))
+    return {"total": round(sum(l["montant_prevu"] for l in lignes), 2), "lignes": lignes}
+
+
+@router.get("/dividendes/calendrier")
+def calendrier_dividendes():
+    return calculer_calendrier_dividendes(aujourdhui())
 
 
 def _valider_dividende(conn, titre: str, date_operation):

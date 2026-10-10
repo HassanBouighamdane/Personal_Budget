@@ -5,12 +5,12 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 
 import { api, apiSilencieux, toast } from './api';
 import type {
-  ALire, ApercuRappels, BilanLecture, BudgetHistorique, CibleSecteur, Config, CoursActualisation, DashboardBourse, Dette, Dividende, Echeance, EtatRappels, Fiscalite, FraisBourse, Gain, Genre,
+  ALire, ApercuRappels, BilanLecture, CalendrierDividendes, NoteDuJour, Patrimoine, PretLivre, SerieLecture, BudgetHistorique, CibleSecteur, Config, CoursActualisation, DashboardBourse, Dette, Dividende, Echeance, EtatRappels, Fiscalite, FraisBourse, Gain, Genre,
   Livre, Mouvement, NoteLecture, ObjectifsLecture, Position, Recherche, ResumeAnnee, ResumeGlobal, ResumeJour, ResumeMois, ResumeSemaine, ResumeTag,
   Suggestion, Titre, TransactionBourse, TransactionsMois,
 } from './types';
 
-type Module = 'budget' | 'bourse' | 'lectures' | 'carnet';
+type Module = 'budget' | 'bourse' | 'lectures' | 'carnet' | 'patrimoine';
 
 // placeholderData : en changeant de période, l'ancien contenu reste affiché pendant le chargement
 function lire<T>(cle: unknown[], path: string) {
@@ -48,6 +48,7 @@ export const useDividendes = () => lire<Dividende[]>(['bourse', 'dividendes'], '
 export const useFraisBourse = () => lire<FraisBourse[]>(['bourse', 'frais'], '/api/bourse/frais');
 export const useMouvements = () => lire<Mouvement[]>(['bourse', 'mouvements'], '/api/bourse/mouvements');
 export const useTitres = () => lire<Titre[]>(['bourse', 'titres'], '/api/bourse/titres');
+export const useCalendrierDividendes = () => lire<CalendrierDividendes>(['bourse', 'calendrier'], '/api/bourse/dividendes/calendrier');
 export const useCibles = () => lire<CibleSecteur[]>(['bourse', 'cibles'], '/api/bourse/cibles');
 export const useFiscalite = (annee: number) => lire<Fiscalite>(['bourse', 'fiscalite', annee], '/api/bourse/fiscalite?annee=' + annee);
 export const useDashboardBourse = (requete: string) =>
@@ -92,6 +93,15 @@ export const useGenres = () => lire<Genre[]>(['lectures', 'genres'], '/api/lectu
 export const useObjectifsLecture = () => lire<ObjectifsLecture>(['lectures', 'objectifs'], '/api/lectures/objectifs');
 export const useBilanLecture = (annee: number) => lire<BilanLecture>(['lectures', 'bilan', annee], '/api/lectures/bilan?annee=' + annee);
 export const useALire = () => lire<ALire[]>(['lectures', 'a_lire'], '/api/lectures/a_lire');
+export const useSerieLecture = () => lire<SerieLecture>(['lectures', 'serie'], '/api/lectures/serie');
+export const usePretsLivres = () => lire<PretLivre[]>(['lectures', 'prets'], '/api/lectures/prets');
+export const useTitresLivres = () => lire<string[]>(['lectures', 'titres'], '/api/lectures/titres');
+/** Note ou citation du jour ; `decalage` en fait défiler d'autres. Jamais d'erreur affichée. */
+export const useNoteDuJour = (decalage: number) => useQuery({
+  queryKey: ['lectures', 'note_du_jour', decalage],
+  queryFn: () => apiSilencieux<NoteDuJour>('/api/lectures/note_du_jour?decalage=' + decalage),
+  placeholderData: keepPreviousData,
+});
 /** Notes d'un livre terminé (`livre_id=…`) ou à lire (`a_lire_id=…`) */
 export const useNotes = (filtre: string) => lire<NoteLecture[]>(['lectures', 'notes', filtre], '/api/lectures/notes?' + filtre);
 
@@ -99,11 +109,18 @@ export const useNotes = (filtre: string) => lire<NoteLecture[]>(['lectures', 'no
 export const useDettes = () => lire<Dette[]>(['carnet', 'dettes'], '/api/carnet/dettes');
 export const useEcheances = () => lire<Echeance[]>(['carnet', 'echeances'], '/api/carnet/echeances');
 
+/* ---------- Patrimoine (dépend de tous les modules : rechargé après chaque écriture) ---------- */
+export const usePatrimoine = () => lire<Patrimoine>(['patrimoine'], '/api/patrimoine');
+/** Pour le dashboard Budget : n'affiche jamais d'erreur */
+export const usePatrimoineSilencieux = () => useQuery({
+  queryKey: ['patrimoine', 'silencieux'], queryFn: () => apiSilencieux<Patrimoine>('/api/patrimoine'), placeholderData: keepPreviousData,
+});
+
 /* ---------- Rappels et résumé hebdomadaire ---------- */
 export const useEtatRappels = () => lire<EtatRappels>(['rappels', 'etat'], '/api/rappels/etat');
 /** Jamais gardé en cache : l'aperçu reflète les données du moment où on l'ouvre */
-export const useApercuRappels = () => useQuery({
-  queryKey: ['rappels', 'apercu'], queryFn: () => api<ApercuRappels>('/api/rappels/apercu'), gcTime: 0,
+export const useApercuRappels = (periode: 'semaine' | 'mois') => useQuery({
+  queryKey: ['rappels', 'apercu', periode], queryFn: () => api<ApercuRappels>('/api/rappels/apercu?periode=' + periode), gcTime: 0,
 });
 
 /* ---------- Écritures ---------- */
@@ -117,6 +134,7 @@ export function useEcriture(module: Module) {
     onSuccess: (_, e) => {
       if (e.succes) toast(e.succes);
       qc.invalidateQueries({ queryKey: [module] });
+      if (module !== 'patrimoine') qc.invalidateQueries({ queryKey: ['patrimoine'] });
     },
   });
 }

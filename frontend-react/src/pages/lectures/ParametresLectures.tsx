@@ -1,7 +1,7 @@
 /* Lectures — objectifs (annuel, mensuel) et genres */
 import { useEffect, useState } from 'react';
 import { ActionIcon, Button, Divider, Grid, Group, NumberInput, Stack, Text, TextInput, Tooltip } from '@mantine/core';
-import { IconCategory, IconDeviceFloppy, IconPlus, IconTarget } from '@tabler/icons-react';
+import { IconCategory, IconDeviceFloppy, IconDownload, IconPlus, IconTarget } from '@tabler/icons-react';
 
 import { toast } from '../../lib/api';
 import type { Genre } from '../../lib/types';
@@ -53,6 +53,7 @@ export function ParametresLectures() {
   return (
     <Grid gap="lg" align="flex-start">
       <Grid.Col span={{ base: 12, md: 5 }}>
+       <Stack gap="lg">
         <Carte titre="Objectifs de lecture" description="Nombre de livres à terminer" icone={<Pastille icone={IconTarget} couleur="emeraude" />}>
           <Stack gap="sm">
             <NumberInput label="Par an" value={annuel} onChange={setAnnuel} min={0} allowNegative={false} allowDecimal={false} rightSection="livres" rightSectionWidth={56} />
@@ -65,6 +66,17 @@ export function ParametresLectures() {
             <Info>Mets 0 pour ne pas suivre un objectif. Ils s'appliquent à toutes les années du bilan.</Info>
           </Stack>
         </Carte>
+        <Carte titre="Exporter mes notes" description="Un fichier Markdown par livre, dans une archive ZIP"
+               icone={<Pastille icone={IconDownload} couleur="gray" />}>
+          <Stack gap="sm">
+            <Info>Notes, citations et avis de tous tes livres, lisibles dans Obsidian, Notion ou n'importe quel éditeur de texte.</Info>
+            <Button component="a" href="/api/lectures/notes/export_tout" download variant="default" leftSection={<IconDownload size={16} />}
+                    style={{ alignSelf: 'flex-start' }}>
+              Télécharger l'archive
+            </Button>
+          </Stack>
+        </Carte>
+       </Stack>
       </Grid.Col>
       <Grid.Col span={{ base: 12, md: 7 }}>
         <Carte titre="Genres" description="Proposés dans le formulaire ; renommer met à jour les livres déjà saisis"

@@ -152,6 +152,8 @@ export type TransactionBourse = {
   total_frais: number;
   tpcvm: number;
   montant_net: number;
+  /** Pourquoi j'ai acheté ou vendu */
+  note: string;
 };
 
 export type Position = {
@@ -208,6 +210,12 @@ export type Gain = {
 };
 
 export type Dividende = { id: number; date_operation: string; titre: string; montant: number };
+/** Dividendes attendus sur 12 mois : dernier dividende par action × quantité détenue aujourd'hui */
+export type CalendrierDividendes = {
+  total: number;
+  lignes: { titre: string; nom: string; date_prevue: string; montant_prevu: number; par_action: number; quantite: number;
+            dernier_montant: number; derniere_date: string }[];
+};
 export type FraisBourse = { id: number; date_operation: string; libelle: string; montant: number };
 export type Mouvement = { id: number; date_operation: string; type_mouvement: 'Apport' | 'Retrait'; montant: number; libelle: string };
 
@@ -252,7 +260,14 @@ export type Livre = {
 export type ALire = {
   id: number; titre: string; auteur: string; genre: string; pages: number | null; isbn: string; couverture: string;
   commentaire: string; date_debut: string | null; nb_notes: number;
+  /** Suivi de la lecture en cours : null tant qu'aucune page n'est notée */
+  page_actuelle: number | null; derniere_lecture: string | null; pages_par_jour: number | null; fin_estimee: string | null;
 };
+/** Jours de lecture consécutifs (la série tient encore si on a lu hier) */
+export type SerieLecture = { serie: number; record: number; lu_aujourdhui: boolean };
+export type NoteDuJour = { id: number; type: 'note' | 'citation'; texte: string; page: number | null; titre: string; auteur: string };
+/** Livre prêté ; `date_retour` renseignée = rendu ; `jours` : durée du prêt */
+export type PretLivre = { id: number; titre: string; personne: string; date_pret: string; date_retour: string | null; note: string; jours: number };
 export type NoteLecture = { id: number; livre_id: number | null; a_lire_id: number | null; type: 'note' | 'citation'; texte: string; page: number | null };
 export type FicheIsbn = { isbn: string; titre: string; auteur: string; pages: number | null; couverture: string };
 
@@ -299,4 +314,22 @@ export type Echeance = {
 
 /* ---------- Rappels et résumé hebdomadaire ---------- */
 export type EtatRappels = { canaux: ('telegram' | 'email')[]; cron: boolean };
-export type ApercuRappels = { rappels: string; sujet: string; resume: string };
+/** `html` : l'e-mail tel qu'il sera envoyé ; `resume` : sa version texte brut */
+export type ApercuRappels = { rappels: string; sujet: string; resume: string; html: string };
+
+/* ---------- Patrimoine ---------- */
+/** `verse` : argent sorti de l'épargne pour cet actif sans être saisi en dépense */
+export type Actif = { id: number; nom: string; type: string; valeur: number; verse: number; zakat: boolean; maj_le: string; note: string };
+export type Patrimoine = {
+  solde_depart: number; epargne_cumulee: number;
+  liquidites: number; bourse: number; autres_actifs: number; creances: number; dettes: number; total: number;
+  actifs: Actif[];
+  types_actifs: { type: string; zakat: boolean }[];
+  /** `mois_couverts` null tant qu'aucun mois terminé n'a de dépenses */
+  reserve: { disponible: number; depense_moyenne: number; nb_mois_base: number; mois_couverts: number | null };
+  zakat: {
+    prix_or_gramme: number; nisab: number | null; assiette: number;
+    detail: { liquidites: number; bourse: number; actifs: number; creances: number; dettes: number };
+    atteint: boolean; montant: number; debut_hawl: string | null; echeance: string | null; jours_restants: number | null;
+  };
+};

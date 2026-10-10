@@ -3,17 +3,17 @@
  * la TPCVM retenue sur une vente et le montant net reçu. Chaque ligne se modifie dans une fenêtre. */
 import { useMemo, useState, type ReactNode } from 'react';
 import {
-  ActionIcon, Alert, Autocomplete, Button, Group, NumberInput, Select, Stack, Table, Text, TextInput, Tooltip, type ComboboxItem,
+  ActionIcon, Alert, Autocomplete, Badge, Box, Button, Group, NumberInput, Select, Stack, Table, Text, Textarea, TextInput, Tooltip, type ComboboxItem,
 } from '@mantine/core';
 import { modals } from '@mantine/modals';
-import { IconAlertTriangle, IconArrowsExchange, IconBuildingBank, IconCoins, IconPencil, IconReceiptTax } from '@tabler/icons-react';
+import { IconAlertTriangle, IconArrowsExchange, IconBuildingBank, IconCalendarDollar, IconCoins, IconNotes, IconPencil, IconReceiptTax } from '@tabler/icons-react';
 
 import { toast } from '../../lib/api';
-import { auj, fmt, jjmm, jjmmaa, lireMontant } from '../../lib/format';
+import { auj, dateFr, fmt, jjmm, jjmmaa, lireMontant, MOIS_FR } from '../../lib/format';
 import { T } from '../../lib/palette';
 import type { Dividende, FraisBourse, Mouvement, TransactionBourse } from '../../lib/types';
 import {
-  useDashboardBourse, useDividendes, useEcriture, useFraisBourse, useMouvements, useTitres, useTransactionsBourse,
+  useCalendrierDividendes, useDashboardBourse, useDividendes, useEcriture, useFraisBourse, useMouvements, usePositions, useTitres, useTransactionsBourse,
 } from '../../lib/queries';
 import { ChampDate, ChampMontant } from '../../components/champs';
 import { Aide, BoutonSuppr, Carte, Chargement, confirmer, Grille2, Pastille, Tableau, ThTri, useTri, Vide } from '../../components/ui';
@@ -91,6 +91,7 @@ function FormTransaction({ existante, onTermine }: { existante?: TransactionBour
   const [prix, setPrix] = useState(texte(existante?.cours_unitaire));
   const [frais, setFrais] = useState(existante?.autres_frais ? texte(existante.autres_frais) : '');
   const [tpcvm, setTpcvm] = useState(existante?.tpcvm ? texte(existante.tpcvm) : '');
+  const [note, setNote] = useState(existante?.note ?? '');
   const vente = type === 'Vente';
 
   const q = typeof qte === 'number' ? qte : parseFloat(qte);
@@ -109,12 +110,12 @@ function FormTransaction({ existante, onTermine }: { existante?: TransactionBour
     if (isNaN(p) || p <= 0) return toast('Prix invalide', false);
     if (isNaN(f) || f < 0) return toast('Frais invalides', false);
     if (isNaN(tx) || tx < 0) return toast('TPCVM invalide', false);
-    const body = { date_operation: date, titre: t, type_instrument: instrument, type_operation: type, quantite: q, cours_unitaire: p, autres_frais: f, tpcvm: tx };
+    const body = { date_operation: date, titre: t, type_instrument: instrument, type_operation: type, quantite: q, cours_unitaire: p, autres_frais: f, tpcvm: tx, note: note.trim() };
     ecrire.mutate(
       existante
         ? { path: `/api/bourse/transactions/${existante.id}`, method: 'PUT', body, succes: 'Transaction modifiée ✓' }
         : { path: '/api/bourse/transactions', method: 'POST', body, succes: 'Transaction ajoutée ✓' },
-      { onSuccess: () => { if (!existante) { setTitre(''); setQte(''); setPrix(''); setFrais(''); setTpcvm(''); } onTermine?.(); } },
+      { onSuccess: () => { if (!existante) { setTitre(''); setQte(''); setPrix(''); setFrais(''); setTpcvm(''); setNote(''); } onTermine?.(); } },
     );
   }
 
@@ -131,6 +132,9 @@ function FormTransaction({ existante, onTermine }: { existante?: TransactionBour
                     value={prix} onChange={setPrix} />
       <ChampMontant label="Frais de transaction (DH) — optionnel, si non compris dans le prix" value={frais} onChange={setFrais} />
       {vente && <ChampMontant label="TPCVM retenue (DH) — 0 si vente en perte" value={tpcvm} onChange={setTpcvm} />}
+      <Textarea label={vente ? 'Pourquoi je vends (optionnel)' : "Pourquoi j'achète (optionnel)"} autosize minRows={1} maxRows={5} maxLength={2000}
+                placeholder={vente ? 'ex : objectif atteint, besoin de liquidités…' : 'ex : dividende régulier, cours sous sa moyenne…'}
+                value={note} onChange={e => setNote(e.currentTarget.value)} />
       {coutAchat > 0 && especesApres !== null && especesApres < 0 && (
         <Alert variant="light" color="orange" icon={<IconAlertTriangle size={18} />} p="xs">
           <Text fz="xs">
@@ -164,8 +168,49 @@ export function JournalTransactions() {
             coût moyen pondéré, tous instruments confondus par titre.
           </Aide>
       </Grille2>
+      <JournalDecisions />
       <TableTransactions />
     </>
+  );
+}
+
+/** Transactions accompagnées d'une note : la raison notée sur le moment, et ce que le cours a fait depuis */
+function JournalDecisions() {
+  const { data } = useTransactionsBourse();
+  const { data: positions } = usePositions();
+  const notees = (data ?? []).filter(t => t.note);
+  if (!notees.length) return null;
+  const cours = new Map((positions ?? []).filter(p => p.quantite_detenue > 0 && p.cours_actuel > 0).map(p => [p.titre, p.cours_actuel]));
+  return (
+    <Carte titre="Journal des décisions" description="Ce que tu t'es dit en achetant ou en vendant, à relire avec le recul"
+           icone={<Pastille icone={IconNotes} couleur="marque" />}>
+      <Stack gap="sm">
+        {notees.map(t => {
+          const achat = t.type_operation === 'Achat';
+          const actuel = cours.get(t.titre);
+          const evolution = actuel && t.cours_unitaire > 0 ? (actuel - t.cours_unitaire) / t.cours_unitaire * 100 : null;
+          // Après un achat, une hausse confirme la décision ; après une vente, c'est une baisse
+          const favorable = evolution !== null && (achat ? evolution >= 0 : evolution <= 0);
+          return (
+            <Box key={t.id} className="ligne-op" px={6} py={6}>
+              <Group gap={8} wrap="wrap">
+                <Badge size="sm" variant="light" color={achat ? 'bleu' : 'rose'}>{t.type_operation}</Badge>
+                <Text fz="sm" fw={700}>{t.titre}</Text>
+                <Text fz="xs" c="dimmed">{dateFr(t.date_operation)} · {t.quantite} à {fmt(t.cours_unitaire)}</Text>
+                {evolution !== null && (
+                  <Tooltip label={`Cours actuel : ${fmt(actuel!)}`} withArrow>
+                    <Badge size="sm" variant="light" color={favorable ? 'emeraude' : 'rouge'}>
+                      {evolution >= 0 ? '+' : '−'}{Math.abs(evolution).toFixed(1).replace('.', ',')} % depuis
+                    </Badge>
+                  </Tooltip>
+                )}
+              </Group>
+              <Text fz="sm" mt={4} style={{ whiteSpace: 'pre-wrap' }}>{t.note}</Text>
+            </Box>
+          );
+        })}
+      </Stack>
+    </Carte>
   );
 }
 
@@ -198,7 +243,12 @@ function TableTransactions() {
               return (
                 <Table.Tr key={t.id}>
                   <TdDate d={t.date_operation} />
-                  <Table.Td fw={600}>{t.titre}</Table.Td>
+                  <Table.Td fw={600}>
+                    <Group gap={4} wrap="nowrap">
+                      {t.titre}
+                      {t.note && <Tooltip label={t.note} multiline w={280} withArrow><IconNotes size={14} stroke={1.7} style={{ opacity: 0.6 }} /></Tooltip>}
+                    </Group>
+                  </Table.Td>
                   <Table.Td c="dimmed" fz="xs">{t.type_instrument}</Table.Td>
                   <Table.Td c={achat ? T.rev : T.dep}>{t.type_operation}</Table.Td>
                   <Table.Td className="num chiffre">{t.quantite}</Table.Td>
@@ -251,6 +301,38 @@ function FormDividende({ existant, onTermine }: { existant?: Dividende; onTermin
   );
 }
 
+/** Dividendes attendus sur les 12 mois à venir, d'après ceux reçus depuis un an sur les titres encore détenus */
+function DividendesAttendus() {
+  const { data } = useCalendrierDividendes();
+  if (!data?.lignes.length) return null;
+  return (
+    <Carte titre="Dividendes attendus sur 12 mois" icone={<Pastille icone={IconCalendarDollar} couleur="bleu" />}
+           description="Le dernier dividende par action de chaque titre détenu, appliqué à la quantité que tu as aujourd'hui"
+           droite={<Text className="chiffre" fz="xl" fw={700} c={T.rev}>{fmt(data.total)}</Text>}>
+      <Tableau minWidth={520}>
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th>Vers</Table.Th><Table.Th>Titre</Table.Th><Table.Th className="num">Par action</Table.Th>
+            <Table.Th className="num">Quantité</Table.Th><Table.Th className="num">Attendu</Table.Th>
+          </Table.Tr>
+        </Table.Thead>
+        <Table.Tbody>
+          {data.lignes.map((l, i) => (
+            <Table.Tr key={i}>
+              <Table.Td style={{ whiteSpace: 'nowrap' }}>{MOIS_FR[+l.date_prevue.slice(5, 7) - 1]} {l.date_prevue.slice(0, 4)}</Table.Td>
+              <Table.Td><Text span fw={600} fz="sm">{l.titre}</Text>{l.nom && <Text span c="dimmed" fz="xs"> · {l.nom}</Text>}</Table.Td>
+              <Table.Td className="num chiffre">{fmt(l.par_action)}</Table.Td>
+              <Table.Td className="num chiffre">{l.quantite}</Table.Td>
+              <Table.Td className="num chiffre" c={T.rev} fw={600}>{fmt(l.montant_prevu)}</Table.Td>
+            </Table.Tr>
+          ))}
+        </Table.Tbody>
+      </Tableau>
+      <Text fz="xs" c="dimmed" mt="xs">Estimation : une société peut augmenter, réduire ou supprimer son dividende.</Text>
+    </Carte>
+  );
+}
+
 export function JournalDividendes() {
   const { data, isPending } = useDividendes();
   const ecrire = useEcriture('bourse');
@@ -266,6 +348,7 @@ export function JournalDividendes() {
             fiscalité n'est appliqué ici.
           </Aide>
       </Grille2>
+      <DividendesAttendus />
       <Carte titre="Journal des dividendes">
         {isPending ? <Chargement /> : !data?.length ? <Vide>Aucun dividende — ajoute le premier ci-dessus 👆</Vide> : (
           <Tableau>

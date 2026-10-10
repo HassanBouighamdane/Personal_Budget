@@ -24,7 +24,8 @@ from schemas import (CiblesIn, CibleSecteur, DividendeCreate, FraisBourseCreate,
 from routes.bourse import (_positions_et_gains, obtenir_dashboard, creer_transaction, remplir_tpcvm_manquantes,
                            supprimer_transaction, creer_dividende, ajouter_titre, modifier_titre,
                            modifier_transaction, modifier_dividende, creer_frais, modifier_frais,
-                           calculer_positions, recapitulatif_fiscal, lister_cibles, remplacer_cibles)
+                           calculer_positions, recapitulatif_fiscal, lister_cibles, remplacer_cibles,
+                           calculer_calendrier_dividendes, lister_transactions)
 
 TITRE_TEST = "ZZTEST"
 
@@ -355,3 +356,47 @@ def test_cibles_par_secteur():
             CiblesIn(cibles=[CibleSecteur(secteur="A", cible=0.7), CibleSecteur(secteur="B", cible=0.4)])
     finally:
         remplacer_cibles(CiblesIn(cibles=[CibleSecteur(**x) for x in avant]))
+
+
+# ---------------------------------------------------------------------------
+# Journal des décisions et calendrier des dividendes
+# ---------------------------------------------------------------------------
+def test_note_d_une_transaction_enregistree_et_modifiable():
+    t = creer_transaction(TransactionBourseCreate(
+        date_operation="2026-01-10", titre=TITRE_TEST, type_operation="Achat", quantite=10, cours_unitaire=100,
+        note="  Rendement de 5 %, dette faible  "))
+    assert t["note"] == "Rendement de 5 %, dette faible"
+    modifier_transaction(t["id"], TransactionBourseCreate(
+        date_operation="2026-01-10", titre=TITRE_TEST, type_operation="Achat", quantite=10, cours_unitaire=100, note="Révisé"))
+    assert next(x for x in lister_transactions() if x["id"] == t["id"])["note"] == "Révisé"
+    # Sans note : chaîne vide, pas d'erreur
+    assert _acheter("2026-01-11", 1, 100)["note"] == ""
+
+
+def _calendrier(auj):
+    return [l for l in calculer_calendrier_dividendes(auj)["lignes"] if l["titre"] == TITRE_TEST]
+
+
+def test_calendrier_dividende_par_action_sur_la_quantite_detenue_aujourd_hui():
+    _acheter("2026-01-10", 10, 100)
+    creer_dividende(DividendeCreate(date_operation="2026-06-15", titre=TITRE_TEST, montant=50))   # 5 DH par action
+    _acheter("2026-08-01", 10, 100)                                                               # 20 actions désormais
+    (ligne,) = _calendrier(date(2026, 10, 1))
+    assert ligne["par_action"] == 5 and ligne["quantite"] == 20 and ligne["montant_prevu"] == 100
+    assert ligne["date_prevue"] == date(2027, 6, 15)
+
+
+def test_calendrier_apres_une_vente_partielle():
+    _acheter("2026-01-10", 10, 100)
+    creer_dividende(DividendeCreate(date_operation="2026-06-15", titre=TITRE_TEST, montant=50))
+    _vendre("2026-07-01", 6, 120)
+    assert _calendrier(date(2026, 10, 1))[0]["montant_prevu"] == 20          # 4 actions × 5 DH
+
+
+def test_calendrier_ignore_les_titres_vendus_et_les_dividendes_de_plus_d_un_an():
+    _acheter("2025-01-10", 10, 100)
+    creer_dividende(DividendeCreate(date_operation="2025-06-15", titre=TITRE_TEST, montant=50))
+    assert _calendrier(date(2026, 10, 1)) == []                              # dividende vieux de plus d'un an
+    assert len(_calendrier(date(2026, 3, 1))) == 1
+    _vendre("2026-02-01", 10, 120)
+    assert _calendrier(date(2026, 3, 1)) == []                               # plus rien de détenu

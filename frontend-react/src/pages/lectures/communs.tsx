@@ -4,11 +4,11 @@ import {
   ActionIcon, Badge, Box, Button, Group, Image, NumberInput, SegmentedControl, Stack, Text, Textarea, TextInput, Tooltip,
 } from '@mantine/core';
 import { modals } from '@mantine/modals';
-import { IconNotes, IconPencil, IconQuote, IconSearch } from '@tabler/icons-react';
+import { IconDownload, IconNotes, IconPencil, IconQuote, IconRefresh, IconSearch } from '@tabler/icons-react';
 
 import { api } from '../../lib/api';
 import type { FicheIsbn, NoteLecture } from '../../lib/types';
-import { useEcriture, useNotes } from '../../lib/queries';
+import { useEcriture, useNoteDuJour, useNotes } from '../../lib/queries';
 import { BoutonSuppr, Chargement, confirmer, Vide } from '../../components/ui';
 
 /** Champ ISBN avec recherche Open Library : `onFiche` reçoit titre, auteur, pages et couverture */
@@ -113,7 +113,42 @@ function ListeNotes({ cible }: { cible: Cible }) {
         </Stack>
       )}
       <FormNote cible={cible} />
+      {!!notes?.length && (
+        <Button component="a" href={'/api/lectures/notes/export?' + filtre} download variant="subtle" size="compact-sm" color="gray"
+                leftSection={<IconDownload size={14} />} style={{ alignSelf: 'flex-start' }}>
+          Exporter en Markdown
+        </Button>
+      )}
     </Stack>
+  );
+}
+
+/** Une note ou citation tirée de tes lectures : la même toute la journée, « Une autre » en fait défiler */
+export function NoteDuJour() {
+  const [decalage, setDecalage] = useState(0);
+  const { data: note } = useNoteDuJour(decalage);
+  if (!note) return null;
+  const citation = note.type === 'citation';
+  return (
+    <Group gap="sm" wrap="nowrap" align="flex-start" px="md" py="sm"
+           style={{ borderRadius: 'var(--mantine-radius-lg)', border: '1px solid var(--bordure-douce)', borderLeft: '3px solid var(--c-brand)',
+                    background: 'color-mix(in srgb, var(--c-brand) 6%, transparent)' }}>
+      {citation ? <IconQuote size={18} style={{ flexShrink: 0, marginTop: 2, color: 'var(--c-brand)' }} />
+                : <IconNotes size={18} style={{ flexShrink: 0, marginTop: 2, color: 'var(--c-brand)' }} />}
+      <Box style={{ flex: 1, minWidth: 0 }}>
+        <Text fz="sm" lh={1.55} fs={citation ? 'italic' : undefined} lineClamp={6} style={{ whiteSpace: 'pre-wrap' }}>
+          {citation ? `« ${note.texte} »` : note.texte}
+        </Text>
+        <Text fz="xs" c="dimmed" mt={4}>
+          {[note.titre, note.auteur].filter(Boolean).join(' · ')}{note.page ? ` · p. ${note.page}` : ''}
+        </Text>
+      </Box>
+      <Tooltip label="Une autre" withArrow>
+        <ActionIcon variant="subtle" color="gray" aria-label="Une autre note" onClick={() => setDecalage(d => d + 1)}>
+          <IconRefresh size={16} stroke={1.7} />
+        </ActionIcon>
+      </Tooltip>
+    </Group>
   );
 }
 

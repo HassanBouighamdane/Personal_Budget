@@ -21,16 +21,20 @@ Application web personnelle pour gérer et suivre son budget au quotidien, avec 
 - Dividendes nets et frais de compte (y compris les droits de garde, saisis manuellement)
 - Apports et retraits entre la banque et le compte Bourse : espèces disponibles, patrimoine total et performance globale (gains réinvestis inclus)
 - Tableau de bord global, par mois ou par année
+- Journal des décisions (pourquoi j'ai acheté ou vendu) et dividendes attendus sur 12 mois
 
 **Lectures**
 - Journal des livres terminés : titre, auteur, genre, dates de début et de fin, pages, avis en étoiles, note personnelle
 - Objectifs annuel et mensuel, avec avance ou retard sur le rythme de l'année
+- Lecture en cours : page du jour, rythme, fin estimée, série de jours ; note ou citation du jour
+- Livres prêtés ; export des notes en Markdown
 - Bilan annuel : livres et pages lus, livres par mois, genres, records, auteurs les plus lus, historique par année
 
 **Carnet**
 - Dettes et prêts : argent prêté ou emprunté, remboursements partiels, total qu'on me doit et que je dois
 - Échéances : papiers, assurance, visite technique, garanties, avec délai de rappel et récurrence
-- Rappels du matin et résumé de la semaine le lundi, par Telegram ou e-mail (optionnel, voir DOCUMENTATION.md §10)
+- Patrimoine net (liquidités, Bourse, autres actifs, dettes), réserve de sécurité en mois de dépenses, estimation de la zakat
+- Rappels du matin, résumé de la semaine le lundi et bilan du mois le 1er, par Telegram ou e-mail (optionnel, voir DOCUMENTATION.md §10)
 
 **Autres**
 - Connexion sécurisée : mot de passe haché avec PBKDF2, session dans un cookie HttpOnly

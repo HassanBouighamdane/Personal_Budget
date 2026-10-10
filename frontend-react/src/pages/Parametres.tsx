@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ActionIcon, Badge, Box, Button, Checkbox, Divider, Grid, Group, NumberInput, PasswordInput, Stack, Table, Text, TextInput, Tooltip } from '@mantine/core';
+import { ActionIcon, Badge, Box, Button, Checkbox, Divider, Grid, Group, NumberInput, PasswordInput, SegmentedControl, Stack, Table, Text, TextInput, Tooltip } from '@mantine/core';
 import { MonthPickerInput } from '@mantine/dates';
 import { modals } from '@mantine/modals';
 import { IconBell, IconBriefcase, IconCategory, IconDeviceFloppy, IconEye, IconHistory, IconLock, IconPlus, IconSend, IconTarget } from '@tabler/icons-react';
@@ -102,43 +102,62 @@ function LigneSource({ s }: { s: Source }) {
   );
 }
 
-/** Ce qui partirait maintenant : rappels du jour et résumé de la dernière semaine terminée */
-function ApercuRappels() {
-  const { data, isPending } = useApercuRappels();
-  if (isPending || !data) return <Chargement lignes={5} />;
+type Periode = 'semaine' | 'mois';
+
+/** Résumé de la dernière semaine ou bilan du dernier mois, tel qu'il part, avec son envoi immédiat */
+function ApercuRappels({ peutEnvoyer }: { peutEnvoyer: boolean }) {
+  const [periode, setPeriode] = useState<Periode>('semaine');
+  const { data, isPending } = useApercuRappels(periode);
+  const [envoi, setEnvoi] = useState(false);
+
+  async function envoyer() {
+    setEnvoi(true);
+    try {
+      const r = await api<{ canaux: string[] }>('/api/rappels/envoyer?periode=' + periode, { method: 'POST' });
+      toast('Envoyé (' + r.canaux.join(', ') + ') ✓');
+    } catch { /* message déjà affiché */ } finally { setEnvoi(false); }
+  }
+
   return (
     <Stack gap="md">
-      {data.rappels && (
-        <Box>
-          <Text fz="xs" fw={700} c="dimmed" tt="uppercase" lts={0.5} mb={4}>Rappels du jour</Text>
-          <Text fz="sm" style={{ whiteSpace: 'pre-wrap' }}>{data.rappels}</Text>
-        </Box>
+      <Group justify="space-between" gap="xs">
+        <SegmentedControl size="xs" value={periode} onChange={v => setPeriode(v as Periode)}
+                          data={[{ value: 'semaine', label: 'Semaine (le lundi)' }, { value: 'mois', label: 'Mois (le 1er)' }]} />
+        <Tooltip label="Configure d'abord Telegram ou l'e-mail" disabled={peutEnvoyer} withArrow>
+          <Button size="xs" leftSection={<IconSend size={14} />} onClick={envoyer} loading={envoi} disabled={!peutEnvoyer}>
+            Envoyer maintenant
+          </Button>
+        </Tooltip>
+      </Group>
+      {isPending || !data ? <Chargement lignes={6} /> : (
+        <>
+          {data.rappels && (
+            <Box>
+              <Text fz="xs" fw={700} c="dimmed" tt="uppercase" lts={0.5} mb={4}>Rappels du jour</Text>
+              <Text fz="sm" style={{ whiteSpace: 'pre-wrap' }}>{data.rappels}</Text>
+            </Box>
+          )}
+          <Box>
+            <Text fz="sm" fw={650} mb={6}>{data.sujet}</Text>
+            {/* L'e-mail lui-même, isolé de l'application (aucun script, styles à part) */}
+            <iframe title="Aperçu du résumé" srcDoc={data.html} sandbox=""
+                    style={{ width: '100%', height: '60vh', border: 0, borderRadius: 12, background: '#f3f4f6', display: 'block' }} />
+            <Text fz="xs" c="dimmed" mt={6}>Sur Telegram, le même contenu arrive sous forme de message.</Text>
+          </Box>
+        </>
       )}
-      <Box>
-        <Text fz="sm" fw={650} mb={6}>{data.sujet}</Text>
-        <Text fz="sm" lh={1.6} style={{ whiteSpace: 'pre-wrap' }}>{data.resume || 'Rien à résumer pour cette semaine.'}</Text>
-      </Box>
     </Stack>
   );
 }
 
 function CarteRappels() {
   const { data: etat, isPending } = useEtatRappels();
-  const [envoi, setEnvoi] = useState(false);
   const actif = (c: 'telegram' | 'email') => !!etat?.canaux.includes(c);
   const Etat = ({ ok, children }: { ok: boolean; children: string }) =>
     <Badge variant="light" color={ok ? 'emeraude' : 'gray'}>{children} : {ok ? 'activé' : 'non configuré'}</Badge>;
 
-  async function envoyer() {
-    setEnvoi(true);
-    try {
-      const r = await api<{ canaux: string[] }>('/api/rappels/envoyer', { method: 'POST' });
-      toast('Résumé envoyé (' + r.canaux.join(', ') + ') ✓');
-    } catch { /* message déjà affiché */ } finally { setEnvoi(false); }
-  }
-
   return (
-    <Carte titre="Rappels et résumé hebdomadaire" description="Par Telegram ou e-mail : les échéances le matin, le résumé de la semaine le lundi"
+    <Carte titre="Rappels et résumés" description="Par Telegram ou e-mail : les échéances le matin, la semaine le lundi, le mois le 1er"
            icone={<Pastille icone={IconBell} couleur="ambre" />}>
       {isPending ? <Chargement lignes={2} /> : (
         <Stack gap="sm">
@@ -150,17 +169,12 @@ function CarteRappels() {
           {(!etat?.canaux.length || !etat.cron) && (
             <Info>
               Ces réglages sont des variables d'environnement du serveur (jeton Telegram ou compte SMTP, et CRON_SECRET pour
-              l'envoi automatique) : la marche à suivre est dans DOCUMENTATION.md, section « Rappels et résumé hebdomadaire ».
+              l'envoi automatique) : la marche à suivre est dans DOCUMENTATION.md, section « Carnet, rappels et résumés ».
             </Info>
           )}
-          <Group gap="xs">
-            <Button variant="default" leftSection={<IconEye size={16} />} onClick={() => modals.open({
-              title: <Text fw={650}>Aperçu du prochain envoi</Text>, centered: true, size: 'lg', children: <ApercuRappels />,
-            })}>Aperçu</Button>
-            <Button leftSection={<IconSend size={16} />} onClick={envoyer} loading={envoi} disabled={!etat?.canaux.length}>
-              Envoyer maintenant
-            </Button>
-          </Group>
+          <Button variant="default" leftSection={<IconEye size={16} />} style={{ alignSelf: 'flex-start' }} onClick={() => modals.open({
+            title: <Text fw={650}>Aperçu et envoi</Text>, centered: true, size: 'lg', children: <ApercuRappels peutEnvoyer={!!etat?.canaux.length} />,
+          })}>Aperçu et envoi</Button>
         </Stack>
       )}
     </Carte>

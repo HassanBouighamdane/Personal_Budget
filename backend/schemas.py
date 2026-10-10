@@ -125,6 +125,7 @@ class TransactionBourseCreate(BaseModel):
     cours_unitaire: float = Field(ge=0)
     autres_frais: float = Field(default=0, ge=0)   # frais ponctuel éventuel, saisi manuellement
     tpcvm: float = Field(default=0, ge=0)          # TPCVM retenue sur une vente, saisie manuellement (ignorée pour un achat)
+    note: str = Field(default="", max_length=2000)  # pourquoi j'ai acheté / vendu
 
 
 # Schéma de la partie Bourse pour l'API (sortie)
@@ -142,6 +143,7 @@ class TransactionBourseOut(BaseModel):
     total_frais: float
     tpcvm: float
     montant_net: float
+    note: str = ""
 
 
 class PrixMaj(BaseModel):
@@ -348,6 +350,42 @@ class ALireIn(BaseModel):
 class ALireOut(ALireIn):
     id: int
     nb_notes: int = 0
+    # Suivi de la lecture en cours (None tant qu'aucune page n'est notée)
+    page_actuelle: Optional[int] = None
+    derniere_lecture: Optional[date] = None
+    pages_par_jour: Optional[float] = None
+    fin_estimee: Optional[date] = None
+
+
+class ProgressionIn(BaseModel):
+    page: int = Field(ge=0)
+
+
+class PretLivreIn(BaseModel):
+    titre: str = Field(min_length=1, max_length=200)
+    personne: str = Field(min_length=1, max_length=100)
+    date_pret: date
+    date_retour: Optional[date] = None
+    note: str = Field(default="", max_length=1000)
+
+    @model_validator(mode="after")
+    def _coherence(self):
+        self.titre, self.personne = self.titre.strip(), self.personne.strip()
+        if not self.titre or not self.personne:
+            raise ValueError("Indique le livre et la personne")
+        if self.date_retour and self.date_retour < self.date_pret:
+            raise ValueError("Le retour ne peut pas précéder le prêt")
+        return self
+
+
+class PretLivreOut(BaseModel):
+    id: int
+    titre: str
+    personne: str
+    date_pret: date
+    date_retour: Optional[date]
+    note: str
+    jours: int      # durée du prêt : jusqu'à aujourd'hui, ou jusqu'au retour
 
 
 class NoteIn(BaseModel):
@@ -465,3 +503,28 @@ class EcheanceOut(BaseModel):
     note: str
     jours_restants: int      # négatif = en retard
     a_rappeler: bool         # dans la fenêtre de rappel (ou en retard)
+
+
+# ---------------------------------------------------------------- Patrimoine
+class ActifIn(BaseModel):
+    """Actif hors Bourse, à valeur saisie à la main."""
+    nom: str = Field(min_length=1, max_length=100)
+    type: str = Field(default="Autre", max_length=30)
+    valeur: float = Field(ge=0)
+    verse: float = Field(default=0, ge=0)
+    zakat: bool = False
+    maj_le: date
+    note: str = Field(default="", max_length=1000)
+
+    @model_validator(mode="after")
+    def _nom_non_vide(self):
+        self.nom = self.nom.strip()
+        if not self.nom:
+            raise ValueError("Indique le nom")
+        return self
+
+
+class ReglagesPatrimoine(BaseModel):
+    solde_depart: float = 0                 # argent détenu avant la première saisie (peut être négatif)
+    prix_or_gramme: float = Field(default=0, ge=0)
+    debut_hawl: Optional[date] = None       # début de l'année lunaire en cours pour la zakat

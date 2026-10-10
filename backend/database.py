@@ -427,6 +427,48 @@ def init_db():
         );
         CREATE INDEX IF NOT EXISTS idx_echeances_date ON echeances (date_echeance);
 
+        -- Lectures : page atteinte dans un livre en cours, au plus une ligne par jour et par livre
+        CREATE TABLE IF NOT EXISTS lectures_progression (
+            a_lire_id INTEGER NOT NULL REFERENCES lectures_a_lire(id) ON DELETE CASCADE,
+            date      DATE NOT NULL,
+            page      INTEGER NOT NULL CHECK (page >= 0),
+            PRIMARY KEY (a_lire_id, date)
+        );
+        -- Jours où l'on a lu (série de jours consécutifs) : gardés à part, car la progression
+        -- d'un livre disparaît avec lui quand il est terminé
+        CREATE TABLE IF NOT EXISTS lectures_jours (
+            date DATE PRIMARY KEY
+        );
+        -- Livres prêtés : `date_retour` renseignée = rendu
+        CREATE TABLE IF NOT EXISTS lectures_prets (
+            id          SERIAL PRIMARY KEY,
+            titre       VARCHAR(200) NOT NULL,
+            personne    VARCHAR(100) NOT NULL,
+            date_pret   DATE NOT NULL,
+            date_retour DATE,
+            note        TEXT NOT NULL DEFAULT '',
+            cree_le     TIMESTAMP NOT NULL DEFAULT now(),
+            CHECK (date_retour IS NULL OR date_retour >= date_pret)
+        );
+
+        -- Bourse : pourquoi j'ai acheté ou vendu (journal des décisions)
+        ALTER TABLE bourse_transactions ADD COLUMN IF NOT EXISTS note TEXT NOT NULL DEFAULT '';
+
+        -- Patrimoine — actifs hors Bourse, à valeur saisie à la main (or, compte épargne, immobilier...).
+        -- `verse` : argent sorti de l'épargne du Budget pour cet actif sans être saisi en dépense
+        -- (un transfert, comme un apport Bourse) ; il est retiré des liquidités pour ne pas compter deux fois.
+        CREATE TABLE IF NOT EXISTS actifs (
+            id      SERIAL PRIMARY KEY,
+            nom     VARCHAR(100) NOT NULL,
+            type    VARCHAR(30) NOT NULL DEFAULT 'Autre',
+            valeur  NUMERIC(14,2) NOT NULL CHECK (valeur >= 0),
+            verse   NUMERIC(14,2) NOT NULL DEFAULT 0 CHECK (verse >= 0),
+            zakat   BOOLEAN NOT NULL DEFAULT false,          -- compte dans l'assiette de la zakat
+            maj_le  DATE NOT NULL,                           -- date de la dernière valeur saisie
+            note    TEXT NOT NULL DEFAULT '',
+            cree_le TIMESTAMP NOT NULL DEFAULT now()
+        );
+
         """)
 
         # ------------------------------------------------------------------

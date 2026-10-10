@@ -19,7 +19,8 @@ Application web personnelle pour suivre son budget (dépenses, revenus, épargne
 7. [Frontend](#7-frontend)
 8. [Points restants](#8-points-restants)
 9. [Module Lectures](#9-module-lectures)
-10. [Carnet, rappels et résumé hebdomadaire](#10-carnet-rappels-et-résumé-hebdomadaire)
+10. [Carnet, rappels et résumés](#10-carnet-rappels-et-résumés)
+11. [Patrimoine, réserve de sécurité et zakat](#11-patrimoine-réserve-de-sécurité-et-zakat)
 
 ---
 
@@ -34,6 +35,7 @@ Personal_Budget/
 │   ├── cours_bvc.py        Cours automatiques des titres BVC (site officiel, Médias24 en secours ; voir §6.3)
 │   ├── securite.py         Mots de passe, sessions, limitation des tentatives de connexion
 │   ├── messagerie.py       Envoi des rappels et du résumé : Telegram et/ou e-mail (voir §10)
+│   ├── resume_rendu.py     Mise en forme du résumé hebdomadaire : texte, message Telegram, e-mail HTML
 │   ├── schemas.py          Modèles Pydantic (validation des entrées et des sorties)
 │   ├── requirements.txt
 │   ├── scripts/
@@ -43,6 +45,8 @@ Personal_Budget/
 │   │   ├── test_budget.py        Renommage en cascade, erreurs 404
 │   │   ├── test_mouvements.py    Apports/retraits, espèces disponibles, performance globale
 │   │   ├── test_lectures.py      Bilan annuel, objectifs, relectures, genres
+│   │   ├── test_lectures_suivi.py  Rythme, série, note du jour, export Markdown, livres prêtés
+│   │   ├── test_patrimoine.py    Patrimoine net, réserve de sécurité, zakat
 │   │   ├── test_carnet.py        Reste dû, remboursements refusés, échéances récurrentes
 │   │   └── test_rappels.py       Jours de rappel, contenu du résumé, protection de la tâche planifiée
 │   └── routes/
@@ -53,6 +57,7 @@ Personal_Budget/
 │       ├── bourse.py             module Bourse
 │       ├── lectures.py           module Lectures (livres lus, objectifs, bilan annuel)
 │       ├── carnet.py             module Carnet (dettes et prêts, échéances)
+│       ├── patrimoine.py         patrimoine net, autres actifs, réserve de sécurité, zakat (voir §11)
 │       └── rappels.py            rappels du jour, résumé hebdomadaire, tâche planifiée
 ├── frontend-react/         Frontend React (voir §7)
 │   ├── src/                Code source TypeScript
@@ -333,6 +338,10 @@ Index : `depenses(date)`, `revenus(date)`.
 | `lectures_livres` | `titre`, `auteur`, `genre`, `date_debut` (optionnelle), `date_fin`, `pages`, `note` (1 à 5), `commentaire` | genre stocké par son nom ; `CHECK date_debut ≤ date_fin` |
 | `lectures_genres` | `id`, `nom` UNIQUE, `actif` | suppression douce, comme les catégories |
 
+| `lectures_progression` | `a_lire_id`, `date`, `page` | page atteinte dans un livre en cours, une ligne par jour ; supprimée avec le livre |
+| `lectures_jours` | `date` | jours où l'on a lu (série), gardés quand un livre est terminé |
+| `lectures_prets` | `titre`, `personne`, `date_pret`, `date_retour` (NULL = pas rendu), `note` | livres prêtés |
+
 Les objectifs de lecture sont dans `params` : `objectif_lecture_annuel` (24 par défaut) et `objectif_lecture_mensuel` (2).
 
 ### Carnet
@@ -342,6 +351,10 @@ Les objectifs de lecture sont dans `params` : `objectif_lecture_annuel` (24 par 
 | `dettes` | `sens` (`pret` / `emprunt`), `personne`, `montant`, `date_operation`, `echeance` (optionnelle), `libelle` | `pret` : on me doit ; `emprunt` : je dois |
 | `dettes_remboursements` | `dette_id`, `date_operation`, `montant`, `libelle` | supprimés avec leur dette (`ON DELETE CASCADE`) |
 | `echeances` | `titre`, `categorie`, `date_echeance`, `rappel_jours`, `recurrence_mois` (NULL = ponctuelle), `note` | |
+
+| `actifs` | `nom`, `type`, `valeur`, `verse`, `zakat`, `maj_le`, `note` | actifs hors Bourse, valeur saisie à la main (voir §11) |
+
+`bourse_transactions.note` garde la raison d'un achat ou d'une vente. Trois clés de `params` règlent le patrimoine : `solde_depart`, `zakat_prix_or` (DH par gramme) et `zakat_debut_hawl` (numéro de jour).
 
 Deux clés de `params` servent à la tâche planifiée : `cron_dernier_jour` (dernier jour traité, en numéro de jour) et `resume_hebdo_patrimoine` (valeur du compte Bourse au dernier résumé).
 
@@ -403,14 +416,24 @@ Toutes les routes sauf `/api/login`, `/api/logout` et `/api/cron/quotidien` (pro
 | GET / POST / PUT / DELETE | `/api/lectures/genres[/{id}]` | `{nom}` | `[GenreOut]` / `{ok}` ; 409 si le nouveau nom existe déjà |
 | GET / PUT | `/api/lectures/objectifs` | `{annuel, mensuel}` | `ObjectifsLecture` |
 | GET | `/api/lectures/bilan` | `?annee=` | bilan de l'année (voir §9) |
+| PUT | `/api/lectures/a_lire/{id}/progression` | `{page}` | `ALireOut` avec `page_actuelle`, `pages_par_jour`, `fin_estimee` ; 400 au-delà du nombre de pages |
+| GET | `/api/lectures/serie` | — | `{serie, record, lu_aujourdhui}` |
+| GET | `/api/lectures/note_du_jour` | `?decalage=` | une note ou citation avec le titre et l'auteur du livre, ou `null` |
+| GET | `/api/lectures/notes/export` | `?livre_id=` ou `?a_lire_id=` | fichier Markdown du livre |
+| GET | `/api/lectures/notes/export_tout` | — | archive ZIP, un fichier Markdown par livre annoté |
+| GET / POST / PUT / DELETE | `/api/lectures/prets[/{id}]` | `PretLivreIn` | `[PretLivreOut]` (avec `jours`) / `PretLivreOut` / 204 |
+| GET | `/api/bourse/dividendes/calendrier` | — | `{total, lignes}` : dividendes attendus sur 12 mois |
+| GET | `/api/patrimoine` | — | composition, actifs, réserve de sécurité, zakat (voir §11) |
+| PUT | `/api/patrimoine/reglages` | `{solde_depart, prix_or_gramme, debut_hawl}` | `{ok}` |
+| POST / PUT / DELETE | `/api/patrimoine/actifs[/{id}]` | `ActifIn` | l'actif / 204 |
 | GET / POST / PUT / DELETE | `/api/carnet/dettes[/{id}]` | `DetteIn` | `[DetteOut]` / `DetteOut` (avec `rembourse`, `reste`, `remboursements`) / 204 ; 400 si le montant passe sous le déjà remboursé |
 | POST | `/api/carnet/dettes/{id}/remboursements` | `{date_operation, montant, libelle}` | `DetteOut` ; 400 si le montant dépasse le reste dû ou précède le prêt |
 | DELETE | `/api/carnet/remboursements/{id}` | — | 204 |
 | GET / POST / PUT / DELETE | `/api/carnet/echeances[/{id}]` | `EcheanceIn` | `[EcheanceOut]` / `EcheanceOut` (avec `jours_restants`, `a_rappeler`) / 204 |
 | POST | `/api/carnet/echeances/{id}/reporter` | — | `EcheanceOut` : la date avance de `recurrence_mois` ; 400 si l'échéance est ponctuelle |
 | GET | `/api/rappels/etat` | — | `{canaux: ["telegram", "email"], cron: bool}` (aucun secret) |
-| GET | `/api/rappels/apercu` | — | `{rappels, sujet, resume}` : ce qui serait envoyé maintenant |
-| POST | `/api/rappels/envoyer` | — | `{canaux}` : envoie le résumé tout de suite ; 502 si aucun canal ou envoi refusé |
+| GET | `/api/rappels/apercu` | `?periode=semaine\|mois` | `{rappels, sujet, resume, html}` : ce qui serait envoyé maintenant (`html` : l'e-mail) |
+| POST | `/api/rappels/envoyer` | `?periode=semaine\|mois` | `{canaux}` : envoie le résumé choisi tout de suite ; 502 si aucun canal ou envoi refusé |
 | GET | `/api/cron/quotidien` | en-tête `Authorization: Bearer <CRON_SECRET>`, `?force=` | `{etat, envoyes}` ; **sans session** ; 401 sans le secret, 503 si `CRON_SECRET` est vide |
 
 ---
@@ -523,7 +546,7 @@ src/
     ├── dashboard/        Dashboard.tsx (navigation ‹ ›, choix de vue) + Vues.tsx (Jour/Semaine/Mois/Année/Global)
     ├── bourse/           Bourse.tsx (sous-onglets) + Journaux, Portefeuille, Fiscalite, ParametresBourse
     ├── lectures/         Lectures.tsx (sous-onglets, navigation par année) + Journal, ALire, Bilan, ParametresLectures, communs (ISBN, couverture, notes)
-    └── carnet/           Carnet.tsx (sous-onglets) + Dettes (prêts, emprunts, remboursements), Echeances
+    └── carnet/           Carnet.tsx (sous-onglets) + Dettes (prêts, emprunts, remboursements), Echeances, Patrimoine
 ```
 
 ### 7.3 Données
@@ -599,9 +622,18 @@ Onglet **Lectures**, avec trois sous-onglets :
 - **Bilan annuel** : KPI des objectifs et de lecture, livres par mois (barres vertes quand l'objectif mensuel est atteint), progression cumulée comparée au rythme de l'objectif, genres, records, tableau triable des livres, historique par année ;
 - **Paramètres** : objectifs annuel et mensuel, genres.
 
+### Suivi de la lecture en cours
+
+- **Page du jour** : `PUT /a_lire/{id}/progression` garde une page par jour et par livre (la dernière saisie du jour remplace la précédente). Noter une page fait passer un livre « à lire » en cours.
+- **Rythme** (`rythme()`) : pages lues ÷ jours écoulés, du début de la lecture (page 0 à `date_debut`) à la dernière page notée. La **fin estimée** prolonge ce rythme à partir d'aujourd'hui sur les pages restantes ; elle est vide sans nombre de pages.
+- **Série** (`calculer_serie()`) : jours de lecture consécutifs. Un jour compte dès qu'une page en avance sur la précédente est notée, ou qu'un livre est terminé ce jour-là. La série tient encore si le dernier jour lu est hier.
+- **Note du jour** (`note_du_jour()`) : une note ou citation tirée de tous les livres, la même toute la journée ; `decalage` en fait défiler d'autres.
+- **Export Markdown** : une fiche par livre (en-tête, avis, citations puis notes dans l'ordre des pages). Le nom du fichier vient du titre, sans accents ni ponctuation ; un titre non latin est conservé.
+- **Livres prêtés** : onglet « Prêtés », avec la durée du prêt (jusqu'à aujourd'hui, ou jusqu'au retour).
+
 ---
 
-## 10. Carnet, rappels et résumé hebdomadaire
+## 10. Carnet, rappels et résumés
 
 ### Dettes et prêts
 
@@ -632,16 +664,37 @@ Tout ce qui a une date limite : CIN, passeport, assurance, visite technique, vig
 
 | Section | Contenu |
 |---|---|
-| Budget | dépenses et variation sur la semaine d'avant, revenus, budget variable de la semaine, trois premières catégories, mois en cours (dépensé, budget, projection à partir du 5) |
+| En-tête | la semaine couverte et une phrase de bilan (sous le budget avec la marge restante, ou dépassé de combien) |
+| Budget | dépenses et variation sur la semaine d'avant, revenus et épargne, jauge du budget variable, dépenses jour par jour, premières catégories, plus grosse dépense, jour le plus dépensier, jours sans dépense, mois en cours (dépensé, budget, projection à partir du 5) |
 | Bourse | valeur du compte (titres + espèces), écart depuis le résumé précédent (apports et retraits compris), performance globale |
 | Lectures | livres terminés dans la semaine, livres en cours, avancement de l'objectif annuel |
 | Carnet | total qu'on me doit et que je dois, dettes dont l'échéance est dépassée, échéances à traiter |
 
 Une section vide est omise ; une section qui lève une erreur est ignorée et journalisée, les autres partent quand même.
 
+`routes/rappels.py` réunit les données, `resume_rendu.py` les met en forme en trois versions : un **e-mail HTML** (cartes, barres jour par jour et par catégorie, jauges ; styles en ligne uniquement, pour Gmail), un **message Telegram** (HTML de Telegram : phrase de bilan en citation, chiffres alignés dans des blocs à chasse fixe de 24 caractères au plus, barres jour par jour) et un **texte brut**, joint à l'e-mail comme repli et envoyé sur Telegram si la mise en forme est refusée ou dépasse 4 000 caractères. Les textes saisis (catégories, descriptions, titres) sont échappés. L'aperçu des Paramètres affiche l'e-mail tel qu'il part.
+
+### Bilan du mois
+
+`resume_mensuel(auj)` couvre le **dernier mois terminé** ; il part le 1er du mois suivant.
+
+| Section | Contenu |
+|---|---|
+| En-tête | le mois et une phrase de bilan : objectif d'épargne atteint, manqué de combien, ou mois dans le rouge |
+| Bilan | dépenses et variation sur le mois d'avant, revenus, épargne et taux d'épargne, jauges du budget du mois et de l'objectif d'épargne |
+| Au fil du mois | dépenses par tranche de 7 jours (1–7, 8–14, …) |
+| Catégories | réel comparé au budget, catégories dépassées signalées |
+| Plus grosses dépenses | les cinq premières, avec leur catégorie et leur date |
+| Derniers mois | dépenses des six derniers mois (e-mail seulement) |
+| Bourse | valeur du compte, résultat, dividendes, apports et retraits du mois, performance globale |
+| Lectures | livres terminés dans le mois, livres en cours, objectif annuel |
+| Carnet | dettes en cours, échéances à traiter ou qui tombent dans les 31 jours qui viennent |
+
+Mêmes trois versions et mêmes règles que le résumé de la semaine.
+
 ### Tâche planifiée
 
-`GET /api/cron/quotidien` envoie les rappels du jour et, **le lundi**, le résumé. Elle n'utilise pas de session : elle exige l'en-tête `Authorization: Bearer <CRON_SECRET>`.
+`GET /api/cron/quotidien` envoie les rappels du jour, **le lundi** le résumé de la semaine et **le 1er du mois** le bilan du mois (les deux si le 1er tombe un lundi). Elle n'utilise pas de session : elle exige l'en-tête `Authorization: Bearer <CRON_SECRET>`.
 
 - **Vercel** : `vercel.json` déclare la tâche (`0 7 * * *`, soit entre 8 h et 9 h au Maroc ; l'offre gratuite autorise une exécution par jour, à une minute non garantie dans l'heure). Vercel envoie `CRON_SECRET` tout seul dès que la variable existe.
 - **Render** (pas de tâche planifiée gratuite) : un service comme cron-job.org peut appeler l'adresse chaque matin avec le même en-tête.
@@ -650,7 +703,7 @@ Une section vide est omise ; une section qui lève une erreur est ignorée et jo
 
 ### Configurer l'envoi
 
-Un canal est actif dès que ses variables sont renseignées ; les deux peuvent l'être en même temps. Paramètres → « Rappels et résumé hebdomadaire » indique ce qui est configuré, montre un aperçu et envoie un résumé de test.
+Un canal est actif dès que ses variables sont renseignées ; les deux peuvent l'être en même temps. Paramètres → « Rappels et résumés » indique ce qui est configuré ; « Aperçu et envoi » montre le résumé de la semaine ou le bilan du mois et l'envoie tout de suite.
 
 **Telegram**
 1. Dans Telegram, écrire à **@BotFather** : `/newbot`, choisir un nom. Il renvoie le jeton → `TELEGRAM_BOT_TOKEN`.
@@ -670,3 +723,38 @@ Sur Vercel et Render, ces variables se règlent dans le tableau de bord de l'hé
 Onglet **Carnet**, avec deux sous-onglets :
 - **Dettes et prêts** : totaux (on me doit, je dois, solde net), formulaire, dettes en cours avec leur avancement, fenêtre des remboursements (le champ montant vide solde la dette), dettes soldées ;
 - **Échéances** : formulaire (catégorie, date limite, délai de rappel, récurrence), « À traiter » et « Plus tard ». Le nombre d'échéances à traiter s'affiche sur l'onglet.
+
+---
+
+## 11. Patrimoine, réserve de sécurité et zakat
+
+Onglet **Carnet → Patrimoine** (`routes/patrimoine.py`). La carte « Patrimoine net » de la vue Global du dashboard affiche le même total.
+
+### Patrimoine net
+
+```
+liquidités = solde de départ + épargne cumulée du Budget
+             − apports nets au compte Bourse − argent versé dans les autres actifs
+             − argent prêté + argent emprunté
+patrimoine = liquidités + compte Bourse + autres actifs + ce qu'on me doit − ce que je dois
+```
+
+- Le **solde de départ** est l'argent détenu avant la première saisie ; sans lui, les liquidités ne comptent que l'épargne faite depuis.
+- Un **actif** (or, compte épargne, placement, immobilier) a une valeur saisie à la main et une date de relevé. `verse` est l'argent sorti de l'épargne pour lui **sans** être saisi en dépense : il est retiré des liquidités, donc seul le gain de valeur augmente le patrimoine. Un actif saisi en dépense, ou détenu avant l'application, garde `verse = 0` et s'ajoute en entier.
+- Un prêt ou un emprunt déplace de l'argent entre les liquidités et les créances ou dettes : le total ne change pas.
+
+### Réserve de sécurité
+
+Mois de dépenses couverts = argent disponible ÷ dépense mensuelle moyenne. L'argent disponible est la somme des liquidités (si positives) et des actifs de type « Compte épargne ». La moyenne porte sur les 6 derniers mois **terminés** ayant des dépenses. Repères affichés : moins de 3 mois fragile, 3 à 6 correct, au-delà confortable.
+
+### Zakat (estimation)
+
+- **Assiette** = liquidités + compte Bourse à sa valeur de marché + actifs cochés « Compte pour la zakat » + ce qu'on me doit − ce que je dois (les parts négatives comptent pour 0).
+- **Nisab** = 85 g d'or × le prix du gramme saisi. Assiette ≥ nisab : zakat = 2,5 % de l'assiette ; sinon rien.
+- **Échéance** = début de l'année en cours + 354 jours (année lunaire). « Zakat payée » redémarre l'année à la date du jour.
+- C'est une aide au calcul, pas un avis religieux : le traitement des actions, des dettes et le choix du nisab (or ou argent) varient selon les avis.
+
+### Bourse : journal des décisions et dividendes attendus
+
+- Chaque transaction peut porter une **note** (pourquoi j'achète ou je vends). L'onglet Transactions les rassemble dans « Journal des décisions », avec l'évolution du cours depuis pour les titres encore détenus.
+- **Dividendes attendus** (`calculer_calendrier_dividendes()`) : chaque dividende reçu depuis un an sur un titre encore détenu est supposé revenir un an plus tard, au même montant **par action** (montant reçu ÷ quantité détenue ce jour-là), appliqué à la quantité détenue aujourd'hui.

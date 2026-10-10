@@ -8,21 +8,26 @@ relecture est une nouvelle ligne : elle compte comme un livre lu de plus.
 Objectifs (nombre de livres) : un objectif annuel et un objectif mensuel,
 stockés dans la table `params` comme l'objectif d'épargne du Budget.
 """
+import io
 import json
+import math
 import re
+import unicodedata
 import urllib.error
+import urllib.parse
 import urllib.request
-from datetime import date
+import zipfile
+from datetime import date, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from psycopg.errors import UniqueViolation
 
 from config import aujourdhui
 from database import db
 from securite import utilisateur_courant
 from schemas import (ALireIn, ALireOut, FicheIsbn, GenreOut, LivreIn, LivreOut, NomIn, NoteIn, NoteOut,
-                     ObjectifsLecture)
+                     ObjectifsLecture, PretLivreIn, PretLivreOut, ProgressionIn)
 
 router = APIRouter(prefix="/api/lectures", tags=["lectures"],
                    dependencies=[Depends(utilisateur_courant)])
@@ -99,20 +104,47 @@ def _valeurs_a_lire(a: ALireIn) -> tuple:
             a.couverture.strip(), a.commentaire.strip(), a.date_debut)
 
 
+def rythme(livre: dict, points: list, auj: date) -> dict:
+    """Suivi d'un livre en cours d'après ses pages notées (`points` : [(date, page)] triés).
+    Le rythme part du début de la lecture (page 0 à `date_debut`) et va jusqu'à la dernière
+    page notée ; la fin estimée prolonge ce rythme à partir d'aujourd'hui."""
+    if not points:
+        return {"page_actuelle": None, "derniere_lecture": None, "pages_par_jour": None, "fin_estimee": None}
+    dernier_jour, page = points[-1]
+    debut, page_debut = points[0]
+    if livre["date_debut"] and livre["date_debut"] <= debut:
+        debut, page_debut = livre["date_debut"], 0
+    par_jour = (page - page_debut) / max(1, (dernier_jour - debut).days)
+    fin = None
+    if livre["pages"] and par_jour > 0 and page < livre["pages"]:
+        fin = auj + timedelta(days=math.ceil((livre["pages"] - page) / par_jour))
+    return {"page_actuelle": page, "derniere_lecture": dernier_jour,
+            "pages_par_jour": round(par_jour, 1) if par_jour > 0 else None, "fin_estimee": fin}
+
+
+def _avec_rythme(c, livres: list, auj: date) -> list:
+    points = {}
+    for r in c.execute("SELECT a_lire_id, date, page FROM lectures_progression ORDER BY date").fetchall():
+        points.setdefault(r["a_lire_id"], []).append((r["date"], r["page"]))
+    return [{**l, **rythme(l, points.get(l["id"], []), auj)} for l in livres]
+
+
 def _a_lire(c, a_lire_id: int):
-    return c.execute(f"""SELECT {A_LIRE_COLONNES},
-                         (SELECT COUNT(*) FROM lectures_notes n WHERE n.a_lire_id = a.id)::int nb_notes
-                         FROM lectures_a_lire a WHERE id=%s""", (a_lire_id,)).fetchone()
+    row = c.execute(f"""SELECT {A_LIRE_COLONNES},
+                        (SELECT COUNT(*) FROM lectures_notes n WHERE n.a_lire_id = a.id)::int nb_notes
+                        FROM lectures_a_lire a WHERE id=%s""", (a_lire_id,)).fetchone()
+    return row and _avec_rythme(c, [row], aujourdhui())[0]
 
 
 @router.get("/a_lire", response_model=List[ALireOut])
 def lister_a_lire():
     """Livres en cours d'abord (du plus récemment commencé), puis la liste à lire (ordre d'ajout)."""
     with db() as c:
-        return c.execute(f"""SELECT {A_LIRE_COLONNES},
+        rows = c.execute(f"""SELECT {A_LIRE_COLONNES},
                              (SELECT COUNT(*) FROM lectures_notes n WHERE n.a_lire_id = a.id)::int nb_notes
                              FROM lectures_a_lire a
                              ORDER BY date_debut IS NULL, date_debut DESC, id""").fetchall()
+        return _avec_rythme(c, rows, aujourdhui())
 
 
 @router.post("/a_lire", response_model=ALireOut, status_code=201)
@@ -149,7 +181,53 @@ def terminer_a_lire(a_lire_id: int, l: LivreIn):
         livre_id = _inserer_livre(c, l)["id"]
         c.execute("UPDATE lectures_notes SET livre_id=%s, a_lire_id=NULL WHERE a_lire_id=%s", (livre_id, a_lire_id))
         c.execute("DELETE FROM lectures_a_lire WHERE id=%s", (a_lire_id,))
+        if l.date_fin == aujourdhui():   # finir un livre aujourd'hui, c'est avoir lu aujourd'hui
+            c.execute("INSERT INTO lectures_jours(date) VALUES(%s) ON CONFLICT DO NOTHING", (l.date_fin,))
         return _livre(c, livre_id)
+
+
+@router.put("/a_lire/{a_lire_id}/progression", response_model=ALireOut)
+def noter_progression(a_lire_id: int, p: ProgressionIn):
+    """Note la page atteinte aujourd'hui (une seule valeur par jour : la dernière saisie). Un livre
+    de la liste « à lire » passe en cours ; une page en avance compte comme un jour de lecture."""
+    auj = aujourdhui()
+    with db() as c:
+        livre = c.execute("SELECT pages, date_debut FROM lectures_a_lire WHERE id=%s", (a_lire_id,)).fetchone()
+        if not livre:
+            raise HTTPException(404, "Livre introuvable")
+        if livre["pages"] and p.page > livre["pages"]:
+            raise HTTPException(400, f"Ce livre n'a que {livre['pages']} pages")
+        avant = c.execute("SELECT page FROM lectures_progression WHERE a_lire_id=%s AND date < %s ORDER BY date DESC LIMIT 1",
+                          (a_lire_id, auj)).fetchone()
+        c.execute("""INSERT INTO lectures_progression(a_lire_id, date, page) VALUES(%s,%s,%s)
+                     ON CONFLICT (a_lire_id, date) DO UPDATE SET page=EXCLUDED.page""", (a_lire_id, auj, p.page))
+        if not livre["date_debut"]:
+            c.execute("UPDATE lectures_a_lire SET date_debut=%s WHERE id=%s", (auj, a_lire_id))
+        if p.page > (avant["page"] if avant else 0):
+            c.execute("INSERT INTO lectures_jours(date) VALUES(%s) ON CONFLICT DO NOTHING", (auj,))
+        return _a_lire(c, a_lire_id)
+
+
+def calculer_serie(jours: set, auj: date) -> dict:
+    """Jours de lecture consécutifs. La série en cours tient encore si l'on a lu hier :
+    il reste la journée d'aujourd'hui pour la prolonger."""
+    fin = auj if auj in jours else auj - timedelta(days=1)
+    n = 0
+    while fin - timedelta(days=n) in jours:
+        n += 1
+    record = courant = 0
+    precedent = None
+    for j in sorted(jours):
+        courant = courant + 1 if precedent and (j - precedent).days == 1 else 1
+        record, precedent = max(record, courant), j
+    return {"serie": n, "record": record, "lu_aujourdhui": auj in jours}
+
+
+@router.get("/serie")
+def obtenir_serie():
+    with db() as c:
+        jours = {r["date"] for r in c.execute("SELECT date FROM lectures_jours").fetchall()}
+    return calculer_serie(jours, aujourdhui())
 
 
 # ---------------------------------------------------------------- notes et citations
@@ -400,3 +478,181 @@ def calculer_bilan(annee: int, aujourdhui: date) -> dict:
         "historique": historique,
         "livres": livres,
     }
+
+
+# ---------------------------------------------------------------- note ou citation du jour
+NOTE_AVEC_LIVRE = """SELECT n.id, n.type, n.texte, n.page,
+                            COALESCE(l.titre, a.titre) titre, COALESCE(l.auteur, a.auteur) auteur
+                     FROM lectures_notes n
+                     LEFT JOIN lectures_livres l ON l.id = n.livre_id
+                     LEFT JOIN lectures_a_lire a ON a.id = n.a_lire_id"""
+
+
+def note_du_jour(auj: date, decalage: int = 0) -> Optional[dict]:
+    """Une note ou citation tirée de tous les livres : la même toute la journée, une autre le
+    lendemain. `decalage` en fait défiler d'autres (bouton « Une autre »)."""
+    with db() as c:
+        nb = c.execute("SELECT COUNT(*) n FROM lectures_notes").fetchone()["n"]
+        if not nb:
+            return None
+        # Multiplier par un nombre premier disperse les jours consécutifs dans la liste
+        rang = (auj.toordinal() * 7919 + decalage) % nb
+        return c.execute(NOTE_AVEC_LIVRE + " ORDER BY n.id OFFSET %s LIMIT 1", (rang,)).fetchone()
+
+
+@router.get("/note_du_jour")
+def obtenir_note_du_jour(decalage: int = 0):
+    return note_du_jour(aujourdhui(), decalage)
+
+
+# ---------------------------------------------------------------- export des notes en Markdown
+MOIS = ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre",
+        "novembre", "décembre"]
+
+
+def notes_en_markdown(livre: dict, notes: list) -> str:
+    """Fiche d'un livre : en-tête, avis, puis citations et notes dans l'ordre des pages."""
+    infos = [f"*{livre['auteur']}*"] if livre.get("auteur") else []
+    if livre.get("date_fin"):
+        d = livre["date_fin"]
+        infos.append(f"terminé le {d.day} {MOIS[d.month - 1]} {d.year}")
+    elif livre.get("date_debut"):
+        infos.append("en cours de lecture")
+    if livre.get("note"):
+        infos.append("★" * livre["note"] + "☆" * (5 - livre["note"]))
+    lignes = [f"# {livre['titre']}", ""]
+    if infos:
+        lignes += [" · ".join(infos), ""]
+    if livre.get("commentaire"):
+        lignes += ["## Mon avis", "", livre["commentaire"], ""]
+    page = lambda n: f" — p. {n['page']}" if n["page"] else ""
+    citations = [n for n in notes if n["type"] == "citation"]
+    autres = [n for n in notes if n["type"] != "citation"]
+    if citations:
+        lignes += ["## Citations", ""]
+        for n in citations:
+            lignes += ["> " + n["texte"].replace("\n", "\n> ") + page(n), ""]
+    if autres:
+        lignes += ["## Notes", ""]
+        for n in autres:
+            lignes += ["- " + n["texte"].replace("\n", "\n  ") + page(n)]
+        lignes.append("")
+    return "\n".join(lignes)
+
+
+def nom_fichier(titre: str, repli: str) -> str:
+    """Nom de fichier sûr tiré du titre : sans accents ni ponctuation. Un titre sans lettre
+    latine (arabe, par exemple) garde ses caractères, privés seulement de ce qu'un système
+    de fichiers refuse."""
+    ascii_ = unicodedata.normalize("NFKD", titre).encode("ascii", "ignore").decode()
+    nom = re.sub(r"[^A-Za-z0-9]+", "-", ascii_).strip("-").lower()
+    if len(nom) < 3:
+        nom = re.sub(r'[\\/:*?"<>|\x00-\x1f]+', " ", titre).strip()
+    return (nom or repli)[:80] + ".md"
+
+
+def _livre_et_notes(c, livre_id: Optional[int], a_lire_id: Optional[int]) -> tuple:
+    if livre_id is not None:
+        livre = c.execute(f"SELECT {LIVRE_COLONNES} FROM lectures_livres WHERE id=%s", (livre_id,)).fetchone()
+        colonne, valeur = "livre_id", livre_id
+    else:
+        livre = c.execute(f"SELECT {A_LIRE_COLONNES} FROM lectures_a_lire WHERE id=%s", (a_lire_id,)).fetchone()
+        colonne, valeur = "a_lire_id", a_lire_id
+    if not livre:
+        raise HTTPException(404, "Livre introuvable")
+    notes = c.execute(f"SELECT {NOTE_COLONNES} FROM lectures_notes WHERE {colonne}=%s ORDER BY page NULLS LAST, id",
+                      (valeur,)).fetchall()
+    return livre, notes
+
+
+def _telechargement(contenu, type_mime: str, nom: str) -> Response:
+    # filename* porte le vrai nom (UTF-8) ; filename, sa version ASCII pour les vieux navigateurs
+    ascii_ = nom.encode("ascii", "ignore").decode().strip() or "notes"
+    return Response(contenu, media_type=type_mime, headers={
+        "Content-Disposition": f"attachment; filename=\"{ascii_}\"; filename*=UTF-8''{urllib.parse.quote(nom)}"})
+
+
+@router.get("/notes/export")
+def exporter_notes(livre_id: Optional[int] = None, a_lire_id: Optional[int] = None):
+    """Les notes et citations d'un livre dans un fichier Markdown."""
+    if (livre_id is None) == (a_lire_id is None):
+        raise HTTPException(400, "Indique soit livre_id, soit a_lire_id")
+    with db() as c:
+        livre, notes = _livre_et_notes(c, livre_id, a_lire_id)
+    return _telechargement(notes_en_markdown(livre, notes), "text/markdown; charset=utf-8",
+                           nom_fichier(livre["titre"], f"livre-{livre['id']}"))
+
+
+@router.get("/notes/export_tout")
+def exporter_toutes_les_notes():
+    """Archive ZIP : un fichier Markdown par livre qui a au moins une note ou un avis."""
+    with db() as c:
+        cibles = c.execute("""SELECT DISTINCT livre_id, a_lire_id FROM lectures_notes
+                              UNION SELECT id, NULL FROM lectures_livres WHERE commentaire <> ''""").fetchall()
+        fiches = [_livre_et_notes(c, r["livre_id"], r["a_lire_id"]) for r in cibles]
+    if not fiches:
+        raise HTTPException(404, "Aucune note à exporter")
+    tampon, noms = io.BytesIO(), set()
+    with zipfile.ZipFile(tampon, "w", zipfile.ZIP_DEFLATED) as archive:
+        for livre, notes in sorted(fiches, key=lambda f: f[0]["titre"].lower()):
+            nom = nom_fichier(livre["titre"], f"livre-{livre['id']}")
+            if nom in noms:   # deux livres de même titre (relecture)
+                nom = f"{nom[:-3]}-{livre['id']}.md"
+            noms.add(nom)
+            archive.writestr(nom, notes_en_markdown(livre, notes))
+    return _telechargement(tampon.getvalue(), "application/zip", "notes-de-lecture.zip")
+
+
+# ---------------------------------------------------------------- livres prêtés
+PRET_COLONNES = "id, titre, personne, date_pret, date_retour, note"
+
+
+def _pret(p: dict, auj: date) -> dict:
+    return {**p, "jours": ((p["date_retour"] or auj) - p["date_pret"]).days}
+
+
+def _valeurs_pret(p: PretLivreIn) -> tuple:
+    return (p.titre, p.personne, p.date_pret, p.date_retour, p.note.strip())
+
+
+@router.get("/prets", response_model=List[PretLivreOut])
+def lister_prets():
+    """Livres encore prêtés d'abord (du plus ancien prêt au plus récent), puis les rendus."""
+    auj = aujourdhui()
+    with db() as c:
+        rows = c.execute(f"""SELECT {PRET_COLONNES} FROM lectures_prets
+                             ORDER BY date_retour IS NOT NULL, date_retour DESC, date_pret, id""").fetchall()
+    return [_pret(r, auj) for r in rows]
+
+
+@router.post("/prets", response_model=PretLivreOut, status_code=201)
+def ajouter_pret(p: PretLivreIn):
+    with db() as c:
+        row = c.execute(f"""INSERT INTO lectures_prets (titre, personne, date_pret, date_retour, note)
+                            VALUES (%s,%s,%s,%s,%s) RETURNING {PRET_COLONNES}""", _valeurs_pret(p)).fetchone()
+    return _pret(row, aujourdhui())
+
+
+@router.put("/prets/{pret_id}", response_model=PretLivreOut)
+def modifier_pret(pret_id: int, p: PretLivreIn):
+    with db() as c:
+        row = c.execute(f"""UPDATE lectures_prets SET titre=%s, personne=%s, date_pret=%s, date_retour=%s, note=%s
+                            WHERE id=%s RETURNING {PRET_COLONNES}""", (*_valeurs_pret(p), pret_id)).fetchone()
+    if not row:
+        raise HTTPException(404, "Prêt introuvable")
+    return _pret(row, aujourdhui())
+
+
+@router.delete("/prets/{pret_id}", status_code=204)
+def supprimer_pret(pret_id: int):
+    with db() as c:
+        if c.execute("DELETE FROM lectures_prets WHERE id=%s", (pret_id,)).rowcount == 0:
+            raise HTTPException(404, "Prêt introuvable")
+
+
+@router.get("/titres", response_model=List[str])
+def lister_titres():
+    """Titres déjà saisis (lus, en cours, à lire), pour l'autocomplétion du prêt."""
+    with db() as c:
+        rows = c.execute("SELECT titre FROM lectures_livres UNION SELECT titre FROM lectures_a_lire ORDER BY 1").fetchall()
+    return [r["titre"] for r in rows]

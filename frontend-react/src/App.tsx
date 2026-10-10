@@ -33,7 +33,7 @@ const ONGLETS: { id: Onglet; label: string; aide: string; Icone: typeof IconChar
   { id: 'dash', label: 'Dashboard', aide: 'Analyse du budget', Icone: IconChartPie },
   { id: 'bourse', label: 'Bourse', aide: 'Portefeuille BVC', Icone: IconTrendingUp },
   { id: 'lectures', label: 'Lectures', aide: 'Livres lus', Icone: IconBook2 },
-  { id: 'carnet', label: 'Carnet', aide: 'Dettes, échéances', Icone: IconNotebook },
+  { id: 'carnet', label: 'Carnet', aide: 'Dettes, patrimoine', Icone: IconNotebook },
   { id: 'params', label: 'Paramètres', aide: 'Catégories, compte', Icone: IconSettings },
 ];
 

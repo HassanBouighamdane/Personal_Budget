@@ -2,15 +2,15 @@
  * le livre y passe avec ses notes et citations. */
 import { useState, type ReactNode } from 'react';
 import {
-  ActionIcon, Autocomplete, Badge, Box, Button, Grid, Group, NumberInput, Select, SimpleGrid, Stack, Text, Textarea, TextInput, Tooltip,
+  ActionIcon, Autocomplete, Badge, Box, Button, Grid, Group, NumberInput, Progress, Select, SimpleGrid, Stack, Text, Textarea, TextInput, Tooltip,
 } from '@mantine/core';
 import { modals } from '@mantine/modals';
-import { IconBookmark, IconCheck, IconPencil, IconPlayerPlay, IconPlayerStop } from '@tabler/icons-react';
+import { IconBookmark, IconCheck, IconFlame, IconPencil, IconPlayerPlay, IconPlayerStop, IconProgressCheck } from '@tabler/icons-react';
 
 import { toast } from '../../lib/api';
 import { auj, dateFr } from '../../lib/format';
 import type { ALire } from '../../lib/types';
-import { useALire, useAuteurs, useEcriture, useGenres } from '../../lib/queries';
+import { useALire, useAuteurs, useEcriture, useGenres, useSerieLecture } from '../../lib/queries';
 import { BoutonSuppr, Carte, Chargement, confirmer, Pastille, Vide } from '../../components/ui';
 import { BoutonNotes, ChampIsbn, Couverture, ouvrirNotes } from './communs';
 import { FormLivre } from './Journal';
@@ -77,6 +77,57 @@ function FormALire({ existant, onTermine }: { existant?: ALire; onTermine?: () =
   );
 }
 
+/** Page atteinte aujourd'hui : une saisie par jour, la dernière remplace la précédente */
+function FormProgression({ a, onTermine }: { a: ALire; onTermine: () => void }) {
+  const ecrire = useEcriture('lectures');
+  const [page, setPage] = useState<string | number>(a.page_actuelle ?? '');
+  function enregistrer() {
+    const p = typeof page === 'number' ? page : parseInt(page);
+    if (isNaN(p) || p < 0) return toast('Indique la page', false);
+    ecrire.mutate({ path: `/api/lectures/a_lire/${a.id}/progression`, method: 'PUT', body: { page: p },
+                    succes: a.pages && p >= a.pages ? 'Dernière page ! Pense à le marquer terminé ✓' : 'Page notée ✓' },
+                  { onSuccess: onTermine });
+  }
+  return (
+    <Stack gap="sm">
+      <NumberInput label="Page où tu en es" description={a.pages ? `sur ${a.pages} pages` : undefined} min={0} max={a.pages ?? undefined}
+                   allowNegative={false} allowDecimal={false} value={page} onChange={setPage} data-autofocus
+                   onKeyDown={e => { if (e.key === 'Enter') enregistrer(); }} />
+      <Button onClick={enregistrer} loading={ecrire.isPending}>Enregistrer</Button>
+    </Stack>
+  );
+}
+
+/** Avancement d'un livre en cours : barre, rythme et fin estimée */
+function Avancement({ a }: { a: ALire }) {
+  if (a.page_actuelle === null) return null;
+  const infos = [
+    a.pages ? `p. ${a.page_actuelle} / ${a.pages}` : `p. ${a.page_actuelle}`,
+    a.pages_par_jour ? `${String(a.pages_par_jour).replace('.', ',')} p. / jour` : '',
+    a.fin_estimee ? `fin vers le ${dateFr(a.fin_estimee, false)}` : '',
+  ].filter(Boolean).join(' · ');
+  return (
+    <Box mt={6}>
+      {a.pages && <Progress value={Math.min(100, a.page_actuelle / a.pages * 100)} color="emeraude" size={6} radius="xl" mb={3} />}
+      <Text fz="xs" c="dimmed">{infos}</Text>
+    </Box>
+  );
+}
+
+function BadgeSerie() {
+  const { data } = useSerieLecture();
+  if (!data || (!data.serie && !data.record)) return null;
+  return (
+    <Tooltip withArrow multiline w={230} label={
+      (data.serie ? (data.lu_aujourdhui ? "Tu as lu aujourd'hui." : "Note ta page aujourd'hui pour continuer la série.") : 'Série interrompue.')
+      + ` Record : ${data.record} jour${data.record > 1 ? 's' : ''}.`}>
+      <Badge variant="light" color={data.serie ? (data.lu_aujourdhui ? 'ambre' : 'gray') : 'gray'} leftSection={<IconFlame size={12} stroke={2} />}>
+        {data.serie} jour{data.serie > 1 ? 's' : ''} de suite
+      </Badge>
+    </Tooltip>
+  );
+}
+
 function LigneALire({ a }: { a: ALire }) {
   const ecrire = useEcriture('lectures');
   const enCours = !!a.date_debut;
@@ -93,9 +144,18 @@ function LigneALire({ a }: { a: ALire }) {
         <Text fz="sm" fw={600} truncate>{a.titre}</Text>
         {details && <Text fz="xs" c="dimmed" truncate>{details}</Text>}
         {a.commentaire && <Text fz="xs" c="dimmed" fs="italic" lineClamp={2} mt={2}>{a.commentaire}</Text>}
-        {enCours && <Badge size="xs" variant="light" color="emeraude" mt={4}>commencé le {dateFr(a.date_debut!, false)}</Badge>}
+        {enCours && a.page_actuelle === null && <Badge size="xs" variant="light" color="emeraude" mt={4}>commencé le {dateFr(a.date_debut!, false)}</Badge>}
+        {enCours && <Avancement a={a} />}
       </Box>
       <Group gap={0} wrap="nowrap">
+        {enCours && (
+          <Tooltip label="Noter ma page" withArrow>
+            <ActionIcon variant="subtle" color="emeraude" aria-label="Noter ma page"
+                        onClick={() => ouvrir(a.titre, fermer => <FormProgression a={a} onTermine={fermer} />, 'sm')}>
+              <IconProgressCheck size={17} stroke={1.7} />
+            </ActionIcon>
+          </Tooltip>
+        )}
         <BoutonNotes nb={a.nb_notes} onClick={() => ouvrirNotes(a.titre, { a_lire_id: a.id })} />
         {enCours ? (
           <Tooltip label="Remettre dans la liste à lire" withArrow>
@@ -146,7 +206,8 @@ export function ListeALire() {
       </Grid.Col>
       <Grid.Col span={{ base: 12, md: 7 }}>
         <Stack gap="lg">
-          <Carte titre="En cours" description={enCours.length ? `${enCours.length} livre${enCours.length > 1 ? 's' : ''}` : undefined}>
+          <Carte titre="En cours" description={enCours.length ? `${enCours.length} livre${enCours.length > 1 ? 's' : ''} · note ta page pour suivre ton rythme` : undefined}
+                 droite={<BadgeSerie />}>
             {isPending ? <Chargement lignes={2} /> : !enCours.length
               ? <Vide icone={IconPlayerPlay}>Aucune lecture en cours : lance un livre de ta liste avec ▶</Vide>
               : <Stack gap={2}>{enCours.map(a => <LigneALire key={a.id} a={a} />)}</Stack>}

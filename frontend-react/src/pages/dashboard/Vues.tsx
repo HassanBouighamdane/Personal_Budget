@@ -10,7 +10,7 @@ import {
 import { C, PALETTE, regrouperAutres, signe, T } from '../../lib/palette';
 import type { DashboardBourse } from '../../lib/types';
 import {
-  useResumeAnnee, useResumeBourseSilencieux, useResumeGlobal, useResumeJour, useResumeMois, useResumeSemaine, useTags,
+  usePatrimoineSilencieux, useResumeAnnee, useResumeBourseSilencieux, useResumeGlobal, useResumeJour, useResumeMois, useResumeSemaine, useTags,
 } from '../../lib/queries';
 import { Donut, Graphique, optionsSeries } from '../../components/Graphique';
 import { Carte, Grille2, GrilleKpi, Kpi, Tableau, Variation, Vide } from '../../components/ui';
@@ -364,6 +364,7 @@ export function VueAnnee({ nav }: { nav: NavDashboard }) {
 export function VueGlobal({ nav }: { nav: NavDashboard }) {
   const { data: r } = useResumeGlobal();
   const { data: bourse } = useResumeBourseSilencieux('');   // sans filtre = tout l'historique Bourse
+  const { data: patrimoine } = usePatrimoineSilencieux();
   if (!r) return <Squelette nav={nav} titre="Tout l’historique" />;
 
   const titre = r.premier_mois
@@ -372,8 +373,10 @@ export function VueGlobal({ nav }: { nav: NavDashboard }) {
   const labels = r.par_mois.map(x => moisCourt(x.m));
   // Liquidités = épargne du budget − argent versé sur le compte Bourse ;
   // le patrimoine net y ajoute le patrimoine Bourse à sa valeur de marché (titres + espèces).
-  const liquidites = r.epargne - (bourse?.apports_nets ?? 0);
-  const patrimoineNet = liquidites + (bourse?.patrimoine_total ?? 0);
+  // (repli si le détail du patrimoine — autres actifs, dettes, solde de départ — n'a pas pu être chargé)
+  const liquidites = patrimoine?.liquidites ?? r.epargne - (bourse?.apports_nets ?? 0);
+  const patrimoineNet = patrimoine?.total ?? liquidites + (bourse?.patrimoine_total ?? 0);
+  const autres = patrimoine ? patrimoine.autres_actifs + patrimoine.creances - patrimoine.dettes : 0;
   // Performance globale = plus-value latente + résultat réalisé sur tout l'historique
   const perfBourse = (bourse?.plus_value_latente ?? 0) + (bourse?.resultat_net_periode ?? 0);
 
@@ -385,7 +388,7 @@ export function VueGlobal({ nav }: { nav: NavDashboard }) {
         <Kpi label="Dépenses totales" icone={IconArrowUpRight} teinte="rose" valeur={fmt(r.total_depenses)} couleur={T.dep} aide={r.nb_mois_actifs ? `moyenne : ${fmt(r.moyenne_dep_mois)} / mois terminé` : undefined} />
         {bourse
           ? <Kpi label="Patrimoine net" icone={IconPigMoney} teinte="emeraude" valeur={fmt(patrimoineNet)} couleur={signe(patrimoineNet)}
-                 aide={`liquidités : ${fmt(liquidites)} · Bourse : ${fmt(bourse.patrimoine_total)}`} />
+                 aide={`liquidités : ${fmt(liquidites)} · Bourse : ${fmt(bourse.patrimoine_total)}${autres ? ` · autres : ${fmt(autres)}` : ''}`} />
           : <Kpi label="Épargne totale" icone={IconPigMoney} teinte="emeraude" valeur={fmt(r.epargne)} couleur={signe(r.epargne)} aide={`taux : ${r.taux_epargne}%`} />}
         <Kpi label="Objectif atteint" icone={IconTarget} teinte="marque" valeur={`${r.nb_mois_objectif} / ${r.nb_mois_actifs}`}
              aide={`mois terminés à ≥ ${fmt(r.objectif_epargne)} d'épargne`} />

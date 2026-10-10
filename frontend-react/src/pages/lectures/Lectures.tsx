@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ActionIcon, Button, Group, ScrollArea, Stack, Tabs, Text, Tooltip } from '@mantine/core';
-import { IconBook2, IconBookmark, IconChartBar, IconChevronLeft, IconChevronRight, IconSettings } from '@tabler/icons-react';
+import { IconBook2, IconBookmark, IconChartBar, IconChevronLeft, IconChevronRight, IconSettings, IconUserShare } from '@tabler/icons-react';
 
 import { estAnnee, parmi } from '../../lib/routes';
 import { EnTetePage } from '../../components/ui';
@@ -8,9 +8,11 @@ import { JournalLivres } from './Journal';
 import { ListeALire } from './ALire';
 import { BilanLecture } from './Bilan';
 import { ParametresLectures } from './ParametresLectures';
+import { LivresPretes } from './Prets';
+import { NoteDuJour } from './communs';
 
-export type VueLectures = 'bilan' | 'journal' | 'a_lire' | 'parametres';
-const VUES_LECTURES = ['journal', 'a_lire', 'bilan', 'parametres'] as const;
+export type VueLectures = 'bilan' | 'journal' | 'a_lire' | 'prets' | 'parametres';
+const VUES_LECTURES = ['journal', 'a_lire', 'prets', 'bilan', 'parametres'] as const;
 // L'année ne concerne que le journal et le bilan
 const AVEC_ANNEE: VueLectures[] = ['journal', 'bilan'];
 
@@ -31,6 +33,7 @@ export type NavLectures = ReturnType<typeof useNavLectures>;
 const VUES: { value: VueLectures; label: string; Icone: typeof IconBook2 }[] = [
   { value: 'journal', label: 'Journal', Icone: IconBook2 },
   { value: 'a_lire', label: 'À lire', Icone: IconBookmark },
+  { value: 'prets', label: 'Prêtés', Icone: IconUserShare },
   { value: 'bilan', label: 'Bilan annuel', Icone: IconChartBar },
   { value: 'parametres', label: 'Paramètres', Icone: IconSettings },
 ];
@@ -77,8 +80,10 @@ export function Lectures({ nav }: { nav: NavLectures }) {
           </Tabs>
         </ScrollArea>
       </Stack>
+      {(nav.vue === 'journal' || nav.vue === 'a_lire') && <NoteDuJour />}
       {nav.vue === 'journal' && <JournalLivres annee={nav.annee} />}
       {nav.vue === 'a_lire' && <ListeALire />}
+      {nav.vue === 'prets' && <LivresPretes />}
       {nav.vue === 'bilan' && <BilanLecture annee={nav.annee} />}
       {nav.vue === 'parametres' && <ParametresLectures />}
     </Stack>
