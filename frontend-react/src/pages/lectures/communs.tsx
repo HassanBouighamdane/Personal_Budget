@@ -1,40 +1,18 @@
-/* Lectures — pièces partagées par le journal et la liste à lire : ISBN, couverture, notes et citations */
+/* Lectures — pièces partagées par le journal et la liste à lire : couverture, notes et citations */
 import { useState } from 'react';
 import {
-  ActionIcon, Badge, Box, Button, Group, Image, NumberInput, SegmentedControl, Stack, Text, Textarea, TextInput, Tooltip,
+  ActionIcon, Badge, Box, Button, Group, Image, NumberInput, SegmentedControl, Stack, Text, Textarea, Tooltip,
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
-import { IconDownload, IconNotes, IconPencil, IconQuote, IconRefresh, IconSearch } from '@tabler/icons-react';
+import { IconDownload, IconNotes, IconPencil, IconQuote, IconRefresh } from '@tabler/icons-react';
 
-import { api } from '../../lib/api';
-import type { FicheIsbn, NoteLecture } from '../../lib/types';
+import type { NoteLecture } from '../../lib/types';
 import { useEcriture, useNoteDuJour, useNotes } from '../../lib/queries';
 import { BoutonSuppr, Chargement, confirmer, Vide } from '../../components/ui';
 
 /** Téléphone : les boutons d'une ligne passent sous le texte, qui garde toute la largeur */
 export const useMobile = () => useMediaQuery('(max-width: 47.99em)') ?? false;
-
-/** Champ ISBN avec recherche Open Library : `onFiche` reçoit titre, auteur, pages et couverture */
-export function ChampIsbn({ value, onChange, onFiche }: { value: string; onChange: (v: string) => void; onFiche: (f: FicheIsbn) => void }) {
-  const [recherche, setRecherche] = useState(false);
-  async function chercher() {
-    if (!value.trim()) return;
-    setRecherche(true);
-    try {
-      onFiche(await api<FicheIsbn>('/api/lectures/isbn/' + encodeURIComponent(value.trim())));
-    } catch { /* message déjà affiché */ } finally { setRecherche(false); }
-  }
-  return (
-    <TextInput label="ISBN (optionnel)" placeholder="ex : 978-2-07-036002-4" value={value}
-               description="Remplit titre, auteur, pages et couverture depuis Open Library"
-               onChange={e => onChange(e.currentTarget.value)}
-               onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); chercher(); } }}
-               rightSectionWidth={92}
-               rightSection={<Button size="compact-xs" variant="light" leftSection={<IconSearch size={12} />} loading={recherche}
-                                     onClick={chercher} disabled={!value.trim()}>Chercher</Button>} />
-  );
-}
 
 /** Vignette de couverture ; masquée si l'image n'existe pas */
 export function Couverture({ url, largeur = 34 }: { url: string; largeur?: number }) {

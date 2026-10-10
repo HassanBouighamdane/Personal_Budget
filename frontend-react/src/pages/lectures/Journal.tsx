@@ -13,7 +13,7 @@ import type { ALire, Livre } from '../../lib/types';
 import { useAuteurs, useEcriture, useGenres, useLivres } from '../../lib/queries';
 import { ChampDate } from '../../components/champs';
 import { BoutonSuppr, Carte, Chargement, confirmer, Pastille, Vide } from '../../components/ui';
-import { BoutonNotes, ChampIsbn, Couverture, ouvrirNotes, useMobile } from './communs';
+import { BoutonNotes, Couverture, ouvrirNotes, useMobile } from './communs';
 
 /* ---------- Formulaire (ajout, modification dans une fenêtre, ou livre « à lire » terminé) ---------- */
 export function FormLivre({ livre, depuis, onTermine }: { livre?: Livre; depuis?: ALire; onTermine?: () => void }) {
@@ -21,8 +21,6 @@ export function FormLivre({ livre, depuis, onTermine }: { livre?: Livre; depuis?
   const { data: genres } = useGenres();
   const { data: auteurs } = useAuteurs();
   const base = livre ?? depuis;
-  const [isbn, setIsbn] = useState(base?.isbn ?? '');
-  const [couverture, setCouverture] = useState(base?.couverture ?? '');
   const [titre, setTitre] = useState(base?.titre ?? '');
   const [auteur, setAuteur] = useState(base?.auteur ?? '');
   const [genre, setGenre] = useState<string | null>(base?.genre || null);
@@ -41,7 +39,9 @@ export function FormLivre({ livre, depuis, onTermine }: { livre?: Livre; depuis?
     const p = typeof pages === 'number' ? pages : parseInt(pages);
     const body = {
       titre: titre.trim(), auteur: auteur.trim(), genre: genre ?? '', date_debut: dateDebut, date_fin: dateFin,
-      pages: p > 0 ? p : null, note: note || null, commentaire: commentaire.trim(), isbn: isbn.trim(), couverture,
+      pages: p > 0 ? p : null, note: note || null, commentaire: commentaire.trim(),
+      // Couverture d'un livre déjà enregistré : gardée (plus de recherche par ISBN pour en ajouter)
+      couverture: base?.couverture ?? '',
     };
     ecrire.mutate(
       livre ? { path: `/api/lectures/livres/${livre.id}`, method: 'PUT', body, succes: 'Livre modifié ✓' }
@@ -51,7 +51,6 @@ export function FormLivre({ livre, depuis, onTermine }: { livre?: Livre; depuis?
         onSuccess: () => {
           if (!livre && !depuis) {
             setTitre(''); setAuteur(''); setGenre(null); setDateDebut(null); setPages(''); setNote(0); setCommentaire('');
-            setIsbn(''); setCouverture('');
           }
           onTermine?.();
         },
@@ -61,16 +60,6 @@ export function FormLivre({ livre, depuis, onTermine }: { livre?: Livre; depuis?
 
   return (
     <Stack gap="sm">
-      <Group gap="sm" wrap="nowrap" align="flex-start">
-        <Box style={{ flex: 1 }}>
-          <ChampIsbn value={isbn} onChange={setIsbn} onFiche={f => {
-            setIsbn(f.isbn); setTitre(f.titre); setCouverture(f.couverture);
-            if (f.auteur) setAuteur(f.auteur);
-            if (f.pages) setPages(f.pages);
-          }} />
-        </Box>
-        <Couverture url={couverture} largeur={48} />
-      </Group>
       <TextInput label="Titre" placeholder="ex : L'Étranger" value={titre} onChange={e => setTitre(e.currentTarget.value)} />
       <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
         <Autocomplete label="Auteur" placeholder="ex : Albert Camus" data={auteurs ?? []} value={auteur} onChange={setAuteur} limit={20} />

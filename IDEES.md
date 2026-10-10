@@ -84,7 +84,7 @@ Built on 2026-10-10 (the three Suivi and reminder items were added the same day)
 - **Bourse: dividend yield** per position (12 months, on cost and on market value) and **sector targets** with the gap and the amount to buy or trim.
 - **Lectures: "À lire" tab**: to-read list and books in progress; "Terminé" moves the book to the journal with its notes.
 - **Lectures: notes and quotes** per book (page, note or quote), also while reading.
-- **Lectures: ISBN lookup** from Open Library (title, author, pages, cover, checksum validated), on both forms; covers shown in the lists.
+- **Lectures: ISBN lookup** from Open Library: removed on 2026-10-10 at the user's request. Covers already fetched are kept and still shown; the `isbn` columns stay in the database but are no longer filled.
 - **URL navigation**: tab, view and period in the address; refresh keeps the page, back/forward work, views can be bookmarked.
 - **Startup in `lifespan`**: `init_db()` and the pool close moved from import time / `@app.on_event` into FastAPI's lifespan, so importing `app` no longer touches the database (needed for Vercel's build).
 - **Vercel hosting**: `pyproject.toml`, `vercel.json` and DEPLOY_VERCEL.md, alongside Render.

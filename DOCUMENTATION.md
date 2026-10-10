@@ -415,7 +415,6 @@ Toutes les routes sauf `/api/login`, `/api/logout` et `/api/cron/quotidien` (pro
 | GET / POST / PUT / DELETE | `/api/lectures/a_lire[/{id}]` | `ALireIn` (`date_debut` renseignée = en cours) | `[ALireOut]` / `ALireOut` / 204 |
 | POST | `/api/lectures/a_lire/{id}/terminer` | `LivreIn` | `LivreOut` ; le livre passe au journal avec ses notes |
 | GET / POST / PUT / DELETE | `/api/lectures/notes[/{id}]` | `?livre_id=` ou `?a_lire_id=` / `{livre_id \| a_lire_id, type, texte, page}` | `[NoteOut]` / `NoteOut` / 204 |
-| GET | `/api/lectures/isbn/{isbn}` | — | `{isbn, titre, auteur, pages, couverture}` d'après Open Library ; 400 ISBN invalide, 404 inconnu, 502 injoignable |
 | GET / POST / PUT / DELETE | `/api/lectures/genres[/{id}]` | `{nom}` | `[GenreOut]` / `{ok}` ; 409 si le nouveau nom existe déjà |
 | GET / PUT | `/api/lectures/objectifs` | `{annuel, mensuel}` | `ObjectifsLecture` |
 | GET | `/api/lectures/bilan` | `?annee=` | bilan de l'année (voir §9) |
@@ -550,7 +549,7 @@ src/
     ├── accueil/          Accueil.tsx : l'essentiel du jour, page par défaut
     ├── dashboard/        Dashboard.tsx (navigation ‹ ›, choix de vue) + Vues.tsx (Jour/Semaine/Mois/Année/Global)
     ├── bourse/           Bourse.tsx (sous-onglets) + Journaux, Portefeuille, Fiscalite, ParametresBourse
-    ├── lectures/         Lectures.tsx (sous-onglets, navigation par année) + Journal, ALire, Bilan, ParametresLectures, communs (ISBN, couverture, notes)
+    ├── lectures/         Lectures.tsx (sous-onglets, navigation par année) + Journal, ALire, Bilan, ParametresLectures, communs (couverture, notes)
     └── carnet/           Carnet.tsx (sous-onglets) + Dettes (prêts, emprunts, remboursements), Echeances, Patrimoine
 ```
 

@@ -12,11 +12,11 @@ import { auj, dateFr } from '../../lib/format';
 import type { ALire } from '../../lib/types';
 import { useALire, useAuteurs, useEcriture, useGenres, useSerieLecture } from '../../lib/queries';
 import { BoutonSuppr, Carte, Chargement, confirmer, Pastille, Vide } from '../../components/ui';
-import { BoutonNotes, ChampIsbn, Couverture, ouvrirNotes, useMobile } from './communs';
+import { BoutonNotes, Couverture, ouvrirNotes, useMobile } from './communs';
 import { FormLivre } from './Journal';
 
 const corps = (a: ALire) => ({
-  titre: a.titre, auteur: a.auteur, genre: a.genre, pages: a.pages, isbn: a.isbn, couverture: a.couverture,
+  titre: a.titre, auteur: a.auteur, genre: a.genre, pages: a.pages, couverture: a.couverture,
   commentaire: a.commentaire, date_debut: a.date_debut,
 });
 
@@ -24,8 +24,6 @@ function FormALire({ existant, onTermine }: { existant?: ALire; onTermine?: () =
   const ecrire = useEcriture('lectures');
   const { data: genres } = useGenres();
   const { data: auteurs } = useAuteurs();
-  const [isbn, setIsbn] = useState(existant?.isbn ?? '');
-  const [couverture, setCouverture] = useState(existant?.couverture ?? '');
   const [titre, setTitre] = useState(existant?.titre ?? '');
   const [auteur, setAuteur] = useState(existant?.auteur ?? '');
   const [genre, setGenre] = useState<string | null>(existant?.genre || null);
@@ -37,7 +35,7 @@ function FormALire({ existant, onTermine }: { existant?: ALire; onTermine?: () =
     if (!titre.trim()) return toast('Indique le titre', false);
     const p = typeof pages === 'number' ? pages : parseInt(pages);
     const body = {
-      titre: titre.trim(), auteur: auteur.trim(), genre: genre ?? '', pages: p > 0 ? p : null, isbn: isbn.trim(), couverture,
+      titre: titre.trim(), auteur: auteur.trim(), genre: genre ?? '', pages: p > 0 ? p : null, couverture: existant?.couverture ?? '',
       commentaire: commentaire.trim(), date_debut: existant?.date_debut ?? null,
     };
     ecrire.mutate(
@@ -45,7 +43,7 @@ function FormALire({ existant, onTermine }: { existant?: ALire; onTermine?: () =
                : { path: '/api/lectures/a_lire', method: 'POST', body, succes: 'Ajouté à ta liste ✓' },
       {
         onSuccess: () => {
-          if (!existant) { setIsbn(''); setCouverture(''); setTitre(''); setAuteur(''); setGenre(null); setPages(''); setCommentaire(''); }
+          if (!existant) { setTitre(''); setAuteur(''); setGenre(null); setPages(''); setCommentaire(''); }
           onTermine?.();
         },
       },
@@ -54,16 +52,6 @@ function FormALire({ existant, onTermine }: { existant?: ALire; onTermine?: () =
 
   return (
     <Stack gap="sm">
-      <Group gap="sm" wrap="nowrap" align="flex-start">
-        <Box style={{ flex: 1 }}>
-          <ChampIsbn value={isbn} onChange={setIsbn} onFiche={f => {
-            setIsbn(f.isbn); setTitre(f.titre); setCouverture(f.couverture);
-            if (f.auteur) setAuteur(f.auteur);
-            if (f.pages) setPages(f.pages);
-          }} />
-        </Box>
-        <Couverture url={couverture} largeur={48} />
-      </Group>
       <TextInput label="Titre" placeholder="ex : Sapiens" value={titre} onChange={e => setTitre(e.currentTarget.value)} />
       <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
         <Autocomplete label="Auteur" data={auteurs ?? []} value={auteur} onChange={setAuteur} limit={20} />
@@ -206,7 +194,7 @@ export function ListeALire() {
   return (
     <Grid gap="lg" align="flex-start">
       <Grid.Col span={{ base: 12, md: 5 }}>
-        <Carte className="colle" titre="Livre à lire" description="Avec l'ISBN, le reste se remplit tout seul"
+        <Carte className="colle" titre="Livre à lire"
                icone={<Pastille icone={IconBookmark} couleur="marque" />}>
           <FormALire />
         </Carte>

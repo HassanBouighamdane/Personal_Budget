@@ -420,13 +420,6 @@ class NoteOut(BaseModel):
     page: Optional[int]
 
 
-class FicheIsbn(BaseModel):
-    isbn: str
-    titre: str
-    auteur: str
-    pages: Optional[int]
-    couverture: str
-
 
 class GenreOut(BaseModel):
     id: int

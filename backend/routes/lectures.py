@@ -9,13 +9,10 @@ Objectifs (nombre de livres) : un objectif annuel et un objectif mensuel,
 stockés dans la table `params` comme l'objectif d'épargne du Budget.
 """
 import io
-import json
 import math
 import re
 import unicodedata
-import urllib.error
 import urllib.parse
-import urllib.request
 import zipfile
 from datetime import date, timedelta
 from typing import List, Optional
@@ -26,7 +23,7 @@ from psycopg.errors import UniqueViolation
 from config import aujourdhui
 from database import db
 from securite import utilisateur_courant
-from schemas import (ALireIn, ALireOut, FicheIsbn, GenreOut, LivreIn, LivreOut, NomIn, NoteIn, NoteOut,
+from schemas import (ALireIn, ALireOut, GenreOut, LivreIn, LivreOut, NomIn, NoteIn, NoteOut,
                      ObjectifsLecture, PretLivreIn, PretLivreOut, ProgressionIn)
 
 router = APIRouter(prefix="/api/lectures", tags=["lectures"],
@@ -274,59 +271,6 @@ def supprimer_note(note_id: int):
     with db() as c:
         if c.execute("DELETE FROM lectures_notes WHERE id=%s", (note_id,)).rowcount == 0:
             raise HTTPException(404, "Note introuvable")
-
-
-# ---------------------------------------------------------------- recherche par ISBN (Open Library)
-URL_OPEN_LIBRARY = "https://openlibrary.org/api/books?bibkeys=ISBN:{isbn}&format=json&jscmd=data"
-
-
-def valider_isbn(isbn: str) -> str:
-    """ISBN-10 ou ISBN-13 sans tirets ni espaces, clé de contrôle vérifiée ; HTTPException 400 sinon."""
-    v = _isbn_normalise(isbn)
-    if len(v) == 13 and v.isdigit():
-        ok = sum(int(ch) * (1 if i % 2 == 0 else 3) for i, ch in enumerate(v)) % 10 == 0
-    elif len(v) == 10 and v[:9].isdigit() and (v[9].isdigit() or v[9] == "X"):
-        ok = sum((10 - i) * (10 if ch == "X" else int(ch)) for i, ch in enumerate(v)) % 11 == 0
-    else:
-        ok = False
-    if not ok:
-        raise HTTPException(400, "ISBN invalide (10 ou 13 chiffres, clé de contrôle comprise)")
-    return v
-
-
-def lire_fiche_open_library(reponse: dict, isbn: str) -> Optional[dict]:
-    """Réponse JSON d'Open Library → fiche du livre, ou None si l'ISBN est inconnu."""
-    fiche = reponse.get(f"ISBN:{isbn}")
-    if not fiche:
-        return None
-    auteurs = [a.get("name", "") for a in fiche.get("authors", []) if a.get("name")]
-    titre = fiche.get("title", "")
-    if fiche.get("subtitle"):
-        titre += " : " + fiche["subtitle"]
-    pages = fiche.get("number_of_pages")
-    couverture = fiche.get("cover", {})
-    return {"isbn": isbn, "titre": titre[:200], "auteur": ", ".join(auteurs)[:150],
-            "pages": pages if isinstance(pages, int) and pages > 0 else None,
-            # À défaut, l'image par ISBN (404 s'il n'y en a pas : le frontend masque alors l'image)
-            "couverture": couverture.get("medium") or couverture.get("large") or couverture.get("small")
-                          or f"https://covers.openlibrary.org/b/isbn/{isbn}-M.jpg?default=false"}
-
-
-@router.get("/isbn/{isbn}", response_model=FicheIsbn)
-def chercher_isbn(isbn: str):
-    """Titre, auteur(s), pages et couverture d'après Open Library (appel fait par le serveur)."""
-    v = valider_isbn(isbn)
-    requete = urllib.request.Request(URL_OPEN_LIBRARY.format(isbn=v), headers={"User-Agent": "Carnet/2.2"})
-    try:
-        with urllib.request.urlopen(requete, timeout=8) as r:
-            reponse = json.load(r)
-    except (urllib.error.URLError, TimeoutError, ValueError) as e:
-        print(f"[isbn] Open Library injoignable — {e}", flush=True)
-        raise HTTPException(502, "Open Library est injoignable pour le moment : saisis le livre à la main")
-    fiche = lire_fiche_open_library(reponse, v)
-    if not fiche:
-        raise HTTPException(404, "ISBN inconnu d'Open Library : saisis le livre à la main")
-    return fiche
 
 
 @router.get("/auteurs", response_model=List[str])

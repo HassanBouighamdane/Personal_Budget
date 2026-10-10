@@ -254,14 +254,13 @@ export type Livre = {
   pages: number | null;
   note: number | null;
   commentaire: string;
-  isbn: string;
   couverture: string;
   nb_notes: number;
 };
 
 /** Livre à lire ; `date_debut` renseignée = en cours de lecture */
 export type ALire = {
-  id: number; titre: string; auteur: string; genre: string; pages: number | null; isbn: string; couverture: string;
+  id: number; titre: string; auteur: string; genre: string; pages: number | null; couverture: string;
   commentaire: string; date_debut: string | null; nb_notes: number;
   /** Suivi de la lecture en cours : null tant qu'aucune page n'est notée */
   page_actuelle: number | null; derniere_lecture: string | null; pages_par_jour: number | null; fin_estimee: string | null;
@@ -272,7 +271,6 @@ export type NoteDuJour = { id: number; type: 'note' | 'citation'; texte: string;
 /** Livre prêté ; `date_retour` renseignée = rendu ; `jours` : durée du prêt */
 export type PretLivre = { id: number; titre: string; personne: string; date_pret: string; date_retour: string | null; note: string; jours: number };
 export type NoteLecture = { id: number; livre_id: number | null; a_lire_id: number | null; type: 'note' | 'citation'; texte: string; page: number | null };
-export type FicheIsbn = { isbn: string; titre: string; auteur: string; pages: number | null; couverture: string };
 
 export type Genre = { id: number; nom: string };
 export type ObjectifsLecture = { annuel: number; mensuel: number };
