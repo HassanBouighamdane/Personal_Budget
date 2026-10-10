@@ -19,6 +19,7 @@ from fastapi import HTTPException
 
 import messagerie
 import resume_rendu
+import sauvegarde
 from database import db
 from schemas import DetteIn, EcheanceIn, RemboursementIn
 from routes import rappels
@@ -139,10 +140,25 @@ def test_bilan_du_mois_envoye_le_premier(monkeypatch):
     monkeypatch.setattr(rappels, "_param", memoire.get)
     monkeypatch.setattr(rappels, "_ecrire_param", memoire.__setitem__)
     monkeypatch.setattr(rappels.bourse, "_actualiser_cours", lambda force: None)
+    fichiers = []
+    monkeypatch.setattr(rappels, "envoyer_fichier", lambda sujet, texte, nom, contenu: fichiers.append((nom, contenu)) or ["telegram"])
     monkeypatch.setattr(rappels, "aujourdhui", lambda: date(1901, 7, 1))     # un lundi qui est aussi un 1er
-    assert tache_quotidienne(authorization="Bearer secret-de-test")["envoyes"] == ["mois", "resume"]
+    assert tache_quotidienne(authorization="Bearer secret-de-test")["envoyes"] == ["mois", "resume", "sauvegarde"]
     assert envois[0].endswith("Ton mois de juin 1901")
+    # La copie mensuelle : un fichier compressé qui se relit comme une sauvegarde
+    nom, contenu = fichiers[0]
+    assert nom.endswith(".json.gz") and "depenses" in sauvegarde.lire(contenu)["tables"]
     monkeypatch.setattr(rappels, "aujourdhui", lambda: date(1901, 8, 1))     # un jeudi
+    assert tache_quotidienne(authorization="Bearer secret-de-test")["envoyes"] == ["mois", "sauvegarde"]
+    # Le 1er janvier : le bilan de l'année d'abord, puis celui de décembre
+    monkeypatch.setattr(rappels, "aujourdhui", lambda: date(1902, 1, 1))
+    assert tache_quotidienne(authorization="Bearer secret-de-test")["envoyes"] == ["annee", "mois", "sauvegarde"]
+    assert envois[-2].endswith("Ton année 1901") and envois[-1].endswith("Ton mois de décembre 1901")
+    # Une sauvegarde qui échoue n'empêche pas le reste
+    def panne(*_):
+        raise messagerie.EnvoiImpossible("injoignable")
+    monkeypatch.setattr(rappels, "envoyer_fichier", panne)
+    monkeypatch.setattr(rappels, "aujourdhui", lambda: date(1902, 2, 1))
     assert tache_quotidienne(authorization="Bearer secret-de-test")["envoyes"] == ["mois"]
     monkeypatch.setattr(rappels, "aujourdhui", lambda: date(1901, 8, 2))
     assert tache_quotidienne(authorization="Bearer secret-de-test")["envoyes"] == []
@@ -297,3 +313,39 @@ def test_les_lignes_alignees_de_telegram_tiennent_sur_un_telephone():
     for message in (resume_rendu.rendre_telegram(_semaine()), resume_rendu.rendre_telegram_mois(_mois())):
         for bloc in re.findall(r"<pre>(.*?)</pre>", message, re.S):
             assert all(len(resume_rendu.unescape(l)) <= resume_rendu.LARGEUR_TG for l in bloc.split("\n"))
+
+
+# ---------------------------------------------------------------- bilan de l'année
+def _annee(**budget):
+    b = {"dep": 70000, "rev": 130000, "epargne": 60000, "taux": 46.2, "objectif": 5000, "nb_mois_objectif": 7, "nb_mois_actifs": 12,
+         "moyenne_dep": 5833, "dep_prec": 56000, "variation_pct": 25,
+         "mois": [{"m": m, "dep": 5000 + 400 * m} for m in range(1, 13)],
+         "meilleur": {"m": 3, "ep": 8000}, "pire": {"m": 8, "ep": -1200},
+         "categories": [{"cat": "Loyer", "budget": 36000, "reel": 36000}, {"cat": "Voyages <été>", "budget": 6000, "reel": 9500}],
+         "nb_depassees": 1,
+         "top": [{"date": date(2026, 8, 3), "categorie": "Voyages <été>", "description": "Billets d'avion", "montant": 4200}], **budget}
+    return {"annee": 2026, "budget": b, "bourse": None,
+            "lectures": {"nb": 18, "pages": 5400, "objectif": 24, "mieux_note": "Sapiens", "auteur": "Camus"}, "patrimoine": 215000}
+
+
+def test_verdict_de_l_annee():
+    v = resume_rendu.verdict_annee
+    assert v(_annee()["budget"], 2026) == "60 000 DH mis de côté en 2026, soit 46,2 % de tes revenus."
+    assert v(_annee(epargne=-3000)["budget"], 2026) == "Année dans le rouge : 3 000 DH dépensés de plus que reçus."
+    assert v(_annee(dep=0, rev=0)["budget"], 2026) == "Aucune opération saisie en 2026."
+
+
+def test_bilan_de_l_annee_dans_les_trois_versions():
+    d = _annee()
+    texte, telegram, html = resume_rendu.rendre_texte_annee(d), resume_rendu.rendre_telegram_annee(d), resume_rendu.rendre_email_annee(d)
+    for version in (texte, telegram, html):
+        assert "▲ 25 %" in version and "Meilleur mois : mars" in version and "Mois le plus difficile : août" in version
+        assert "Billets d'avion" in version or "Billets d&#x27;avion" in version
+        assert "Sapiens" in version and "215 000 DH" in version
+    assert "Ton année 2026" in html and "7 / 12" in html and "déc." in html
+    assert "janv" in telegram and "<été>" not in telegram and "<été>" not in html
+
+
+def test_resume_annuel_sur_la_base():
+    r = rappels.resume_annuel(date(1902, 1, 1))
+    assert r["sujet"].endswith("Ton année 1901") and "Aucune opération saisie en 1901." in r["texte"]

@@ -24,13 +24,14 @@ def verifier_mdp(mdp: str, stocke: str) -> bool:
     except Exception:
         return False
 
-def creer_session(utilisateur_id: int) -> str:
-    """Crée une session en base et retourne son token."""
+def creer_session(utilisateur_id: int, duree_jours: int = DUREE_SESSION_JOURS) -> str:
+    """Crée une session de `duree_jours` jours en base et retourne son token."""
     token = secrets.token_urlsafe(32)
     with db() as c:
         c.execute("DELETE FROM sessions WHERE expire < NOW()")   # nettoyage
-        c.execute("INSERT INTO sessions(token,utilisateur_id,expire) VALUES(%s,%s,%s)",
-                  (token, utilisateur_id, datetime.now() + timedelta(days=DUREE_SESSION_JOURS)))
+        c.execute("""INSERT INTO sessions(token, utilisateur_id, expire, duree_jours)
+                     VALUES(%s, %s, NOW() + make_interval(days => %s), %s)""",
+                  (token, utilisateur_id, duree_jours, duree_jours))
     return token
 
 def supprimer_session(token: str):
@@ -38,16 +39,24 @@ def supprimer_session(token: str):
         c.execute("DELETE FROM sessions WHERE token=%s", (token,))
 
 def utilisateur_courant(session: str | None = Cookie(default=None)) -> dict:
-    """Dépendance FastAPI : vérifie le cookie de session, sinon 401."""
+    """Dépendance FastAPI : vérifie le cookie de session, sinon 401.
+
+    Session glissante : dès qu'il reste moins de la moitié de sa durée, elle repart pour une
+    durée entière. Elle n'expire donc qu'après une vraie période sans utilisation (1 jour, ou
+    30 avec « Rester connecté »). C'est la base qui fait foi, pas la durée de vie du cookie."""
     if not session:
         raise HTTPException(401, "Non authentifié")
     with db() as c:
-        row = c.execute("""SELECT u.id, u.nom FROM sessions s
+        row = c.execute("""SELECT u.id, u.nom,
+                                  s.expire - NOW() < make_interval(days => s.duree_jours) / 2 AS a_prolonger
+                           FROM sessions s
                            JOIN utilisateurs u ON u.id = s.utilisateur_id
                            WHERE s.token=%s AND s.expire > NOW()""", (session,)).fetchone()
+        if row and row["a_prolonger"]:
+            c.execute("UPDATE sessions SET expire = NOW() + make_interval(days => duree_jours) WHERE token=%s", (session,))
     if not row:
         raise HTTPException(401, "Session expirée")
-    return row
+    return {"id": row["id"], "nom": row["nom"]}
 
 # ------------------------------------------------------------------ anti force brute
 class LimiteurEchecs:

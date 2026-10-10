@@ -21,6 +21,7 @@ Application web personnelle pour suivre son budget (dépenses, revenus, épargne
 9. [Module Lectures](#9-module-lectures)
 10. [Carnet, rappels et résumés](#10-carnet-rappels-et-résumés)
 11. [Patrimoine, réserve de sécurité et zakat](#11-patrimoine-réserve-de-sécurité-et-zakat)
+12. [Accueil, sauvegarde, sessions et installation](#12-accueil-sauvegarde-sessions-et-installation)
 
 ---
 
@@ -34,12 +35,14 @@ Personal_Budget/
 │   ├── database.py         Pool de connexions PostgreSQL + création du schéma
 │   ├── cours_bvc.py        Cours automatiques des titres BVC (site officiel, Médias24 en secours ; voir §6.3)
 │   ├── securite.py         Mots de passe, sessions, limitation des tentatives de connexion
+│   ├── sauvegarde.py       Sauvegarde complète en JSON et restauration (voir §12)
 │   ├── messagerie.py       Envoi des rappels et du résumé : Telegram et/ou e-mail (voir §10)
 │   ├── resume_rendu.py     Mise en forme du résumé hebdomadaire : texte, message Telegram, e-mail HTML
 │   ├── schemas.py          Modèles Pydantic (validation des entrées et des sorties)
 │   ├── requirements.txt
 │   ├── scripts/
-│   │   └── supprimer_bourse.py   Supprime toutes les tables du module Bourse (script manuel)
+│   │   ├── supprimer_bourse.py   Supprime toutes les tables du module Bourse (script manuel)
+│   │   └── restaurer_sauvegarde.py   Recharge une sauvegarde complète dans la base (script manuel)
 │   ├── tests/
 │   │   ├── test_bourse.py        PRU, frais, arrondis, contrôle des ventes
 │   │   ├── test_budget.py        Renommage en cascade, erreurs 404
@@ -179,7 +182,7 @@ pytest tests -v
 - Définit `FRONT_DIR`, le dossier servi en statique : `frontend-react/dist/` s'il contient un `index.html`, sinon l'ancien `frontend/`.
 - Lit `DATABASE_URL`, `PORT`, `COOKIE_SECURE`, `ADMIN_UTILISATEUR`, `ADMIN_MOT_DE_PASSE` et `CORS_ORIGINS`.
 - Constantes :
-  - `DUREE_SESSION_JOURS = 1` : une session expire au bout de 24 h ;
+  - `DUREE_SESSION_JOURS = 1` et `DUREE_SESSION_LONGUE_JOURS = 30` (« Rester connecté ») : durée d'une session, prolongée pendant l'utilisation (voir §12) ;
   - `LOGIN_MAX_ECHECS = 10` et `LOGIN_FENETRE_MIN = 15` : seuils de blocage des connexions (voir [§3.3](#33-securitepy--authentification)) ;
   - `CATEGORIES_DEFAUT` (11 catégories avec budget mensuel) et `SOURCES_DEFAUT` (Salaire, Prime, Freelance, Remboursement), insérées au premier démarrage.
 
@@ -426,14 +429,15 @@ Toutes les routes sauf `/api/login`, `/api/logout` et `/api/cron/quotidien` (pro
 | GET | `/api/patrimoine` | — | composition, actifs, réserve de sécurité, zakat (voir §11) |
 | PUT | `/api/patrimoine/reglages` | `{solde_depart, prix_or_gramme, debut_hawl}` | `{ok}` |
 | POST / PUT / DELETE | `/api/patrimoine/actifs[/{id}]` | `ActifIn` | l'actif / 204 |
+| GET | `/api/sauvegarde` | — | fichier JSON de toutes les tables (sans comptes ni sessions) |
 | GET / POST / PUT / DELETE | `/api/carnet/dettes[/{id}]` | `DetteIn` | `[DetteOut]` / `DetteOut` (avec `rembourse`, `reste`, `remboursements`) / 204 ; 400 si le montant passe sous le déjà remboursé |
 | POST | `/api/carnet/dettes/{id}/remboursements` | `{date_operation, montant, libelle}` | `DetteOut` ; 400 si le montant dépasse le reste dû ou précède le prêt |
 | DELETE | `/api/carnet/remboursements/{id}` | — | 204 |
 | GET / POST / PUT / DELETE | `/api/carnet/echeances[/{id}]` | `EcheanceIn` | `[EcheanceOut]` / `EcheanceOut` (avec `jours_restants`, `a_rappeler`) / 204 |
 | POST | `/api/carnet/echeances/{id}/reporter` | — | `EcheanceOut` : la date avance de `recurrence_mois` ; 400 si l'échéance est ponctuelle |
 | GET | `/api/rappels/etat` | — | `{canaux: ["telegram", "email"], cron: bool}` (aucun secret) |
-| GET | `/api/rappels/apercu` | `?periode=semaine\|mois` | `{rappels, sujet, resume, html}` : ce qui serait envoyé maintenant (`html` : l'e-mail) |
-| POST | `/api/rappels/envoyer` | `?periode=semaine\|mois` | `{canaux}` : envoie le résumé choisi tout de suite ; 502 si aucun canal ou envoi refusé |
+| GET | `/api/rappels/apercu` | `?periode=semaine\|mois\|annee` | `{rappels, sujet, resume, html}` : ce qui serait envoyé maintenant (`html` : l'e-mail) |
+| POST | `/api/rappels/envoyer` | `?periode=semaine\|mois\|annee` | `{canaux}` : envoie le résumé choisi tout de suite ; 502 si aucun canal ou envoi refusé |
 | GET | `/api/cron/quotidien` | en-tête `Authorization: Bearer <CRON_SECRET>`, `?force=` | `{etat, envoyes}` ; **sans session** ; 401 sans le secret, 503 si `CRON_SECRET` est vide |
 
 ---
@@ -543,6 +547,7 @@ src/
     ├── Connexion.tsx
     ├── Saisie.tsx
     ├── Parametres.tsx
+    ├── accueil/          Accueil.tsx : l'essentiel du jour, page par défaut
     ├── dashboard/        Dashboard.tsx (navigation ‹ ›, choix de vue) + Vues.tsx (Jour/Semaine/Mois/Année/Global)
     ├── bourse/           Bourse.tsx (sous-onglets) + Journaux, Portefeuille, Fiscalite, ParametresBourse
     ├── lectures/         Lectures.tsx (sous-onglets, navigation par année) + Journal, ALire, Bilan, ParametresLectures, communs (ISBN, couverture, notes)
@@ -692,9 +697,13 @@ Une section vide est omise ; une section qui lève une erreur est ignorée et jo
 
 Mêmes trois versions et mêmes règles que le résumé de la semaine.
 
+### Bilan de l'année
+
+`resume_annuel(auj)` couvre la **dernière année terminée** ; il part le 1er janvier. Contenu : épargne de l'année et taux d'épargne, dépenses comparées à l'année d'avant, dépense mensuelle moyenne, mois où l'objectif d'épargne est atteint, meilleur mois et mois le plus difficile, dépenses mois par mois, budget annuel par catégorie, plus grosses dépenses, résultat et dividendes Bourse de l'année, livres et pages lus, patrimoine net du jour.
+
 ### Tâche planifiée
 
-`GET /api/cron/quotidien` envoie les rappels du jour, **le lundi** le résumé de la semaine et **le 1er du mois** le bilan du mois (les deux si le 1er tombe un lundi). Elle n'utilise pas de session : elle exige l'en-tête `Authorization: Bearer <CRON_SECRET>`.
+`GET /api/cron/quotidien` envoie les rappels du jour, **le lundi** le résumé de la semaine, **le 1er du mois** le bilan du mois avec une copie de sauvegarde en pièce jointe, et **le 1er janvier** le bilan de l'année (plusieurs le même jour si les dates coïncident). Elle n'utilise pas de session : elle exige l'en-tête `Authorization: Bearer <CRON_SECRET>`.
 
 - **Vercel** : `vercel.json` déclare la tâche (`0 7 * * *`, soit entre 8 h et 9 h au Maroc ; l'offre gratuite autorise une exécution par jour, à une minute non garantie dans l'heure). Vercel envoie `CRON_SECRET` tout seul dès que la variable existe.
 - **Render** (pas de tâche planifiée gratuite) : un service comme cron-job.org peut appeler l'adresse chaque matin avec le même en-tête.
@@ -758,3 +767,55 @@ Mois de dépenses couverts = argent disponible ÷ dépense mensuelle moyenne. L'
 
 - Chaque transaction peut porter une **note** (pourquoi j'achète ou je vends). L'onglet Transactions les rassemble dans « Journal des décisions », avec l'évolution du cours depuis pour les titres encore détenus.
 - **Dividendes attendus** (`calculer_calendrier_dividendes()`) : chaque dividende reçu depuis un an sur un titre encore détenu est supposé revenir un an plus tard, au même montant **par action** (montant reçu ÷ quantité détenue ce jour-là), appliqué à la quantité détenue aujourd'hui.
+
+---
+
+## 12. Accueil, sauvegarde, sessions et installation
+
+### Accueil
+
+Page par défaut (`#/accueil`, aussi ouverte par un clic sur le logo). Elle ne demande aucune route de plus : elle réunit des données déjà servies aux autres écrans.
+
+| Bloc | Source |
+|---|---|
+| Reste à dépenser aujourd'hui | budget journalier − dépenses variables du jour (`/api/resume_jour`) |
+| Reste ce mois-ci, carte du mois | `/api/resume` : dépensé, budget, épargne, projection |
+| Portefeuille, carte Bourse | `/api/bourse/dashboard` (masqués sans compte Bourse) |
+| Patrimoine net | `/api/patrimoine` : total et réserve de sécurité |
+| Note du jour | `/api/lectures/note_du_jour` |
+| Lecture en cours | `/api/lectures/a_lire` et `/serie` |
+| À traiter | échéances dans leur fenêtre de rappel, dettes dont l'échéance est dépassée |
+
+Sur mobile, la barre du bas garde six onglets (Accueil, Saisie, Dashboard, Bourse, Lectures, Carnet) ; les Paramètres passent dans l'en-tête.
+
+### Sauvegarde complète
+
+- **Télécharger** : Paramètres → Import / export → « Télécharger toutes mes données » (`GET /api/sauvegarde`). Un fichier JSON lisible : `{application, format, cree_le, tables: {nom: [lignes]}}`.
+- **Contenu** : toutes les tables de la base, découvertes à l'export (une table ajoutée plus tard est sauvegardée sans rien changer). Les comptes et les sessions sont exclus : aucun mot de passe, même haché, ne sort.
+- **Copie automatique** : le 1er de chaque mois, la tâche planifiée envoie le fichier compressé (`.json.gz`) en pièce jointe par Telegram et par e-mail, selon les canaux configurés. Un échec est journalisé sans bloquer les résumés.
+- **Restaurer** :
+
+  ```bash
+  cd backend
+  python scripts/restaurer_sauvegarde.py chemin/vers/mon-budget-2026-10-01.json.gz
+  ```
+
+  Le script affiche la base visée et demande confirmation (`--oui` pour s'en passer). Le contenu des tables sauvegardées est **remplacé**, dans une seule transaction : en cas d'erreur, rien ne change. Les tables parentes sont insérées avant celles qui les référencent, et les identifiants automatiques repartent après le plus grand restauré. Une table ou une colonne absente de la base est ignorée ; une colonne absente du fichier prend sa valeur par défaut. Les comptes ne sont pas touchés : sur une base neuve, le compte est créé par `ADMIN_UTILISATEUR` / `ADMIN_MOT_DE_PASSE`.
+
+### Sessions
+
+| | Durée sans utilisation | Cookie |
+|---|---|---|
+| « Rester connecté » coché (par défaut) | 30 jours | durable (400 jours, le maximum des navigateurs) |
+| Décoché | 1 jour | de session : effacé à la fermeture du navigateur |
+
+La session est **glissante** : `utilisateur_courant` la fait repartir pour sa durée entière dès qu'il en reste moins de la moitié (une écriture tous les 15 jours au plus pour une session longue). C'est la date d'expiration en base qui fait foi, pas la durée de vie du cookie. Changer le mot de passe ferme toutes les sessions, sur tous les appareils.
+
+### Installer l'application
+
+`public/manifest.json` (nom, couleurs, icônes 192 et 512, icône « maskable », raccourcis) et les balises de `index.html` rendent l'application installable :
+
+- **Android (Chrome)** : menu ⋮ → « Installer l'application » ou « Ajouter à l'écran d'accueil » ;
+- **iPhone (Safari)** : bouton Partager → « Sur l'écran d'accueil ».
+
+Elle s'ouvre alors en plein écran, sans barre d'adresse. Il n'y a pas de service worker : l'application ne fonctionne pas hors connexion, et chaque ouverture charge la dernière version.

@@ -18,13 +18,14 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 
 from config import CRON_SECRET, aujourdhui
 from database import db
-from messagerie import EnvoiImpossible, canaux, envoyer
+import sauvegarde
+from messagerie import EnvoiImpossible, canaux, envoyer, envoyer_fichier
 from securite import utilisateur_courant
-from routes import bourse, lectures
+from routes import bourse, lectures, patrimoine
 from routes.carnet import lire_dettes, lire_echeances
-from routes.rapports import calculer_resume, calculer_resume_semaine
-from resume_rendu import (delai, dh, jour, rendre_email, rendre_email_mois, rendre_telegram, rendre_telegram_mois,
-                          rendre_texte, rendre_texte_mois)
+from routes.rapports import calculer_resume, calculer_resume_annuel, calculer_resume_semaine
+from resume_rendu import (delai, dh, jour, rendre_email, rendre_email_annee, rendre_email_mois, rendre_telegram,
+                          rendre_telegram_annee, rendre_telegram_mois, rendre_texte, rendre_texte_annee, rendre_texte_mois)
 
 router = APIRouter(prefix="/api/rappels", tags=["rappels"], dependencies=[Depends(utilisateur_courant)])
 # Appelé par le planificateur, sans session : protégé par CRON_SECRET
@@ -219,6 +220,59 @@ def resume_mensuel(auj: date) -> dict:
             "texte": rendre_texte_mois(d), "telegram": rendre_telegram_mois(d), "html": rendre_email_mois(d), "patrimoine": None}
 
 
+# ---------------------------------------------------------------- bilan de l'année : données
+def _donnees_budget_annee(annee: int, auj: date) -> dict:
+    a = calculer_resume_annuel(annee, auj)
+    with db() as c:
+        prec = c.execute("SELECT COALESCE(SUM(montant),0) t FROM depenses WHERE date LIKE %s", (f"{annee - 1:04d}-%",)).fetchone()["t"]
+        top = c.execute("SELECT date,categorie,description,montant FROM depenses WHERE date LIKE %s "
+                        "ORDER BY montant DESC LIMIT 5", (f"{annee:04d}-%",)).fetchall()
+    dep = a["total_depenses"]
+    categories = [{"cat": c["cat"], "reel": c["total"], "budget": c["budget_annuel"]} for c in a["categories"]]
+    return {
+        "dep": dep, "rev": a["total_revenus"], "epargne": a["epargne"], "taux": a["taux_epargne"],
+        "objectif": a["objectif_epargne"], "nb_mois_objectif": a["nb_mois_objectif"], "nb_mois_actifs": a["nb_mois_actifs"],
+        "moyenne_dep": a["moyenne_dep_mois"], "dep_prec": prec,
+        "variation_pct": round((dep - prec) / prec * 100) if prec else None,
+        "mois": [{"m": m["m"], "dep": m["dep"]} for m in a["par_mois"]],
+        "meilleur": a["meilleur_mois"], "pire": a["pire_mois"],
+        "categories": categories,
+        "nb_depassees": sum(1 for c in categories if c["budget"] and c["reel"] > c["budget"]),
+        "top": [{"date": date.fromisoformat(t["date"]), "categorie": t["categorie"],
+                 "description": (t["description"] or "").strip(), "montant": t["montant"]} for t in top],
+    }
+
+
+def _donnees_bourse_annee(annee: int) -> Optional[dict]:
+    d = bourse.obtenir_dashboard(annee=annee)
+    if not d.patrimoine_total and not d.apports_nets:
+        return None
+    return {"patrimoine": d.patrimoine_total, "resultat": d.resultat_net_periode, "dividendes": d.dividendes_nets,
+            "apports": d.apports_periode, "retraits": d.retraits_periode, "perf": d.performance_globale,
+            "perf_pct": d.performance_globale_pct if d.apports_nets > 0 else None}
+
+
+def _donnees_lectures_annee(annee: int, auj: date) -> Optional[dict]:
+    b = lectures.calculer_bilan(annee, auj)
+    if not b["nb_livres"]:
+        return None
+    return {"nb": b["nb_livres"], "pages": b["nb_pages"], "objectif": b["objectif_annuel"],
+            "mieux_note": b["mieux_note"]["titre"] if b["mieux_note"] else None,
+            "auteur": b["auteurs"][0]["auteur"] if b["auteurs"] else None}
+
+
+def resume_annuel(auj: date) -> dict:
+    """Bilan de la dernière année terminée : {"sujet", "texte", "telegram", "html"}."""
+    annee = auj.year - 1
+    d = {"annee": annee,
+         "budget": _section("budget", lambda: _donnees_budget_annee(annee, auj)),
+         "bourse": _section("bourse", lambda: _donnees_bourse_annee(annee)),
+         "lectures": _section("lectures", lambda: _donnees_lectures_annee(annee, auj)),
+         "patrimoine": _section("patrimoine", lambda: patrimoine.calculer_patrimoine(auj)["total"])}
+    return {"sujet": f"📊 Ton année {annee}", "texte": rendre_texte_annee(d), "telegram": rendre_telegram_annee(d),
+            "html": rendre_email_annee(d), "patrimoine": None}
+
+
 def _envoyer_resume(r: dict) -> list:
     return envoyer(r["sujet"], r["texte"], html=r["html"], telegram=r["telegram"])
 
@@ -244,11 +298,13 @@ def etat():
 
 
 def _resume(periode: str, auj: date) -> dict:
+    if periode == "annee":
+        return resume_annuel(auj)
     return resume_mensuel(auj) if periode == "mois" else resume_hebdo(auj, _param("resume_hebdo_patrimoine"))
 
 
 @router.get("/apercu")
-def apercu(periode: Literal["semaine", "mois"] = "semaine"):
+def apercu(periode: Literal["semaine", "mois", "annee"] = "semaine"):
     """Ce qui serait envoyé maintenant : rappels du jour, et résumé de la dernière semaine
     terminée ou bilan du dernier mois terminé."""
     auj = aujourdhui()
@@ -257,7 +313,7 @@ def apercu(periode: Literal["semaine", "mois"] = "semaine"):
 
 
 @router.post("/envoyer")
-def envoyer_maintenant(periode: Literal["semaine", "mois"] = "semaine"):
+def envoyer_maintenant(periode: Literal["semaine", "mois", "annee"] = "semaine"):
     """Envoie tout de suite le résumé choisi (bouton de test des Paramètres) ; ne compte pas comme un envoi planifié."""
     r = _resume(periode, aujourdhui())
     try:
@@ -269,8 +325,9 @@ def envoyer_maintenant(periode: Literal["semaine", "mois"] = "semaine"):
 # ---------------------------------------------------------------- tâche planifiée
 @cron.get("/quotidien")
 def tache_quotidienne(force: bool = False, authorization: Optional[str] = Header(default=None)):
-    """Rappels du jour, plus le résumé de la semaine le lundi et le bilan du mois le 1er. Au plus un
-    envoi par jour : un second appel le même jour ne renvoie rien (`force=true` pour passer outre)."""
+    """Rappels du jour, plus le résumé de la semaine le lundi, le bilan du mois le 1er (avec une copie
+    de sauvegarde en pièce jointe) et le bilan de l'année le 1er janvier. Au plus un envoi par jour :
+    un second appel le même jour ne renvoie rien (`force=true` pour passer outre)."""
     if not CRON_SECRET:
         raise HTTPException(503, "CRON_SECRET non configuré")
     if not secrets.compare_digest((authorization or "").encode(), f"Bearer {CRON_SECRET}".encode()):
@@ -292,6 +349,9 @@ def tache_quotidienne(force: bool = False, authorization: Optional[str] = Header
         if lignes:
             envoyer("⏰ Mon Budget — rappels du jour", "\n".join(lignes))
             envoyes.append("rappels")
+        if auj.day == 1 and auj.month == 1:
+            _envoyer_resume(resume_annuel(auj))
+            envoyes.append("annee")
         if auj.day == 1:
             _envoyer_resume(resume_mensuel(auj))
             envoyes.append("mois")
@@ -304,5 +364,21 @@ def tache_quotidienne(force: bool = False, authorization: Optional[str] = Header
     except EnvoiImpossible as e:
         # Jour non marqué comme fait : un nouvel appel réessaiera
         raise HTTPException(502, f"Envoi impossible — {e}")
+    if auj.day == 1 and envoyer_sauvegarde():
+        envoyes.append("sauvegarde")
     _ecrire_param("cron_dernier_jour", auj.toordinal())
     return {"etat": "ok", "envoyes": envoyes}
+
+
+def envoyer_sauvegarde() -> bool:
+    """Copie mensuelle de toutes les données, en pièce jointe. Un échec est journalisé sans
+    faire échouer la tâche : les résumés du jour sont déjà partis."""
+    try:
+        nom, contenu = sauvegarde.fichier_compresse()
+        envoyer_fichier("💾 Mon Budget — sauvegarde du mois",
+                        "Copie complète de tes données. Garde ce fichier : il se restaure avec "
+                        "scripts/restaurer_sauvegarde.py.", nom, contenu)
+        return True
+    except Exception as e:
+        print(f"[rappels] sauvegarde mensuelle non envoyée — {e!r}", flush=True)
+        return False

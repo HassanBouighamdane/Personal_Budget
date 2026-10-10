@@ -119,7 +119,7 @@ export const usePatrimoineSilencieux = () => useQuery({
 /* ---------- Rappels et résumé hebdomadaire ---------- */
 export const useEtatRappels = () => lire<EtatRappels>(['rappels', 'etat'], '/api/rappels/etat');
 /** Jamais gardé en cache : l'aperçu reflète les données du moment où on l'ouvre */
-export const useApercuRappels = (periode: 'semaine' | 'mois') => useQuery({
+export const useApercuRappels = (periode: 'semaine' | 'mois' | 'annee') => useQuery({
   queryKey: ['rappels', 'apercu', periode], queryFn: () => api<ApercuRappels>('/api/rappels/apercu?periode=' + periode), gcTime: 0,
 });
 

@@ -102,7 +102,7 @@ function LigneSource({ s }: { s: Source }) {
   );
 }
 
-type Periode = 'semaine' | 'mois';
+type Periode = 'semaine' | 'mois' | 'annee';
 
 /** Résumé de la dernière semaine ou bilan du dernier mois, tel qu'il part, avec son envoi immédiat */
 function ApercuRappels({ peutEnvoyer }: { peutEnvoyer: boolean }) {
@@ -122,7 +122,7 @@ function ApercuRappels({ peutEnvoyer }: { peutEnvoyer: boolean }) {
     <Stack gap="md">
       <Group justify="space-between" gap="xs">
         <SegmentedControl size="xs" value={periode} onChange={v => setPeriode(v as Periode)}
-                          data={[{ value: 'semaine', label: 'Semaine (le lundi)' }, { value: 'mois', label: 'Mois (le 1er)' }]} />
+                          data={[{ value: 'semaine', label: 'Semaine' }, { value: 'mois', label: 'Mois' }, { value: 'annee', label: 'Année' }]} />
         <Tooltip label="Configure d'abord Telegram ou l'e-mail" disabled={peutEnvoyer} withArrow>
           <Button size="xs" leftSection={<IconSend size={14} />} onClick={envoyer} loading={envoi} disabled={!peutEnvoyer}>
             Envoyer maintenant
@@ -142,7 +142,10 @@ function ApercuRappels({ peutEnvoyer }: { peutEnvoyer: boolean }) {
             {/* L'e-mail lui-même, isolé de l'application (aucun script, styles à part) */}
             <iframe title="Aperçu du résumé" srcDoc={data.html} sandbox=""
                     style={{ width: '100%', height: '60vh', border: 0, borderRadius: 12, background: '#f3f4f6', display: 'block' }} />
-            <Text fz="xs" c="dimmed" mt={6}>Sur Telegram, le même contenu arrive sous forme de message.</Text>
+            <Text fz="xs" c="dimmed" mt={6}>
+              Envoyé {periode === 'semaine' ? 'chaque lundi' : periode === 'mois' ? 'le 1er de chaque mois' : 'le 1er janvier'}.
+              Sur Telegram, le même contenu arrive sous forme de message.
+            </Text>
           </Box>
         </>
       )}
@@ -157,7 +160,7 @@ function CarteRappels() {
     <Badge variant="light" color={ok ? 'emeraude' : 'gray'}>{children} : {ok ? 'activé' : 'non configuré'}</Badge>;
 
   return (
-    <Carte titre="Rappels et résumés" description="Par Telegram ou e-mail : les échéances le matin, la semaine le lundi, le mois le 1er"
+    <Carte titre="Rappels et résumés" description="Par Telegram ou e-mail : les échéances le matin, la semaine le lundi, le mois le 1er, l'année le 1er janvier"
            icone={<Pastille icone={IconBell} couleur="ambre" />}>
       {isPending ? <Chargement lignes={2} /> : (
         <Stack gap="sm">

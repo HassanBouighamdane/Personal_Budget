@@ -34,10 +34,13 @@ Application web personnelle pour gérer et suivre son budget au quotidien, avec 
 - Dettes et prêts : argent prêté ou emprunté, remboursements partiels, total qu'on me doit et que je dois
 - Échéances : papiers, assurance, visite technique, garanties, avec délai de rappel et récurrence
 - Patrimoine net (liquidités, Bourse, autres actifs, dettes), réserve de sécurité en mois de dépenses, estimation de la zakat
-- Rappels du matin, résumé de la semaine le lundi et bilan du mois le 1er, par Telegram ou e-mail (optionnel, voir DOCUMENTATION.md §10)
+- Rappels du matin, résumé de la semaine le lundi, bilan du mois le 1er et de l'année le 1er janvier, par Telegram ou e-mail (optionnel, voir DOCUMENTATION.md §10)
 
 **Autres**
-- Connexion sécurisée : mot de passe haché avec PBKDF2, session dans un cookie HttpOnly
+- Page d'accueil : l'essentiel du jour (reste à dépenser, Bourse, lecture en cours, échéances)
+- Sauvegarde complète en un fichier, avec une copie envoyée chaque mois
+- Installable sur l'écran d'accueil du téléphone
+- Connexion sécurisée : mot de passe haché avec PBKDF2, session dans un cookie HttpOnly, option « Rester connecté »
 - Thème clair ou sombre, interface adaptée au mobile
 
 ## Stack

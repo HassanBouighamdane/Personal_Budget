@@ -28,7 +28,8 @@ PORT = int(os.environ.get("PORT", 8500))                       # Render fournit 
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() == "true"   # true en production HTTPS
 ADMIN_UTILISATEUR = os.environ.get("ADMIN_UTILISATEUR")
 ADMIN_MOT_DE_PASSE = os.environ.get("ADMIN_MOT_DE_PASSE")
-DUREE_SESSION_JOURS = 1
+DUREE_SESSION_JOURS = 1            # session ordinaire
+DUREE_SESSION_LONGUE_JOURS = 30    # « Rester connecté » ; les deux se prolongent pendant l'utilisation
 
 # Fuseau de l'utilisateur : le serveur (Render) tourne en UTC, ce qui décalerait « aujourd'hui »
 # (mois en cours, projection, objectifs de lecture) autour de minuit.

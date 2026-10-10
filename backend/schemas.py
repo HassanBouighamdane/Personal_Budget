@@ -52,6 +52,7 @@ Tags = Annotated[List[str], AfterValidator(_valider_tags)]
 class LoginIn(BaseModel):
     utilisateur: str
     mot_de_passe: str
+    rester_connecte: bool = False   # session de 30 jours au lieu d'un seul
 
 class MdpIn(BaseModel):
     actuel: str

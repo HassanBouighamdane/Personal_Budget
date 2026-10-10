@@ -6,7 +6,7 @@ from database import db
 from securite import (hacher_mdp, verifier_mdp, creer_session,
                       supprimer_session, utilisateur_courant, limiteur_login)
 from schemas import LoginIn, MdpIn
-from config import DUREE_SESSION_JOURS, COOKIE_SECURE
+from config import DUREE_SESSION_JOURS, DUREE_SESSION_LONGUE_JOURS, COOKIE_SECURE
 
 router = APIRouter(prefix="/api", tags=["authentification"])
 
@@ -21,9 +21,11 @@ def login(donnees: LoginIn, response: Response):
         limiteur_login.echec(cle)
         raise HTTPException(401, "Identifiants incorrects")
     limiteur_login.reussite(cle)
-    token = creer_session(u["id"])
-    response.set_cookie("session", token, httponly=True, samesite="lax",
-                        secure=COOKIE_SECURE, max_age=DUREE_SESSION_JOURS * 86400)
+    token = creer_session(u["id"], DUREE_SESSION_LONGUE_JOURS if donnees.rester_connecte else DUREE_SESSION_JOURS)
+    # « Rester connecté » : cookie durable (400 jours, le maximum des navigateurs), la session en base
+    # décidant de l'expiration réelle. Sinon, cookie de session, effacé à la fermeture du navigateur.
+    response.set_cookie("session", token, httponly=True, samesite="lax", secure=COOKIE_SECURE,
+                        max_age=400 * 86400 if donnees.rester_connecte else None)
     return {"ok": True}
 
 @router.post("/logout")

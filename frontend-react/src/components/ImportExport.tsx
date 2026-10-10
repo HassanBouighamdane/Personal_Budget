@@ -6,7 +6,7 @@ import {
 } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { useQueryClient } from '@tanstack/react-query';
-import { IconDownload, IconFileImport, IconUpload } from '@tabler/icons-react';
+import { IconDownload, IconFileImport, IconUpload, IconDatabaseExport } from '@tabler/icons-react';
 
 import { api, toast } from '../lib/api';
 import { lireCsv, lireDate, lireMontantCsv } from '../lib/csv';
@@ -78,6 +78,22 @@ function Export() {
         </Button>
       </SimpleGrid>
       <Info>Toutes les dépenses et tous les revenus de la période, lisibles dans Excel (séparateur « ; »).</Info>
+    </Stack>
+  );
+}
+
+/* ---------- Sauvegarde complète ---------- */
+function Sauvegarde() {
+  return (
+    <Stack gap="xs">
+      <Text fz="xs" fw={700} c="dimmed" tt="uppercase" lts={0.5}>Sauvegarde complète</Text>
+      <Button component="a" href="/api/sauvegarde" download variant="default" leftSection={<IconDatabaseExport size={16} />} style={{ alignSelf: 'flex-start' }}>
+        Télécharger toutes mes données
+      </Button>
+      <Info>
+        Un seul fichier avec tout : Budget, Bourse, Lectures, Carnet et Patrimoine (sans ton mot de passe). Si les rappels sont configurés,
+        une copie t'est aussi envoyée le 1er de chaque mois. Il se restaure avec le script « restaurer_sauvegarde.py ».
+      </Info>
     </Stack>
   );
 }
@@ -253,9 +269,10 @@ function Import() {
 
 export function ImportExport() {
   return (
-    <Carte titre="Import / export" description="Sauvegarde tes opérations, ou charge un relevé bancaire"
+    <Carte titre="Import / export" description="Sauvegarde toutes tes données, exporte le Budget, ou charge un relevé bancaire"
            icone={<Pastille icone={IconFileImport} couleur="gray" />}>
       <Stack gap="lg">
+        <Sauvegarde />
         <Export />
         <Import />
       </Stack>

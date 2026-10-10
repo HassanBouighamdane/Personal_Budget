@@ -15,6 +15,7 @@ Architecture modulaire :
     routes/lectures.py        livres lus, objectifs, bilan annuel
     routes/carnet.py          dettes et prêts, échéances
     routes/patrimoine.py      patrimoine net, autres actifs, réserve de sécurité, zakat
+    routes/sauvegarde.py      téléchargement de la sauvegarde complète
     routes/rappels.py         rappels du jour et résumé hebdomadaire (Telegram / e-mail)
 
 Installation :  pip install -r requirements.txt
@@ -35,7 +36,7 @@ from fastapi.staticfiles import StaticFiles
 
 from config import FRONT_DIR, DATABASE_URL, PORT, CORS_ORIGINS
 from database import init_db, _pool
-from routes import auth, configuration, transactions, rapports, bourse, lectures, carnet, patrimoine, rappels
+from routes import auth, configuration, transactions, rapports, bourse, lectures, carnet, patrimoine, rappels, sauvegarde
 
 @asynccontextmanager
 async def cycle_de_vie(_app: FastAPI):
@@ -68,6 +69,7 @@ app.include_router(bourse.router)
 app.include_router(lectures.router)
 app.include_router(carnet.router)
 app.include_router(patrimoine.router)
+app.include_router(sauvegarde.router)
 app.include_router(rappels.router)
 app.include_router(rappels.cron)
 

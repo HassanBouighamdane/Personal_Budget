@@ -213,6 +213,8 @@ def init_db():
             utilisateur_id INTEGER NOT NULL REFERENCES utilisateurs(id) ON DELETE CASCADE,
             expire TIMESTAMP NOT NULL
         );
+        -- Durée de la session (1 jour, ou 30 avec « Rester connecté ») : sert à la prolonger pendant l'utilisation
+        ALTER TABLE sessions ADD COLUMN IF NOT EXISTS duree_jours INTEGER NOT NULL DEFAULT 1;
         CREATE INDEX IF NOT EXISTS idx_depenses_date ON depenses(date);
         CREATE INDEX IF NOT EXISTS idx_revenus_date ON revenus(date);
 

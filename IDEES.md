@@ -18,9 +18,7 @@ From a review of the code on 2026-10-05, updated on 2026-10-10. Everything below
 
 ## 3. Across modules
 
-9. **Full backup** (S): the CSV export covers the Budget only. Add `GET /api/export` returning every table as JSON (Bourse and Lectures included), and ideally a scheduled `pg_dump` to another place.
 10. **Net worth curve** (M): net worth now includes other assets, debts and an opening balance (Carnet → Patrimoine), but only as today's figure. A curve over time needs the price history (idea 5) for the Bourse part, and a history of the manual asset values.
-11. **Installable app** (S): add a web manifest (icons already exist) so it installs on the phone's home screen. Skip the service worker: offline use adds little with 24 h sessions, and caching causes stale builds after each `dist/` update.
 
 ## 5. Backend best practices
 
@@ -34,7 +32,6 @@ From a review of the code on 2026-10-05, updated on 2026-10-10. Everything below
 ## 6. Security
 
 - **Security headers** (S): add `Content-Security-Policy`, `X-Frame-Options: DENY` (or `frame-ancestors`), `X-Content-Type-Options: nosniff` and `Referrer-Policy` with a small middleware.
-- **Sliding sessions** (S): sessions expire 24 h after login even during use. Extend the expiry on activity (e.g. when less than half remains), and maybe offer a longer "remember me" on the phone.
 - **Rate limiter in the database** (S): the login limiter is in memory, reset on restart and per process (DOCUMENTATION.md §8). A small `echecs_login` table fixes both.
 - **Input limits** (S): descriptions and names have no max length, and amounts no upper bound. Add `max_length` and `le=` to the Pydantic models. Also strip names before validating: a category or source named `"  "` passes `min_length=1` and is saved as `""`.
 
@@ -49,7 +46,7 @@ From a review of the code on 2026-10-05, updated on 2026-10-10. Everything below
 
 ## Suggested order
 
-1. Full backup (9) and the separate test database: they protect the data.
+1. The separate test database: it protects the data.
 2. Start the price history (5): the history only exists from the day it is enabled.
 3. Daily friction: budget alert (2), recurring transactions (1).
 4. Foundations: more tests for `rapports.py`, migrations, then `DATE`/`NUMERIC`.
@@ -60,6 +57,11 @@ From a review of the code on 2026-10-05, updated on 2026-10-10. Everything below
 Built on 2026-10-10 (the three Carnet and reminder items were added the same day), with tests in `backend/tests/` and checked in a browser.
 
 **Features**
+- **Home page**: today's remaining budget, the month, the portfolio, the book in progress and streak, the note of the day, and what needs action. Default page; settings moved to the header on phones.
+- **Full backup**: one JSON file with every table (no accounts or sessions), a copy sent on the 1st of each month by Telegram and e-mail, and `scripts/restaurer_sauvegarde.py` to restore it.
+- **Stay logged in**: 30-day sessions that renew with use; ordinary sessions also renew, within one day.
+- **Year in review**: sent on 1 January, same design as the monthly summary.
+- **Installable app**: web manifest and icons; no service worker.
 - **Lectures: reading pace**: note today's page on a book in progress to get pages per day, an estimated finish date and a streak of reading days.
 - **Lectures: note of the day**, **lent books** ("Prêtés" tab) and **Markdown export** of notes (one book, or a ZIP with one file per book).
 - **Bourse: decision journal** (a note per transaction, with the price change since) and **expected dividends** over 12 months (last dividend per share × shares held today).

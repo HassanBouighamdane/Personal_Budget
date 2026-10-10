@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Box, Button, Card, Center, Group, PasswordInput, Stack, Text, TextInput, ThemeIcon, Title } from '@mantine/core';
+import { Box, Button, Card, Center, Checkbox, Group, PasswordInput, Stack, Text, TextInput, ThemeIcon, Title } from '@mantine/core';
 import { IconBook2, IconChartPie, IconLock, IconShieldCheck, IconTrendingUp, IconUser } from '@tabler/icons-react';
 import { api, toast } from '../lib/api';
 import { Logo } from '../components/Logo';
@@ -14,6 +14,8 @@ const ATOUTS = [
 export function Connexion({ onConnecte }: { onConnecte: () => void }) {
   const [utilisateur, setUtilisateur] = useState('');
   const [motDePasse, setMotDePasse] = useState('');
+  // Coché par défaut : c'est une application personnelle, ouverte surtout sur son propre téléphone
+  const [rester, setRester] = useState(true);
   const [envoi, setEnvoi] = useState(false);
 
   async function connexion(e: FormEvent) {
@@ -23,7 +25,7 @@ export function Connexion({ onConnecte }: { onConnecte: () => void }) {
     setEnvoi(true);
     try {
       // sessionRequise: false — un 401 ici veut dire « identifiants incorrects » : on affiche le message
-      await api('/api/login', { method: 'POST', body: { utilisateur: nom, mot_de_passe: motDePasse }, sessionRequise: false });
+      await api('/api/login', { method: 'POST', body: { utilisateur: nom, mot_de_passe: motDePasse, rester_connecte: rester }, sessionRequise: false });
     } catch {
       setEnvoi(false);
       return;   // le message d'erreur est déjà affiché
@@ -49,6 +51,8 @@ export function Connexion({ onConnecte }: { onConnecte: () => void }) {
               <PasswordInput label="Mot de passe" autoComplete="current-password" size="md"
                              leftSection={<IconLock size={17} stroke={1.7} />}
                              value={motDePasse} onChange={e => setMotDePasse(e.currentTarget.value)} />
+              <Checkbox label="Rester connecté sur cet appareil" checked={rester} onChange={e => setRester(e.currentTarget.checked)}
+                        description={rester ? '30 jours, prolongés à chaque utilisation' : "Jusqu'à la fermeture du navigateur, un jour au plus sans utilisation"} />
               <Button type="submit" mt={4} fullWidth size="md" loading={envoi}>Se connecter</Button>
             </Stack>
           </form>

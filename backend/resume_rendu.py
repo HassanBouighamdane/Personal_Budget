@@ -275,10 +275,11 @@ def _carte(titre: str, contenu: str) -> str:
 def _chiffres(cases: list) -> str:
     """Rangée de chiffres clés : [(libellé, valeur, couleur, complément HTML)]."""
     largeur = 100 // len(cases)
+    taille = 20 if len(cases) < 3 else 18   # trois grands montants côte à côte doivent tenir sur un téléphone
     tds = "".join(
         f'<td width="{largeur}%" valign="top" style="padding:0 6px 0 0">'
         f'<div style="font-size:12px;color:{DISCRET}">{lib}</div>'
-        f'<div style="font-size:20px;font-weight:700;color:{couleur};white-space:nowrap;margin-top:2px">{valeur}</div>'
+        f'<div style="font-size:{taille}px;font-weight:700;color:{couleur};white-space:nowrap;margin-top:2px">{valeur}</div>'
         f'{f"<div style=margin-top:4px>{plus}</div>" if plus else ""}</td>'
         for lib, valeur, couleur, plus in cases)
     return f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse"><tr>{tds}</tr></table>'
@@ -483,7 +484,7 @@ def _depense(t: dict) -> str:
 
 def _bourse_mois(p: dict) -> list:
     """Lignes (libellé, valeur) de l'activité Bourse du mois ; les mouvements nuls sont omis."""
-    lignes = [("Résultat du mois", _signe(p["resultat"]))] if p["resultat"] else []
+    lignes = [("Résultat", _signe(p["resultat"]))] if p["resultat"] else []   # court : tient dans un bloc Telegram
     lignes += [(lib, dh(v)) for lib, v in (("Dividendes", p["dividendes"]), ("Apports", p["apports"]), ("Retraits", p["retraits"])) if v]
     return lignes
 
@@ -642,3 +643,162 @@ def rendre_email_mois(d: dict) -> str:
         cartes.append(_carte_carnet(d["dettes"], d["echeances"]))
     return _page("Mon Budget · bilan du mois", _nom_mois(d["mois"]).capitalize(), verdict_mois(b), cartes,
                  "Envoyé le 1er de chaque mois par ton application Mon Budget")
+
+
+# ================================================================ bilan de l'année
+def verdict_annee(b: dict | None, annee: int) -> str:
+    if not b:
+        return ""
+    if not b["dep"] and not b["rev"]:
+        return f"Aucune opération saisie en {annee}."
+    if b["epargne"] < 0:
+        return f"Année dans le rouge : {dh(-b['epargne'])} dépensés de plus que reçus."
+    taux = f"{b['taux']:g}".replace(".", ",")
+    return f"{dh(b['epargne'])} mis de côté en {annee}, soit {taux} % de tes revenus."
+
+
+def _positif_annee(b: dict | None) -> bool | None:
+    if not b or (not b["dep"] and not b["rev"]):
+        return None
+    return b["epargne"] >= 0
+
+
+def _variation_annee(b: dict) -> str:
+    v = b["variation_pct"]
+    if v is None:
+        return ""
+    return "＝ comme l'année d'avant" if v == 0 else f"{'▲' if v > 0 else '▼'} {abs(v)} % sur l'année d'avant"
+
+
+def _mois_marquants(b: dict) -> list:
+    """(emoji, texte) : meilleur mois, mois le plus difficile, objectif d'épargne."""
+    faits = []
+    if b["meilleur"]:
+        faits.append(("🏆", f"Meilleur mois : {MOIS_LONGS[b['meilleur']['m'] - 1]}, {_signe(b['meilleur']['ep'])} d'épargne"))
+    if b["pire"] and b["pire"] != b["meilleur"]:
+        faits.append(("🌧", f"Mois le plus difficile : {MOIS_LONGS[b['pire']['m'] - 1]}, {_signe(b['pire']['ep'])}"))
+    if b["objectif"] and b["nb_mois_actifs"]:
+        faits.append(("🎯", f"Objectif d'épargne atteint {b['nb_mois_objectif']} mois sur {b['nb_mois_actifs']}"))
+    return faits
+
+
+def _lectures_annee(l: dict) -> list:
+    """(libellé, valeur) du bilan de lecture de l'année."""
+    lignes = [("Livres lus", str(l["nb"]) + (f" / {l['objectif']}" if l["objectif"] else "")), ("Pages lues", f"{l['pages']:,}".replace(",", " "))]
+    if l["mieux_note"]:
+        lignes.append(("Mieux noté", l["mieux_note"]))
+    if l["auteur"]:
+        lignes.append(("Auteur le plus lu", l["auteur"]))
+    return lignes
+
+
+def rendre_texte_annee(d: dict) -> str:
+    sections = []
+    b = d["budget"]
+    if b:
+        lignes = ["💸 Budget", f"Dépenses : {dh(b['dep'])}" + (f" ({_variation_annee(b)})" if _variation_annee(b) else "")]
+        if b["rev"]:
+            lignes += [f"Revenus : {dh(b['rev'])}", f"Épargne : {_signe(b['epargne'])}"]
+        if b["dep"]:
+            lignes.append(f"Dépense moyenne : {dh(b['moyenne_dep'])} par mois")
+            lignes += [f"{e} {t}" for e, t in _mois_marquants(b)]
+            lignes.append(_depassements(b))
+            lignes += [f"• {c['cat']} : {dh(c['reel'])}" + (f" sur {dh(c['budget'])}" if c["budget"] else "") for c in b["categories"][:6]]
+            lignes.append("Plus grosses dépenses : " + " · ".join(f"{_depense(t)} {dh(t['montant'])}" for t in b["top"][:3]))
+        sections.append(lignes)
+    p = d["bourse"]
+    if p:
+        sections.append(["📈 Bourse", f"Portefeuille : {dh(p['patrimoine'])}"] + [f"{lib} : {val}" for lib, val in _bourse_mois(p)]
+                        + [f"Performance globale : {_perf(p)}"])
+    l = d["lectures"]
+    if l:
+        sections.append(["📚 Lectures"] + [f"{lib} : {val}" for lib, val in _lectures_annee(l)])
+    if d["patrimoine"] is not None:
+        sections.append(["🏦 Patrimoine net", dh(d["patrimoine"])])
+    tete = [verdict_annee(b, d["annee"])] if verdict_annee(b, d["annee"]) else []
+    return "\n\n".join(["\n".join(s) for s in [tete] + sections if s])
+
+
+def rendre_telegram_annee(d: dict) -> str:
+    b = d["budget"]
+    blocs = [_tete_tg(f"Ton année {d['annee']}", "Bilan de l'année écoulée", verdict_annee(b, d["annee"]), _positif_annee(b))]
+    if b and (b["dep"] or b["rev"]):
+        chiffres = [("Dépensé", dh(b["dep"]))]
+        if b["rev"]:
+            chiffres += [("Reçu", dh(b["rev"])), ("Épargne", _signe(b["epargne"]))]
+        if b["dep"]:
+            chiffres.append(("Par mois", dh(b["moyenne_dep"])))
+        lignes = ["💸 <b>Budget</b>", _table_tg(chiffres)]
+        if _variation_annee(b):
+            lignes.append(_tg(_variation_annee(b)))
+        blocs.append("\n".join(lignes + [f"{e} {_tg(t)}" for e, t in _mois_marquants(b)]))
+        if b["dep"]:
+            blocs.append("🗓 <b>Mois par mois</b>\n" + _barres_tg([(MOIS_COURTS[m["m"] - 1][:4], m["dep"]) for m in b["mois"]]))
+            depassees = [c["cat"] for c in b["categories"] if c["budget"] and c["reel"] > c["budget"]]
+            blocs.append("\n".join(["🏷 <b>Catégories</b>", _table_tg([(c["cat"], dh(c["reel"])) for c in b["categories"][:6]]),
+                                    ("⚠️ " if depassees else "✅ ") + _tg(_depassements(b)) + (" : " + _tg(", ".join(depassees)) if depassees else "")]))
+            blocs.append("🔝 <b>Plus grosses dépenses</b>\n" + _table_tg([(_depense(t), dh(t["montant"])) for t in b["top"][:5]]))
+    p = d["bourse"]
+    if p:
+        blocs.append("\n".join(["📈 <b>Bourse</b>", _table_tg([("Portefeuille", dh(p["patrimoine"]))] + _bourse_mois(p)),
+                                f"Performance globale : <b>{_perf(p)}</b>"]))
+    l = d["lectures"]
+    if l:
+        lignes = ["📚 <b>Lectures</b>", _table_tg(_lectures_annee(l)[:2])]
+        lignes += [f"{'⭐' if lib == 'Mieux noté' else '✍️'} {lib} : {_tg(val)}" for lib, val in _lectures_annee(l)[2:]]
+        blocs.append("\n".join(lignes))
+    if d["patrimoine"] is not None:
+        blocs.append(f"🏦 <b>Patrimoine net</b>\n<b>{dh(d['patrimoine'])}</b> aujourd'hui")
+    return "\n\n".join(blocs)
+
+
+def _carte_bilan_annee(b: dict) -> str:
+    v = b["variation_pct"]
+    badge = "" if v is None else _pastille("＝ stable" if v == 0 else f"{'▲' if v > 0 else '▼'} {abs(v)} %", DISCRET if v == 0 else DEP if v > 0 else EP)
+    cases = [("Dépensé", dh(b["dep"]), DEP, badge)]
+    if b["rev"]:
+        cases += [("Reçu", dh(b["rev"]), REV, ""), ("Épargne", _signe(b["epargne"]), EP if b["epargne"] >= 0 else DEP, "")]
+    html = _chiffres(cases)
+    if v is not None:
+        html += _discret(f"Année d'avant : {dh(b['dep_prec'])}", "6px 0 0")
+    if b["dep"]:
+        html += _discret(f"Soit {dh(b['moyenne_dep'])} dépensés par mois en moyenne")
+    if b["objectif"] and b["nb_mois_actifs"]:
+        html += (f'<div style="margin:16px 0 6px">{_ligne("Mois où l&#39;objectif d&#39;épargne est atteint", f"{b["nb_mois_objectif"]} / {b["nb_mois_actifs"]}")}</div>'
+                 + _barre(b["nb_mois_objectif"] / b["nb_mois_actifs"], EP, 10))
+    faits = [f for f in _mois_marquants(b) if f[0] != "🎯"]
+    if faits:
+        html += f'<div style="border-top:1px solid {BORD};margin:14px 0 0;padding:10px 0 0">' + "".join(
+            f'<div style="font-size:13px;color:{TEXTE};margin:4px 0">{emoji}&nbsp; {escape(texte)}</div>' for emoji, texte in faits) + "</div>"
+    return _carte("💸 Bilan de l'année", html)
+
+
+def _carte_lectures_annee(l: dict) -> str:
+    html = _chiffres([("Livres lus", str(l["nb"]), TEXTE, ""), ("Pages lues", f"{l['pages']:,}".replace(",", " "), TEXTE, "")])
+    if l["objectif"]:
+        html += (f'<div style="margin:14px 0 6px">{_ligne("Objectif de l&#39;année", f"{l["nb"]} / {l["objectif"]}")}</div>'
+                 + _barre(l["nb"] / l["objectif"], EP, 8))
+    autres = _lectures_annee(l)[2:]
+    if autres:
+        html += f'<div style="border-top:1px solid {BORD};margin:14px 0 0;padding:10px 0 0">' + "".join(
+            _ligne(lib, escape(val), "margin:0 0 4px") for lib, val in autres) + "</div>"
+    return _carte("📚 Lectures", html)
+
+
+def rendre_email_annee(d: dict) -> str:
+    b = d["budget"]
+    cartes = []
+    if b:
+        cartes.append(_carte_bilan_annee(b))
+        if b["dep"]:
+            maxi = max(m["dep"] for m in b["mois"])
+            cartes.append(_carte_barres("🗓️ Mois par mois", [(MOIS_COURTS[m["m"] - 1], m["dep"], m["dep"] == maxi) for m in b["mois"]], 52))
+            cartes += [_carte_categories_mois(b), _carte_top(b)]
+    if d["bourse"]:
+        cartes.append(_carte_bourse_mois(d["bourse"]))
+    if d["lectures"]:
+        cartes.append(_carte_lectures_annee(d["lectures"]))
+    if d["patrimoine"] is not None:
+        cartes.append(_carte("🏦 Patrimoine net", _chiffres([("Aujourd'hui", dh(d["patrimoine"]), EP if d["patrimoine"] >= 0 else DEP, "")])))
+    return _page("Mon Budget · bilan de l'année", f"Ton année {d['annee']}", verdict_annee(b, d["annee"]), cartes,
+                 "Envoyé le 1er janvier par ton application Mon Budget")

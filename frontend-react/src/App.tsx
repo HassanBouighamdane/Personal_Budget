@@ -6,7 +6,7 @@ import {
 import { useMediaQuery } from '@mantine/hooks';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  IconBook2, IconChartPie, IconLogout, IconMoon, IconNotebook, IconPencilPlus, IconSettings, IconSun, IconTrendingUp,
+  IconBook2, IconChartPie, IconHome, IconLogout, IconMoon, IconNotebook, IconPencilPlus, IconSettings, IconSun, IconTrendingUp,
 } from '@tabler/icons-react';
 
 import { api, definirSurNonAuthentifie, toast } from './lib/api';
@@ -15,6 +15,7 @@ import { appliquerThemeGraphiques } from './components/Graphique';
 import { Logo } from './components/Logo';
 import { Protection } from './components/Protection';
 import { Connexion } from './pages/Connexion';
+import { Accueil, type CibleAccueil } from './pages/accueil/Accueil';
 import { Saisie, useNavSaisie } from './pages/Saisie';
 import { Dashboard, useNavDashboard } from './pages/dashboard/Dashboard';
 import { Bourse, useNavBourse } from './pages/bourse/Bourse';
@@ -22,13 +23,14 @@ import { Lectures, useNavLectures } from './pages/lectures/Lectures';
 import { Carnet, useNavCarnet } from './pages/carnet/Carnet';
 import { Parametres } from './pages/Parametres';
 
-type Onglet = 'saisie' | 'dash' | 'bourse' | 'lectures' | 'carnet' | 'params';
+type Onglet = 'accueil' | 'saisie' | 'dash' | 'bourse' | 'lectures' | 'carnet' | 'params';
 
 // Nom de chaque onglet dans l'URL (#/dashboard/…)
-const URL_ONGLET: Record<Onglet, string> = { saisie: 'saisie', dash: 'dashboard', bourse: 'bourse', lectures: 'lectures', carnet: 'carnet', params: 'parametres' };
-const ongletDeUrl = (s?: string) => (Object.keys(URL_ONGLET) as Onglet[]).find(o => URL_ONGLET[o] === s) ?? 'saisie';
+const URL_ONGLET: Record<Onglet, string> = { accueil: 'accueil', saisie: 'saisie', dash: 'dashboard', bourse: 'bourse', lectures: 'lectures', carnet: 'carnet', params: 'parametres' };
+const ongletDeUrl = (s?: string) => (Object.keys(URL_ONGLET) as Onglet[]).find(o => URL_ONGLET[o] === s) ?? 'accueil';
 
 const ONGLETS: { id: Onglet; label: string; aide: string; Icone: typeof IconChartPie }[] = [
+  { id: 'accueil', label: 'Accueil', aide: "L'essentiel du jour", Icone: IconHome },
   { id: 'saisie', label: 'Saisie', aide: 'Dépenses et revenus', Icone: IconPencilPlus },
   { id: 'dash', label: 'Dashboard', aide: 'Analyse du budget', Icone: IconChartPie },
   { id: 'bourse', label: 'Bourse', aide: 'Portefeuille BVC', Icone: IconTrendingUp },
@@ -50,7 +52,7 @@ export default function App() {
   const navBourse = useNavBourse(initial('bourse'));
   const navLectures = useNavLectures(initial('lectures'));
   const navCarnet = useNavCarnet(initial('carnet'));
-  const navs = { saisie: navSaisie, dash: navDash, bourse: navBourse, lectures: navLectures, carnet: navCarnet, params: null };
+  const navs = { accueil: null, saisie: navSaisie, dash: navDash, bourse: navBourse, lectures: navLectures, carnet: navCarnet, params: null };
 
   // État → URL : nouvelle entrée d'historique quand l'onglet ou la vue change, remplacement sinon
   const cheminCourant = [URL_ONGLET[onglet], ...(navs[onglet]?.chemin() ?? [])];
@@ -100,6 +102,14 @@ export default function App() {
     verifierSession().catch(() => setEtat('deconnecte'));
   }
 
+  /** Depuis l'accueil : ouvre l'écran (et la vue) correspondant à un bloc */
+  function aller(cible: CibleAccueil) {
+    if (cible === 'lectures') { navLectures.setVue('a_lire'); setOnglet('lectures'); }
+    else if (cible === 'bourse') { navBourse.setVue('dashboard'); setOnglet('bourse'); }
+    else if (cible === 'echeances' || cible === 'dettes' || cible === 'patrimoine') { navCarnet.setVue(cible); setOnglet('carnet'); }
+    else setOnglet(cible);
+  }
+
   async function deconnexion() {
     try {
       await api('/api/logout', { method: 'POST' });
@@ -138,15 +148,23 @@ export default function App() {
       {/* ---------- Mobile : en-tête compact ---------- */}
       <AppShell.Header withBorder style={{ backdropFilter: 'blur(12px)', background: 'color-mix(in srgb, var(--mantine-color-body) 82%, transparent)' }}>
         <Group h="100%" px="sm" justify="space-between" wrap="nowrap">
-          <Logo taille={30} />
-          <Group gap={6} wrap="nowrap">{BoutonTheme}{BoutonDeconnexion}</Group>
+          <UnstyledButton onClick={() => setOnglet('accueil')} aria-label="Accueil"><Logo taille={30} /></UnstyledButton>
+          <Group gap={6} wrap="nowrap">
+            {/* Sur mobile, les Paramètres sont ici : la barre du bas garde six onglets lisibles */}
+            <Tooltip label="Paramètres">
+              <ActionIcon variant={onglet === 'params' ? 'light' : 'default'} size="lg" radius="md" aria-label="Paramètres" onClick={() => setOnglet('params')}>
+                <IconSettings size={18} stroke={1.7} />
+              </ActionIcon>
+            </Tooltip>
+            {BoutonTheme}{BoutonDeconnexion}
+          </Group>
         </Group>
       </AppShell.Header>
 
       {/* ---------- Ordinateur : barre latérale ---------- */}
       <AppShell.Navbar p="md" withBorder style={{ background: 'var(--surface-navbar)' }}>
         <AppShell.Section>
-          <Box px={6} pt={4} pb="lg"><Logo /></Box>
+          <UnstyledButton px={6} pt={4} pb="lg" onClick={() => setOnglet('accueil')} aria-label="Accueil" style={{ display: 'block' }}><Logo /></UnstyledButton>
         </AppShell.Section>
         <AppShell.Section grow>
           <Text fz={11} fw={700} c="dimmed" tt="uppercase" lts={0.6} px={12} mb={6}>Navigation</Text>
@@ -178,6 +196,7 @@ export default function App() {
         <Container size={1180} px={0} pb="md">
           {/* key = onglet : changer d'onglet efface une éventuelle erreur d'affichage */}
           <Protection key={onglet}>
+            {onglet === 'accueil' && <Accueil utilisateur={utilisateur} aller={aller} />}
             {onglet === 'saisie' && <Saisie nav={navSaisie} />}
             {onglet === 'dash' && <Dashboard nav={navDash} />}
             {onglet === 'bourse' && <Bourse nav={navBourse} />}
@@ -190,8 +209,8 @@ export default function App() {
 
       {/* ---------- Mobile : barre d'onglets du bas ---------- */}
       <AppShell.Footer withBorder style={{ background: 'var(--surface-navbar)' }}>
-        <Group h="100%" grow gap={4} px="xs">
-          {ONGLETS.map(({ id, label, Icone }) => {
+        <Group h="100%" grow gap={2} px={4}>
+          {ONGLETS.filter(o => o.id !== 'params').map(({ id, label, Icone }) => {
             const actif = onglet === id;
             return (
               <UnstyledButton key={id} onClick={() => setOnglet(id)} aria-current={actif ? 'page' : undefined}

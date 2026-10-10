@@ -2,6 +2,7 @@
 """Envoi des rappels et du résumé hebdomadaire : Telegram et/ou e-mail, selon les variables
 d'environnement renseignées (cf. config.py). Bibliothèque standard uniquement."""
 import json
+import secrets
 import smtplib
 import urllib.error
 import urllib.request
@@ -56,6 +57,10 @@ def _email(sujet: str, texte: str, html: str | None = None, telegram: str | None
     message.set_content(texte)   # repli des messageries qui n'affichent pas le HTML
     if html:
         message.add_alternative(html, subtype="html")
+    _expedier(message)
+
+
+def _expedier(message: EmailMessage):
     classe = smtplib.SMTP_SSL if SMTP_PORT == 465 else smtplib.SMTP
     with classe(SMTP_HOTE, SMTP_PORT, timeout=15) as serveur:
         if SMTP_PORT != 465:
@@ -67,17 +72,16 @@ def _email(sujet: str, texte: str, html: str | None = None, telegram: str | None
 _ENVOIS = {"telegram": _telegram, "email": _email}
 
 
-def envoyer(sujet: str, texte: str, html: str | None = None, telegram: str | None = None) -> list:
-    """Envoie sur chaque canal configuré et renvoie ceux qui ont réussi. Lève EnvoiImpossible
-    s'il n'y en a aucun ; un canal en échec n'empêche pas l'autre. `html` (e-mail) et `telegram`
-    sont les versions mises en forme de `texte`, facultatives."""
+def _sur_chaque_canal(envoi) -> list:
+    """Appelle `envoi(canal)` pour chaque canal configuré et renvoie ceux qui ont réussi. Lève
+    EnvoiImpossible s'il n'y en a aucun ; un canal en échec n'empêche pas l'autre."""
     actifs = canaux()
     if not actifs:
         raise EnvoiImpossible("Aucun canal configuré : renseigne les variables Telegram ou SMTP")
     reussis, erreurs = [], []
     for canal in actifs:
         try:
-            _ENVOIS[canal](sujet, texte, html, telegram)
+            envoi(canal)
             reussis.append(canal)
         except Exception as e:
             print(f"[messagerie] {canal} : échec — {e}", flush=True)
@@ -85,3 +89,45 @@ def envoyer(sujet: str, texte: str, html: str | None = None, telegram: str | Non
     if not reussis:
         raise EnvoiImpossible(" · ".join(erreurs))
     return reussis
+
+
+def envoyer(sujet: str, texte: str, html: str | None = None, telegram: str | None = None) -> list:
+    """Envoie le message sur chaque canal configuré. `html` (e-mail) et `telegram` sont les
+    versions mises en forme de `texte`, facultatives."""
+    return _sur_chaque_canal(lambda canal: _ENVOIS[canal](sujet, texte, html, telegram))
+
+
+# ---------------------------------------------------------------- envoi d'un fichier joint
+def _telegram_fichier(sujet: str, texte: str, nom: str, contenu: bytes):
+    """sendDocument : formulaire multipart construit à la main (bibliothèque standard uniquement)."""
+    limite = secrets.token_hex(16)
+    champs = {"chat_id": TELEGRAM_CHAT_ID, "caption": f"{sujet}\n{texte}"[:1000]}
+    corps = b"".join(f'--{limite}\r\nContent-Disposition: form-data; name="{cle}"\r\n\r\n{valeur}\r\n'.encode()
+                     for cle, valeur in champs.items())
+    corps += (f'--{limite}\r\nContent-Disposition: form-data; name="document"; filename="{nom}"\r\n'
+              "Content-Type: application/octet-stream\r\n\r\n").encode() + contenu + f"\r\n--{limite}--\r\n".encode()
+    requete = urllib.request.Request(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendDocument", data=corps,
+                                     headers={"Content-Type": f"multipart/form-data; boundary={limite}"})
+    try:
+        with urllib.request.urlopen(requete, timeout=30):
+            pass
+    except urllib.error.HTTPError as e:
+        raise RuntimeError(f"refus de Telegram (HTTP {e.code})")
+    except (urllib.error.URLError, TimeoutError) as e:
+        raise RuntimeError(f"Telegram injoignable ({getattr(e, 'reason', e)})")
+
+
+def _email_fichier(sujet: str, texte: str, nom: str, contenu: bytes):
+    message = EmailMessage()
+    message["Subject"], message["From"], message["To"] = sujet, SMTP_UTILISATEUR, EMAIL_DESTINATAIRE
+    message.set_content(texte)
+    message.add_attachment(contenu, maintype="application", subtype="octet-stream", filename=nom)
+    _expedier(message)
+
+
+_ENVOIS_FICHIER = {"telegram": _telegram_fichier, "email": _email_fichier}
+
+
+def envoyer_fichier(sujet: str, texte: str, nom: str, contenu: bytes) -> list:
+    """Envoie un fichier joint sur chaque canal configuré ; mêmes règles que `envoyer`."""
+    return _sur_chaque_canal(lambda canal: _ENVOIS_FICHIER[canal](sujet, texte, nom, contenu))
