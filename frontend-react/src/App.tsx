@@ -1,15 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ActionIcon, AppShell, Avatar, Box, Center, Container, Divider, Group, Loader, NavLink, Stack, Text, Tooltip,
-  UnstyledButton, useComputedColorScheme, useMantineColorScheme,
+  Button, Title, UnstyledButton, useComputedColorScheme, useMantineColorScheme,
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  IconBook2, IconChartPie, IconHome, IconLogout, IconMoon, IconNotebook, IconPencilPlus, IconSettings, IconSun, IconTrendingUp,
+  IconBook2, IconChartPie, IconHome, IconLogout, IconWifiOff, IconMoon, IconNotebook, IconPencilPlus, IconSettings, IconSun, IconTrendingUp,
 } from '@tabler/icons-react';
 
-import { api, definirSurNonAuthentifie, toast } from './lib/api';
+import { api, definirSurNonAuthentifie, ErreurApi, toast } from './lib/api';
 import { ecrireChemin, lireChemin } from './lib/routes';
 import { appliquerThemeGraphiques } from './components/Graphique';
 import { Logo } from './components/Logo';
@@ -43,7 +43,7 @@ const ONGLETS: { id: Onglet; label: string; aide: string; Icone: typeof IconChar
 ];
 
 export default function App() {
-  const [etat, setEtat] = useState<'verification' | 'connecte' | 'deconnecte'>('verification');
+  const [etat, setEtat] = useState<'verification' | 'connecte' | 'deconnecte' | 'horsligne'>('verification');
   const [utilisateur, setUtilisateur] = useState('');
   // État initial lu dans l'URL : un rechargement revient sur la même page
   const [cheminInitial] = useState(lireChemin);
@@ -88,7 +88,10 @@ export default function App() {
   const basculerTheme = () => setColorScheme(schema === 'light' ? 'dark' : 'light');
 
   function verifierSession() {
-    return api<{ utilisateur: string }>('/api/me').then(r => { setUtilisateur(r.utilisateur); setEtat('connecte'); });
+    return api<{ utilisateur: string }>('/api/me')
+      .then(r => { setUtilisateur(r.utilisateur); setEtat('connecte'); })
+      // Réponse du serveur (401…) → écran de connexion ; pas de réponse du tout → hors connexion
+      .catch(e => setEtat(e instanceof ErreurApi ? 'deconnecte' : 'horsligne'));
   }
 
   useEffect(() => {
@@ -97,12 +100,12 @@ export default function App() {
       qc.clear();
       setEtat('deconnecte');
     });
-    verifierSession().catch(() => setEtat('deconnecte'));
+    verifierSession();
   }, [qc]);
 
   function demarrer() {
     // Après connexion : la page demandée dans l'URL (l'état de navigation n'a pas changé entre-temps)
-    verifierSession().catch(() => setEtat('deconnecte'));
+    verifierSession();
   }
 
   /** Depuis l'accueil : ouvre l'écran (et la vue) correspondant à un bloc */
@@ -124,6 +127,7 @@ export default function App() {
 
   if (etat === 'verification') return <Center h="100vh"><Loader color="marque" type="dots" /></Center>;
   if (etat === 'deconnecte') return <Connexion onConnecte={demarrer} />;
+  if (etat === 'horsligne') return <HorsLigne onReessayer={() => { setEtat('verification'); verifierSession(); }} />;
 
   const jour = new Date().toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
   const BoutonTheme = (
@@ -235,5 +239,23 @@ export default function App() {
         </Group>
       </AppShell.Footer>
     </AppShell>
+  );
+}
+
+/** L'application s'ouvre (service worker) mais le serveur est injoignable : réessaie dès le retour du réseau */
+function HorsLigne({ onReessayer }: { onReessayer: () => void }) {
+  useEffect(() => {
+    window.addEventListener('online', onReessayer);
+    return () => window.removeEventListener('online', onReessayer);
+  });
+  return (
+    <Center h="100vh" p="md">
+      <Stack align="center" gap="sm" maw={340} ta="center">
+        <IconWifiOff size={42} stroke={1.5} color="var(--mantine-color-dimmed)" />
+        <Title order={3}>Hors connexion</Title>
+        <Text c="dimmed" size="sm">Le serveur est injoignable. Carnet se reconnectera dès le retour du réseau.</Text>
+        <Button mt="xs" color="marque" onClick={onReessayer}>Réessayer</Button>
+      </Stack>
+    </Center>
   );
 }

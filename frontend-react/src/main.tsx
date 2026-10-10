@@ -15,6 +15,7 @@ import './global.css';
 
 import { theme } from './theme';
 import App from './App';
+import { MiseAJour } from './components/MiseAJour';
 
 dayjs.locale('fr');
 
@@ -38,6 +39,7 @@ createRoot(document.getElementById('root')!).render(
           <ModalsProvider>
             {/* En bas à droite (au-dessus de la barre d’onglets sur mobile) : ne masque jamais la navigation */}
             <Notifications position="bottom-right" limit={3} containerWidth={380} />
+            <MiseAJour />
             <App />
           </ModalsProvider>
         </QueryClientProvider>
