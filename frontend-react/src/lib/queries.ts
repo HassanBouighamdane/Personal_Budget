@@ -1,16 +1,16 @@
 /* Lecture des données (une fonction use… par route) et écritures (useEcriture) via TanStack Query.
- * Les clés commencent par le module ('budget', 'bourse', 'lectures') : une écriture invalide tout son module. */
+ * Les clés commencent par le module ('budget', 'bourse', 'lectures', 'carnet') : une écriture invalide tout son module. */
 import { useEffect } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { api, apiSilencieux, toast } from './api';
 import type {
-  ALire, BilanLecture, BudgetHistorique, CibleSecteur, Config, CoursActualisation, DashboardBourse, Dividende, Fiscalite, FraisBourse, Gain, Genre,
+  ALire, ApercuRappels, BilanLecture, BudgetHistorique, CibleSecteur, Config, CoursActualisation, DashboardBourse, Dette, Dividende, Echeance, EtatRappels, Fiscalite, FraisBourse, Gain, Genre,
   Livre, Mouvement, NoteLecture, ObjectifsLecture, Position, Recherche, ResumeAnnee, ResumeGlobal, ResumeJour, ResumeMois, ResumeSemaine, ResumeTag,
   Suggestion, Titre, TransactionBourse, TransactionsMois,
 } from './types';
 
-type Module = 'budget' | 'bourse' | 'lectures';
+type Module = 'budget' | 'bourse' | 'lectures' | 'carnet';
 
 // placeholderData : en changeant de période, l'ancien contenu reste affiché pendant le chargement
 function lire<T>(cle: unknown[], path: string) {
@@ -94,6 +94,17 @@ export const useBilanLecture = (annee: number) => lire<BilanLecture>(['lectures'
 export const useALire = () => lire<ALire[]>(['lectures', 'a_lire'], '/api/lectures/a_lire');
 /** Notes d'un livre terminé (`livre_id=…`) ou à lire (`a_lire_id=…`) */
 export const useNotes = (filtre: string) => lire<NoteLecture[]>(['lectures', 'notes', filtre], '/api/lectures/notes?' + filtre);
+
+/* ---------- Carnet ---------- */
+export const useDettes = () => lire<Dette[]>(['carnet', 'dettes'], '/api/carnet/dettes');
+export const useEcheances = () => lire<Echeance[]>(['carnet', 'echeances'], '/api/carnet/echeances');
+
+/* ---------- Rappels et résumé hebdomadaire ---------- */
+export const useEtatRappels = () => lire<EtatRappels>(['rappels', 'etat'], '/api/rappels/etat');
+/** Jamais gardé en cache : l'aperçu reflète les données du moment où on l'ouvre */
+export const useApercuRappels = () => useQuery({
+  queryKey: ['rappels', 'apercu'], queryFn: () => api<ApercuRappels>('/api/rappels/apercu'), gcTime: 0,
+});
 
 /* ---------- Écritures ---------- */
 type Ecriture = { path: string; method: string; body?: unknown; succes?: string };

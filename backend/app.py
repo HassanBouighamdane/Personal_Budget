@@ -13,6 +13,8 @@ Architecture modulaire :
     routes/rapports.py        résumés jour / semaine / mois / année
     routes/bourse.py          achats, ventes, commissions, TPCVM, positions, gains
     routes/lectures.py        livres lus, objectifs, bilan annuel
+    routes/carnet.py          dettes et prêts, échéances
+    routes/rappels.py         rappels du jour et résumé hebdomadaire (Telegram / e-mail)
 
 Installation :  pip install -r requirements.txt
 Lancement    :  python app.py
@@ -32,7 +34,7 @@ from fastapi.staticfiles import StaticFiles
 
 from config import FRONT_DIR, DATABASE_URL, PORT, CORS_ORIGINS
 from database import init_db, _pool
-from routes import auth, configuration, transactions, rapports, bourse, lectures
+from routes import auth, configuration, transactions, rapports, bourse, lectures, carnet, rappels
 
 @asynccontextmanager
 async def cycle_de_vie(_app: FastAPI):
@@ -63,6 +65,9 @@ app.include_router(transactions.router)
 app.include_router(rapports.router)
 app.include_router(bourse.router)
 app.include_router(lectures.router)
+app.include_router(carnet.router)
+app.include_router(rappels.router)
+app.include_router(rappels.cron)
 
 # Frontend statique — monté APRÈS les routes /api pour garder leur priorité
 if (FRONT_DIR / "index.html").exists():

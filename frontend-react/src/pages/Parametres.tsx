@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
-import { ActionIcon, Badge, Button, Checkbox, Divider, Grid, Group, NumberInput, PasswordInput, Stack, Table, Text, TextInput, Tooltip } from '@mantine/core';
+import { ActionIcon, Badge, Box, Button, Checkbox, Divider, Grid, Group, NumberInput, PasswordInput, Stack, Table, Text, TextInput, Tooltip } from '@mantine/core';
 import { MonthPickerInput } from '@mantine/dates';
 import { modals } from '@mantine/modals';
-import { IconBriefcase, IconCategory, IconDeviceFloppy, IconHistory, IconLock, IconPlus, IconTarget } from '@tabler/icons-react';
+import { IconBell, IconBriefcase, IconCategory, IconDeviceFloppy, IconEye, IconHistory, IconLock, IconPlus, IconSend, IconTarget } from '@tabler/icons-react';
 
 import { api, toast } from '../lib/api';
 import { auj, fmt, libelleMois } from '../lib/format';
 import type { Categorie, Source } from '../lib/types';
-import { useConfig, useEcriture, useHistoriqueBudget } from '../lib/queries';
+import { useApercuRappels, useConfig, useEcriture, useEtatRappels, useHistoriqueBudget } from '../lib/queries';
 import { ImportExport } from '../components/ImportExport';
 import { BoutonSuppr, Carte, Chargement, confirmer, EnTetePage, Info, Pastille, Tableau, Vide } from '../components/ui';
 
@@ -99,6 +99,71 @@ function LigneSource({ s }: { s: Source }) {
       <BoutonSuppr label="Retirer" onClick={() => confirmer('Retirer cette source de la liste ? (les revenus existants sont conservés)',
         () => ecrire.mutate({ path: '/api/sources/' + s.id, method: 'DELETE', succes: 'Source retirée' }), 'Retirer')} />
     </Group>
+  );
+}
+
+/** Ce qui partirait maintenant : rappels du jour et résumé de la dernière semaine terminée */
+function ApercuRappels() {
+  const { data, isPending } = useApercuRappels();
+  if (isPending || !data) return <Chargement lignes={5} />;
+  return (
+    <Stack gap="md">
+      {data.rappels && (
+        <Box>
+          <Text fz="xs" fw={700} c="dimmed" tt="uppercase" lts={0.5} mb={4}>Rappels du jour</Text>
+          <Text fz="sm" style={{ whiteSpace: 'pre-wrap' }}>{data.rappels}</Text>
+        </Box>
+      )}
+      <Box>
+        <Text fz="sm" fw={650} mb={6}>{data.sujet}</Text>
+        <Text fz="sm" lh={1.6} style={{ whiteSpace: 'pre-wrap' }}>{data.resume || 'Rien à résumer pour cette semaine.'}</Text>
+      </Box>
+    </Stack>
+  );
+}
+
+function CarteRappels() {
+  const { data: etat, isPending } = useEtatRappels();
+  const [envoi, setEnvoi] = useState(false);
+  const actif = (c: 'telegram' | 'email') => !!etat?.canaux.includes(c);
+  const Etat = ({ ok, children }: { ok: boolean; children: string }) =>
+    <Badge variant="light" color={ok ? 'emeraude' : 'gray'}>{children} : {ok ? 'activé' : 'non configuré'}</Badge>;
+
+  async function envoyer() {
+    setEnvoi(true);
+    try {
+      const r = await api<{ canaux: string[] }>('/api/rappels/envoyer', { method: 'POST' });
+      toast('Résumé envoyé (' + r.canaux.join(', ') + ') ✓');
+    } catch { /* message déjà affiché */ } finally { setEnvoi(false); }
+  }
+
+  return (
+    <Carte titre="Rappels et résumé hebdomadaire" description="Par Telegram ou e-mail : les échéances le matin, le résumé de la semaine le lundi"
+           icone={<Pastille icone={IconBell} couleur="ambre" />}>
+      {isPending ? <Chargement lignes={2} /> : (
+        <Stack gap="sm">
+          <Group gap={6}>
+            <Etat ok={actif('telegram')}>Telegram</Etat>
+            <Etat ok={actif('email')}>E-mail</Etat>
+            <Etat ok={!!etat?.cron}>Envoi automatique</Etat>
+          </Group>
+          {(!etat?.canaux.length || !etat.cron) && (
+            <Info>
+              Ces réglages sont des variables d'environnement du serveur (jeton Telegram ou compte SMTP, et CRON_SECRET pour
+              l'envoi automatique) : la marche à suivre est dans DOCUMENTATION.md, section « Rappels et résumé hebdomadaire ».
+            </Info>
+          )}
+          <Group gap="xs">
+            <Button variant="default" leftSection={<IconEye size={16} />} onClick={() => modals.open({
+              title: <Text fw={650}>Aperçu du prochain envoi</Text>, centered: true, size: 'lg', children: <ApercuRappels />,
+            })}>Aperçu</Button>
+            <Button leftSection={<IconSend size={16} />} onClick={envoyer} loading={envoi} disabled={!etat?.canaux.length}>
+              Envoyer maintenant
+            </Button>
+          </Group>
+        </Stack>
+      )}
+    </Carte>
   );
 }
 
@@ -215,10 +280,10 @@ export function Parametres({ onMdpChange }: { onMdpChange: () => void }) {
 
   return (
     <Stack gap="lg">
-      <EnTetePage titre="Paramètres" description="Budget, sources de revenus et sécurité du compte" />
+      <EnTetePage titre="Paramètres" description="Budget, sources de revenus, rappels et sécurité du compte" />
       <Grid gap="lg" align="flex-start">
         <Grid.Col span={{ base: 12, md: 7 }}><Stack gap="lg">{categoriesCarte}{sourcesCarte}</Stack></Grid.Col>
-        <Grid.Col span={{ base: 12, md: 5 }}><Stack gap="lg">{objectifCarte}{mdpCarte}</Stack></Grid.Col>
+        <Grid.Col span={{ base: 12, md: 5 }}><Stack gap="lg">{objectifCarte}<CarteRappels />{mdpCarte}</Stack></Grid.Col>
         <Grid.Col span={12}><ImportExport /></Grid.Col>
       </Grid>
     </Stack>

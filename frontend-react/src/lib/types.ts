@@ -283,3 +283,20 @@ export type BilanLecture = {
   historique: { annee: number; livres: number; pages: number }[];
   livres: Livre[];
 };
+
+/* ---------- Carnet ---------- */
+export type Remboursement = { id: number; date_operation: string; montant: number; libelle: string };
+/** `pret` : j'ai prêté (on me doit) ; `emprunt` : j'ai emprunté (je dois). `reste` = montant − remboursements */
+export type Dette = {
+  id: number; sens: 'pret' | 'emprunt'; personne: string; montant: number; date_operation: string; echeance: string | null;
+  libelle: string; rembourse: number; reste: number; remboursements: Remboursement[];
+};
+/** `jours_restants` négatif = en retard ; `a_rappeler` : dans la fenêtre de rappel ou en retard */
+export type Echeance = {
+  id: number; titre: string; categorie: string; date_echeance: string; rappel_jours: number; recurrence_mois: number | null;
+  note: string; jours_restants: number; a_rappeler: boolean;
+};
+
+/* ---------- Rappels et résumé hebdomadaire ---------- */
+export type EtatRappels = { canaux: ('telegram' | 'email')[]; cron: boolean };
+export type ApercuRappels = { rappels: string; sujet: string; resume: string };

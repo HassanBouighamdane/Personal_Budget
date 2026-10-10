@@ -1,6 +1,6 @@
 # Mon Budget — Documentation technique
 
-Application web personnelle pour suivre son budget (dépenses, revenus, épargne), un portefeuille boursier à la Bourse de Casablanca et ses lectures (livres terminés, bilan annuel). Toutes les valeurs sont en dirhams (DH).
+Application web personnelle pour suivre son budget (dépenses, revenus, épargne), un portefeuille boursier à la Bourse de Casablanca, ses lectures (livres terminés, bilan annuel) et un carnet (dettes et prêts, échéances) avec rappels et résumé hebdomadaire par Telegram ou e-mail. Toutes les valeurs sont en dirhams (DH).
 
 - **Backend** : Python, FastAPI, PostgreSQL (driver `psycopg` v3, pool `psycopg_pool`)
 - **Frontend** : React 19 + TypeScript, compilé avec Vite. Interface Mantine, données via TanStack Query, graphiques Chart.js (react-chartjs-2)
@@ -19,6 +19,7 @@ Application web personnelle pour suivre son budget (dépenses, revenus, épargne
 7. [Frontend](#7-frontend)
 8. [Points restants](#8-points-restants)
 9. [Module Lectures](#9-module-lectures)
+10. [Carnet, rappels et résumé hebdomadaire](#10-carnet-rappels-et-résumé-hebdomadaire)
 
 ---
 
@@ -32,6 +33,7 @@ Personal_Budget/
 │   ├── database.py         Pool de connexions PostgreSQL + création du schéma
 │   ├── cours_bvc.py        Cours automatiques des titres BVC (site officiel, Médias24 en secours ; voir §6.3)
 │   ├── securite.py         Mots de passe, sessions, limitation des tentatives de connexion
+│   ├── messagerie.py       Envoi des rappels et du résumé : Telegram et/ou e-mail (voir §10)
 │   ├── schemas.py          Modèles Pydantic (validation des entrées et des sorties)
 │   ├── requirements.txt
 │   ├── scripts/
@@ -40,14 +42,18 @@ Personal_Budget/
 │   │   ├── test_bourse.py        PRU, frais, arrondis, contrôle des ventes
 │   │   ├── test_budget.py        Renommage en cascade, erreurs 404
 │   │   ├── test_mouvements.py    Apports/retraits, espèces disponibles, performance globale
-│   │   └── test_lectures.py      Bilan annuel, objectifs, relectures, genres
+│   │   ├── test_lectures.py      Bilan annuel, objectifs, relectures, genres
+│   │   ├── test_carnet.py        Reste dû, remboursements refusés, échéances récurrentes
+│   │   └── test_rappels.py       Jours de rappel, contenu du résumé, protection de la tâche planifiée
 │   └── routes/
 │       ├── auth.py               /api/login, /logout, /me, /mot_de_passe
 │       ├── configuration.py      catégories, sources de revenus, objectif d'épargne
 │       ├── transactions.py       dépenses et revenus
 │       ├── rapports.py           résumés jour / semaine / mois / année / global
 │       ├── bourse.py             module Bourse
-│       └── lectures.py           module Lectures (livres lus, objectifs, bilan annuel)
+│       ├── lectures.py           module Lectures (livres lus, objectifs, bilan annuel)
+│       ├── carnet.py             module Carnet (dettes et prêts, échéances)
+│       └── rappels.py            rappels du jour, résumé hebdomadaire, tâche planifiée
 ├── frontend-react/         Frontend React (voir §7)
 │   ├── src/                Code source TypeScript
 │   ├── public/             Favicons (copiés tels quels dans dist/)
@@ -101,6 +107,16 @@ ADMIN_MOT_DE_PASSE=un_mot_de_passe_solide
 PORT=8500               # optionnel, 8500 par défaut (Render fournit PORT automatiquement)
 COOKIE_SECURE=false     # true en production derrière HTTPS
 CORS_ORIGINS=           # optionnel : seulement si le frontend est hébergé sur un autre domaine
+
+# Optionnel : rappels et résumé hebdomadaire (voir §10)
+TELEGRAM_BOT_TOKEN=     # jeton du bot donné par @BotFather
+TELEGRAM_CHAT_ID=       # identifiant de ta conversation avec le bot
+SMTP_HOTE=              # ex : smtp.gmail.com
+SMTP_PORT=587
+SMTP_UTILISATEUR=       # adresse d'envoi
+SMTP_MOT_DE_PASSE=      # Gmail : mot de passe d'application
+EMAIL_DESTINATAIRE=     # par défaut : SMTP_UTILISATEUR
+CRON_SECRET=            # secret exigé par /api/cron/quotidien
 ```
 
 - `DATABASE_URL` est obligatoire : sans elle, le démarrage échoue avec un message explicite.
@@ -221,7 +237,7 @@ Ces modèles valident automatiquement les données reçues. En cas d'échec, Fas
 1. Ajoute `backend/` au `sys.path`, pour que l'application se lance depuis n'importe quel dossier.
 2. Déclare le cycle de vie (`lifespan`) : `init_db()` et `remplir_tpcvm_manquantes()` s'exécutent au démarrage du serveur, pas à l'import du module ; le pool de connexions est fermé à l'arrêt. Importer `app` (tests, build Vercel) ne touche donc pas la base.
 3. Crée l'application FastAPI. CORS n'est activé que si `CORS_ORIGINS` est renseigné, et seulement pour ces origines.
-4. Branche les 6 routeurs.
+4. Branche les routeurs (un par fichier de `routes/`, plus celui de la tâche planifiée `/api/cron`).
 5. Monte `FRONT_DIR` sur `/` **après** les routes API, pour que `/api/...` reste prioritaire.
 6. Lancé directement, démarre `uvicorn` sur `0.0.0.0:PORT`.
 
@@ -319,13 +335,23 @@ Index : `depenses(date)`, `revenus(date)`.
 
 Les objectifs de lecture sont dans `params` : `objectif_lecture_annuel` (24 par défaut) et `objectif_lecture_mensuel` (2).
 
-Le module Bourse utilise les types `DATE` et `NUMERIC`. Le module Budget utilise `TEXT` pour les dates et `DOUBLE PRECISION` pour les montants.
+### Carnet
+
+| Table | Colonnes principales | Remarques |
+|---|---|---|
+| `dettes` | `sens` (`pret` / `emprunt`), `personne`, `montant`, `date_operation`, `echeance` (optionnelle), `libelle` | `pret` : on me doit ; `emprunt` : je dois |
+| `dettes_remboursements` | `dette_id`, `date_operation`, `montant`, `libelle` | supprimés avec leur dette (`ON DELETE CASCADE`) |
+| `echeances` | `titre`, `categorie`, `date_echeance`, `rappel_jours`, `recurrence_mois` (NULL = ponctuelle), `note` | |
+
+Deux clés de `params` servent à la tâche planifiée : `cron_dernier_jour` (dernier jour traité, en numéro de jour) et `resume_hebdo_patrimoine` (valeur du compte Bourse au dernier résumé).
+
+Les modules Bourse et Carnet utilisent les types `DATE` et `NUMERIC`. Le module Budget utilise `TEXT` pour les dates et `DOUBLE PRECISION` pour les montants.
 
 ---
 
 ## 5. Référence de l'API
 
-Toutes les routes sauf `/api/login` et `/api/logout` exigent le cookie `session`.
+Toutes les routes sauf `/api/login`, `/api/logout` et `/api/cron/quotidien` (protégée par `CRON_SECRET`) exigent le cookie `session`.
 
 | Méthode | Route | Corps / paramètres | Réponse |
 |---|---|---|---|
@@ -377,6 +403,15 @@ Toutes les routes sauf `/api/login` et `/api/logout` exigent le cookie `session`
 | GET / POST / PUT / DELETE | `/api/lectures/genres[/{id}]` | `{nom}` | `[GenreOut]` / `{ok}` ; 409 si le nouveau nom existe déjà |
 | GET / PUT | `/api/lectures/objectifs` | `{annuel, mensuel}` | `ObjectifsLecture` |
 | GET | `/api/lectures/bilan` | `?annee=` | bilan de l'année (voir §9) |
+| GET / POST / PUT / DELETE | `/api/carnet/dettes[/{id}]` | `DetteIn` | `[DetteOut]` / `DetteOut` (avec `rembourse`, `reste`, `remboursements`) / 204 ; 400 si le montant passe sous le déjà remboursé |
+| POST | `/api/carnet/dettes/{id}/remboursements` | `{date_operation, montant, libelle}` | `DetteOut` ; 400 si le montant dépasse le reste dû ou précède le prêt |
+| DELETE | `/api/carnet/remboursements/{id}` | — | 204 |
+| GET / POST / PUT / DELETE | `/api/carnet/echeances[/{id}]` | `EcheanceIn` | `[EcheanceOut]` / `EcheanceOut` (avec `jours_restants`, `a_rappeler`) / 204 |
+| POST | `/api/carnet/echeances/{id}/reporter` | — | `EcheanceOut` : la date avance de `recurrence_mois` ; 400 si l'échéance est ponctuelle |
+| GET | `/api/rappels/etat` | — | `{canaux: ["telegram", "email"], cron: bool}` (aucun secret) |
+| GET | `/api/rappels/apercu` | — | `{rappels, sujet, resume}` : ce qui serait envoyé maintenant |
+| POST | `/api/rappels/envoyer` | — | `{canaux}` : envoie le résumé tout de suite ; 502 si aucun canal ou envoi refusé |
+| GET | `/api/cron/quotidien` | en-tête `Authorization: Bearer <CRON_SECRET>`, `?force=` | `{etat, envoyes}` ; **sans session** ; 401 sans le secret, 503 si `CRON_SECRET` est vide |
 
 ---
 
@@ -487,7 +522,8 @@ src/
     ├── Parametres.tsx
     ├── dashboard/        Dashboard.tsx (navigation ‹ ›, choix de vue) + Vues.tsx (Jour/Semaine/Mois/Année/Global)
     ├── bourse/           Bourse.tsx (sous-onglets) + Journaux, Portefeuille, Fiscalite, ParametresBourse
-    └── lectures/         Lectures.tsx (sous-onglets, navigation par année) + Journal, ALire, Bilan, ParametresLectures, communs (ISBN, couverture, notes)
+    ├── lectures/         Lectures.tsx (sous-onglets, navigation par année) + Journal, ALire, Bilan, ParametresLectures, communs (ISBN, couverture, notes)
+    └── carnet/           Carnet.tsx (sous-onglets) + Dettes (prêts, emprunts, remboursements), Echeances
 ```
 
 ### 7.3 Données
@@ -563,3 +599,74 @@ Onglet **Lectures**, avec trois sous-onglets :
 - **Bilan annuel** : KPI des objectifs et de lecture, livres par mois (barres vertes quand l'objectif mensuel est atteint), progression cumulée comparée au rythme de l'objectif, genres, records, tableau triable des livres, historique par année ;
 - **Paramètres** : objectifs annuel et mensuel, genres.
 
+---
+
+## 10. Carnet, rappels et résumé hebdomadaire
+
+### Dettes et prêts
+
+Un **prêt** (`sens = pret`) est de l'argent qu'on me doit ; un **emprunt** (`sens = emprunt`) est de l'argent que je dois. Le reste dû vaut `montant − somme des remboursements` ; une dette est soldée quand il atteint 0.
+
+- Ce sont des **transferts**, comme les apports Bourse : ils ne se saisissent pas dans le Budget. Un prêt saisi en dépense puis son remboursement saisi en revenu fausseraient les dépenses, le taux d'épargne et les comparaisons du mois.
+- Un remboursement ne peut ni dépasser le reste dû, ni précéder la date du prêt. Le montant d'une dette ne peut pas descendre sous ce qui est déjà remboursé.
+- Liste : les dettes en cours d'abord (échéance la plus proche en tête, celles sans échéance ensuite), puis les soldées.
+
+### Échéances
+
+Tout ce qui a une date limite : CIN, passeport, assurance, visite technique, vignette, garanties, abonnements.
+
+- `jours_restants` = date limite − aujourd'hui (fuseau `FUSEAU`), négatif si elle est dépassée. `a_rappeler` est vrai dès que `jours_restants ≤ rappel_jours` : l'échéance passe alors dans « À traiter ».
+- Une échéance **récurrente** (`recurrence_mois`) se reporte avec ✓ : sa date avance d'une période à partir de la date prévue (pas d'aujourd'hui) ; un 31 devient le dernier jour d'un mois plus court. Une échéance ponctuelle se modifie (nouvelle date d'expiration) ou se supprime.
+
+### Rappels du jour
+
+`rappels_du_jour(auj)` renvoie les lignes à envoyer :
+
+- une échéance est rappelée au début de sa fenêtre (`rappel_jours` avant), puis à J−7 et J−1 s'ils tombent dans la fenêtre, et le jour même. Exemple avec « 1 mois avant » : J−30, J−7, J−1, J ;
+- une dette non soldée qui a une échéance est rappelée à J−3 et le jour même ;
+- une échéance dépassée n'est plus rappelée chaque jour : elle figure dans le résumé du lundi tant qu'elle n'est pas traitée.
+
+### Résumé hebdomadaire
+
+`resume_hebdo(auj)` couvre la **dernière semaine terminée** (du lundi au dimanche) :
+
+| Section | Contenu |
+|---|---|
+| Budget | dépenses et variation sur la semaine d'avant, revenus, budget variable de la semaine, trois premières catégories, mois en cours (dépensé, budget, projection à partir du 5) |
+| Bourse | valeur du compte (titres + espèces), écart depuis le résumé précédent (apports et retraits compris), performance globale |
+| Lectures | livres terminés dans la semaine, livres en cours, avancement de l'objectif annuel |
+| Carnet | total qu'on me doit et que je dois, dettes dont l'échéance est dépassée, échéances à traiter |
+
+Une section vide est omise ; une section qui lève une erreur est ignorée et journalisée, les autres partent quand même.
+
+### Tâche planifiée
+
+`GET /api/cron/quotidien` envoie les rappels du jour et, **le lundi**, le résumé. Elle n'utilise pas de session : elle exige l'en-tête `Authorization: Bearer <CRON_SECRET>`.
+
+- **Vercel** : `vercel.json` déclare la tâche (`0 7 * * *`, soit entre 8 h et 9 h au Maroc ; l'offre gratuite autorise une exécution par jour, à une minute non garantie dans l'heure). Vercel envoie `CRON_SECRET` tout seul dès que la variable existe.
+- **Render** (pas de tâche planifiée gratuite) : un service comme cron-job.org peut appeler l'adresse chaque matin avec le même en-tête.
+- Au plus un envoi par jour : le jour traité est noté dans `params`, un second appel répond `deja_fait` (`?force=true` passe outre). Si l'envoi échoue, le jour n'est pas noté et un nouvel appel réessaie.
+- Avant le résumé, les cours de la Bourse sont actualisés (comme à l'ouverture de l'application).
+
+### Configurer l'envoi
+
+Un canal est actif dès que ses variables sont renseignées ; les deux peuvent l'être en même temps. Paramètres → « Rappels et résumé hebdomadaire » indique ce qui est configuré, montre un aperçu et envoie un résumé de test.
+
+**Telegram**
+1. Dans Telegram, écrire à **@BotFather** : `/newbot`, choisir un nom. Il renvoie le jeton → `TELEGRAM_BOT_TOKEN`.
+2. Ouvrir la conversation avec le nouveau bot et lui envoyer un message (un bot ne peut pas écrire en premier).
+3. Ouvrir `https://api.telegram.org/bot<JETON>/getUpdates` dans le navigateur : la valeur `"chat":{"id": …}` → `TELEGRAM_CHAT_ID`.
+
+**E-mail (exemple Gmail)**
+1. Activer la validation en deux étapes du compte Google, puis créer un **mot de passe d'application** (myaccount.google.com/apppasswords).
+2. `SMTP_HOTE=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_UTILISATEUR=` l'adresse Gmail, `SMTP_MOT_DE_PASSE=` le mot de passe d'application. `EMAIL_DESTINATAIRE` seulement pour recevoir sur une autre adresse.
+
+**Envoi automatique** : `CRON_SECRET=` une longue chaîne aléatoire (par exemple `python -c "import secrets; print(secrets.token_urlsafe(32))"`).
+
+Sur Vercel et Render, ces variables se règlent dans le tableau de bord de l'hébergeur, puis il faut redéployer.
+
+### Frontend
+
+Onglet **Carnet**, avec deux sous-onglets :
+- **Dettes et prêts** : totaux (on me doit, je dois, solde net), formulaire, dettes en cours avec leur avancement, fenêtre des remboursements (le champ montant vide solde la dette), dettes soldées ;
+- **Échéances** : formulaire (catégorie, date limite, délai de rappel, récurrence), « À traiter » et « Plus tard ». Le nombre d'échéances à traiter s'affiche sur l'onglet.

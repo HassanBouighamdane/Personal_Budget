@@ -6,7 +6,7 @@ import {
 import { useMediaQuery } from '@mantine/hooks';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  IconBook2, IconChartPie, IconLogout, IconMoon, IconPencilPlus, IconSettings, IconSun, IconTrendingUp,
+  IconBook2, IconChartPie, IconLogout, IconMoon, IconNotebook, IconPencilPlus, IconSettings, IconSun, IconTrendingUp,
 } from '@tabler/icons-react';
 
 import { api, definirSurNonAuthentifie, toast } from './lib/api';
@@ -19,12 +19,13 @@ import { Saisie, useNavSaisie } from './pages/Saisie';
 import { Dashboard, useNavDashboard } from './pages/dashboard/Dashboard';
 import { Bourse, useNavBourse } from './pages/bourse/Bourse';
 import { Lectures, useNavLectures } from './pages/lectures/Lectures';
+import { Carnet, useNavCarnet } from './pages/carnet/Carnet';
 import { Parametres } from './pages/Parametres';
 
-type Onglet = 'saisie' | 'dash' | 'bourse' | 'lectures' | 'params';
+type Onglet = 'saisie' | 'dash' | 'bourse' | 'lectures' | 'carnet' | 'params';
 
 // Nom de chaque onglet dans l'URL (#/dashboard/…)
-const URL_ONGLET: Record<Onglet, string> = { saisie: 'saisie', dash: 'dashboard', bourse: 'bourse', lectures: 'lectures', params: 'parametres' };
+const URL_ONGLET: Record<Onglet, string> = { saisie: 'saisie', dash: 'dashboard', bourse: 'bourse', lectures: 'lectures', carnet: 'carnet', params: 'parametres' };
 const ongletDeUrl = (s?: string) => (Object.keys(URL_ONGLET) as Onglet[]).find(o => URL_ONGLET[o] === s) ?? 'saisie';
 
 const ONGLETS: { id: Onglet; label: string; aide: string; Icone: typeof IconChartPie }[] = [
@@ -32,6 +33,7 @@ const ONGLETS: { id: Onglet; label: string; aide: string; Icone: typeof IconChar
   { id: 'dash', label: 'Dashboard', aide: 'Analyse du budget', Icone: IconChartPie },
   { id: 'bourse', label: 'Bourse', aide: 'Portefeuille BVC', Icone: IconTrendingUp },
   { id: 'lectures', label: 'Lectures', aide: 'Livres lus', Icone: IconBook2 },
+  { id: 'carnet', label: 'Carnet', aide: 'Dettes, échéances', Icone: IconNotebook },
   { id: 'params', label: 'Paramètres', aide: 'Catégories, compte', Icone: IconSettings },
 ];
 
@@ -47,7 +49,8 @@ export default function App() {
   const navDash = useNavDashboard(initial('dash'));
   const navBourse = useNavBourse(initial('bourse'));
   const navLectures = useNavLectures(initial('lectures'));
-  const navs = { saisie: navSaisie, dash: navDash, bourse: navBourse, lectures: navLectures, params: null };
+  const navCarnet = useNavCarnet(initial('carnet'));
+  const navs = { saisie: navSaisie, dash: navDash, bourse: navBourse, lectures: navLectures, carnet: navCarnet, params: null };
 
   // État → URL : nouvelle entrée d'historique quand l'onglet ou la vue change, remplacement sinon
   const cheminCourant = [URL_ONGLET[onglet], ...(navs[onglet]?.chemin() ?? [])];
@@ -179,6 +182,7 @@ export default function App() {
             {onglet === 'dash' && <Dashboard nav={navDash} />}
             {onglet === 'bourse' && <Bourse nav={navBourse} />}
             {onglet === 'lectures' && <Lectures nav={navLectures} />}
+            {onglet === 'carnet' && <Carnet nav={navCarnet} />}
             {onglet === 'params' && <Parametres onMdpChange={() => setTimeout(() => { qc.clear(); setEtat('deconnecte'); }, 1200)} />}
           </Protection>
         </Container>

@@ -390,3 +390,78 @@ class GenreOut(BaseModel):
 class ObjectifsLecture(BaseModel):
     annuel: int = Field(ge=0)
     mensuel: int = Field(ge=0)
+
+
+# ---------------------------------------------------------------- Carnet : dettes et prêts
+class DetteIn(BaseModel):
+    """`pret` : j'ai prêté (on me doit) ; `emprunt` : j'ai emprunté (je dois)."""
+    sens: Literal["pret", "emprunt"]
+    personne: str = Field(min_length=1, max_length=100)
+    montant: float = Field(gt=0)
+    date_operation: date
+    echeance: Optional[date] = None
+    libelle: str = Field(default="", max_length=200)
+
+    @model_validator(mode="after")
+    def _coherence(self):
+        self.personne = self.personne.strip()
+        if not self.personne:
+            raise ValueError("Indique la personne")
+        if self.echeance and self.echeance < self.date_operation:
+            raise ValueError("L'échéance doit suivre la date du prêt")
+        return self
+
+
+class RemboursementIn(BaseModel):
+    date_operation: date
+    montant: float = Field(gt=0)
+    libelle: str = Field(default="", max_length=200)
+
+
+class RemboursementOut(BaseModel):
+    id: int
+    date_operation: date
+    montant: float
+    libelle: str
+
+
+class DetteOut(BaseModel):
+    id: int
+    sens: str
+    personne: str
+    montant: float
+    date_operation: date
+    echeance: Optional[date]
+    libelle: str
+    rembourse: float
+    reste: float
+    remboursements: List[RemboursementOut]
+
+
+# ---------------------------------------------------------------- Carnet : échéances
+class EcheanceIn(BaseModel):
+    titre: str = Field(min_length=1, max_length=150)
+    categorie: str = Field(default="", max_length=50)
+    date_echeance: date
+    rappel_jours: int = Field(default=30, ge=0, le=365)
+    recurrence_mois: Optional[int] = Field(default=None, gt=0, le=120)
+    note: str = Field(default="", max_length=2000)
+
+    @model_validator(mode="after")
+    def _titre_non_vide(self):
+        self.titre = self.titre.strip()
+        if not self.titre:
+            raise ValueError("Indique le titre")
+        return self
+
+
+class EcheanceOut(BaseModel):
+    id: int
+    titre: str
+    categorie: str
+    date_echeance: date
+    rappel_jours: int
+    recurrence_mois: Optional[int]
+    note: str
+    jours_restants: int      # négatif = en retard
+    a_rappeler: bool         # dans la fenêtre de rappel (ou en retard)

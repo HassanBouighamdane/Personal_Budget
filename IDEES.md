@@ -57,9 +57,12 @@ From a review of the code on 2026-10-05, updated on 2026-10-10. Everything below
 
 ## Done
 
-Built on 2026-10-10, with tests in `backend/tests/` and checked in a browser.
+Built on 2026-10-10 (the three Carnet and reminder items were added the same day), with tests in `backend/tests/` and checked in a browser.
 
 **Features**
+- **Carnet: debts and loans**: money lent or borrowed, partial repayments, "on me doit / je dois" totals. Kept out of the Budget, like Bourse deposits.
+- **Carnet: deadlines**: papers, insurance, warranties, with a reminder window and recurrence; a recurring one moves to its next date with ✓.
+- **Reminders and weekly summary** by Telegram or e-mail: deadline and repayment reminders each morning, and on Monday a summary of the past week (Budget, Bourse, Lectures, Carnet). One daily Vercel cron, protected by `CRON_SECRET`; preview and test button in Paramètres. Setup in DOCUMENTATION.md §10.
 - **Search across all history** (Saisie): text, exact amount and `#tag`, paginated, with totals of everything found. The search is in the URL.
 - **Form date follows the browsed month**: today for the current month, the last day of a past month, the 1st of a future one.
 - **CSV export and import** (Paramètres > Import / export): export per period (Excel-friendly). Import with column mapping (amount or debit/credit, type, category, tags), French and English number and date formats, a preview, and duplicates (same date, amount and description) skipped.

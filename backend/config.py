@@ -39,6 +39,19 @@ def aujourdhui() -> date:
     """Date du jour dans le fuseau de l'utilisateur (et non celui du serveur)."""
     return datetime.now(FUSEAU).date()
 
+# Rappels et résumé hebdomadaire (cf. messagerie.py) : un canal est actif dès que ses variables sont
+# renseignées. Telegram : jeton du bot (@BotFather) et identifiant de la conversation.
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+# E-mail : serveur SMTP (Gmail : smtp.gmail.com, port 587, mot de passe d'application)
+SMTP_HOTE = os.environ.get("SMTP_HOTE", "").strip()
+SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))
+SMTP_UTILISATEUR = os.environ.get("SMTP_UTILISATEUR", "").strip()
+SMTP_MOT_DE_PASSE = os.environ.get("SMTP_MOT_DE_PASSE", "")
+EMAIL_DESTINATAIRE = os.environ.get("EMAIL_DESTINATAIRE", "").strip() or SMTP_UTILISATEUR
+# Secret exigé par /api/cron/quotidien (Vercel l'envoie tout seul dans l'en-tête Authorization)
+CRON_SECRET = os.environ.get("CRON_SECRET", "").strip()
+
 # Origines autorisées à appeler l'API depuis un AUTRE domaine (séparées par des virgules).
 # Vide par défaut : le frontend est servi par ce même serveur, aucune autorisation n'est
 # nécessaire. À renseigner seulement si le frontend est un jour hébergé ailleurs.

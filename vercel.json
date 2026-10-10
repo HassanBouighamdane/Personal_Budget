@@ -1,5 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    { "path": "/api/cron/quotidien", "schedule": "0 7 * * *" }
+  ],
   "functions": {
     "backend/app.py": {
       "excludeFiles": "{backend/tests/**,frontend-react/src/**,frontend-react/public/**,frontend-react/node_modules/**,**/__pycache__/**,*.md,lancer_budget.*}"

@@ -389,6 +389,44 @@ def init_db():
             cible   NUMERIC(6,4) NOT NULL CHECK (cible >= 0 AND cible <= 1)
         );
 
+        -- ================================================================
+        -- Carnet — dettes et prêts. Un prêt accordé ou un emprunt est un TRANSFERT (comme un
+        -- apport Bourse) : ni une dépense ni un revenu du Budget. Le reste dû = montant − remboursements.
+        -- ================================================================
+        CREATE TABLE IF NOT EXISTS dettes (
+            id             SERIAL PRIMARY KEY,
+            sens           VARCHAR(10) NOT NULL CHECK (sens IN ('pret', 'emprunt')),   -- pret : on me doit ; emprunt : je dois
+            personne       VARCHAR(100) NOT NULL,
+            montant        NUMERIC(14,2) NOT NULL CHECK (montant > 0),
+            date_operation DATE NOT NULL,
+            echeance       DATE,                                  -- date de remboursement convenue, optionnelle
+            libelle        VARCHAR(200) NOT NULL DEFAULT '',
+            cree_le        TIMESTAMP NOT NULL DEFAULT now()
+        );
+        CREATE TABLE IF NOT EXISTS dettes_remboursements (
+            id             SERIAL PRIMARY KEY,
+            dette_id       INTEGER NOT NULL REFERENCES dettes(id) ON DELETE CASCADE,
+            date_operation DATE NOT NULL,
+            montant        NUMERIC(14,2) NOT NULL CHECK (montant > 0),
+            libelle        VARCHAR(200) NOT NULL DEFAULT '',
+            cree_le        TIMESTAMP NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_dettes_remb_dette ON dettes_remboursements (dette_id);
+
+        -- Carnet — échéances (papiers, assurance, visite technique, garanties...). `rappel_jours` :
+        -- prévenir à partir de J−n ; `recurrence_mois` : NULL = ponctuelle, 12 = revient tous les ans.
+        CREATE TABLE IF NOT EXISTS echeances (
+            id              SERIAL PRIMARY KEY,
+            titre           VARCHAR(150) NOT NULL,
+            categorie       VARCHAR(50) NOT NULL DEFAULT '',
+            date_echeance   DATE NOT NULL,
+            rappel_jours    INTEGER NOT NULL DEFAULT 30 CHECK (rappel_jours >= 0),
+            recurrence_mois INTEGER CHECK (recurrence_mois > 0),
+            note            TEXT NOT NULL DEFAULT '',
+            cree_le         TIMESTAMP NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_echeances_date ON echeances (date_echeance);
+
         """)
 
         # ------------------------------------------------------------------
