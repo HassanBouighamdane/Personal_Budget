@@ -12,7 +12,7 @@ import { auj, dateFr } from '../../lib/format';
 import type { ALire } from '../../lib/types';
 import { useALire, useAuteurs, useEcriture, useGenres, useSerieLecture } from '../../lib/queries';
 import { BoutonSuppr, Carte, Chargement, confirmer, Pastille, Vide } from '../../components/ui';
-import { BoutonNotes, ChampIsbn, Couverture, ouvrirNotes } from './communs';
+import { BoutonNotes, ChampIsbn, Couverture, ouvrirNotes, useMobile } from './communs';
 import { FormLivre } from './Journal';
 
 const corps = (a: ALire) => ({
@@ -132,22 +132,14 @@ function LigneALire({ a }: { a: ALire }) {
   const ecrire = useEcriture('lectures');
   const enCours = !!a.date_debut;
   const details = [a.auteur, a.genre, a.pages ? `${a.pages} pages` : ''].filter(Boolean).join(' · ');
+  const mobile = useMobile();
 
   const ouvrir = (titre: string, contenu: (fermer: () => void) => ReactNode, taille?: string) => {
     const id = modals.open({ title: <Text fw={650}>{titre}</Text>, size: taille, centered: true, children: contenu(() => modals.close(id)) });
   };
 
-  return (
-    <Group className="ligne-op" wrap="nowrap" gap="sm" px={6} py={8} align="flex-start">
-      {a.couverture ? <Couverture url={a.couverture} /> : <Pastille icone={IconBookmark} couleur={enCours ? 'emeraude' : 'gray'} taille={34} />}
-      <Box style={{ flex: 1, minWidth: 0 }}>
-        <Text fz="sm" fw={600} truncate>{a.titre}</Text>
-        {details && <Text fz="xs" c="dimmed" truncate>{details}</Text>}
-        {a.commentaire && <Text fz="xs" c="dimmed" fs="italic" lineClamp={2} mt={2}>{a.commentaire}</Text>}
-        {enCours && a.page_actuelle === null && <Badge size="xs" variant="light" color="emeraude" mt={4}>commencé le {dateFr(a.date_debut!, false)}</Badge>}
-        {enCours && <Avancement a={a} />}
-      </Box>
-      <Group gap={0} wrap="nowrap">
+  const actions = (
+      <Group gap={0} wrap="nowrap" ml={mobile ? -6 : undefined} mt={mobile ? 4 : undefined}>
         {enCours && (
           <Tooltip label="Noter ma page" withArrow>
             <ActionIcon variant="subtle" color="emeraude" aria-label="Noter ma page"
@@ -187,6 +179,21 @@ function LigneALire({ a }: { a: ALire }) {
         <BoutonSuppr onClick={() => confirmer(`Retirer « ${a.titre} » de ta liste ?${a.nb_notes ? ' Ses notes seront supprimées.' : ''}`, () =>
           ecrire.mutate({ path: `/api/lectures/a_lire/${a.id}`, method: 'DELETE', succes: 'Retiré de la liste' }))} />
       </Group>
+  );
+
+  // dir="auto" : un titre en arabe s'affiche de droite à gauche (et se coupe du bon côté)
+  return (
+    <Group className="ligne-op" wrap="nowrap" gap="sm" px={6} py={8} align="flex-start">
+      {a.couverture ? <Couverture url={a.couverture} /> : <Pastille icone={IconBookmark} couleur={enCours ? 'emeraude' : 'gray'} taille={34} />}
+      <Box style={{ flex: 1, minWidth: 0 }}>
+        <Text fz="sm" fw={600} lineClamp={2} dir="auto">{a.titre}</Text>
+        {details && <Text fz="xs" c="dimmed" truncate dir="auto">{details}</Text>}
+        {a.commentaire && <Text fz="xs" c="dimmed" fs="italic" lineClamp={2} mt={2} dir="auto">{a.commentaire}</Text>}
+        {enCours && a.page_actuelle === null && <Badge size="xs" variant="light" color="emeraude" mt={4}>commencé le {dateFr(a.date_debut!, false)}</Badge>}
+        {enCours && <Avancement a={a} />}
+        {mobile && actions}
+      </Box>
+      {!mobile && actions}
     </Group>
   );
 }

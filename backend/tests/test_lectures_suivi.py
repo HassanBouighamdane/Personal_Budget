@@ -73,6 +73,12 @@ def test_rythme_sans_page_notee_ou_livre_fini():
     assert fini["fin_estimee"] is None
 
 
+def test_pas_de_rythme_sur_un_seul_jour():
+    # Commencé (ou première page notée) le jour même : 92 pages en « un jour » serait faux
+    r = rythme({"date_debut": date(2026, 10, 10), "pages": 133}, [(date(2026, 10, 10), 92)], date(2026, 10, 10))
+    assert r["page_actuelle"] == 92 and r["pages_par_jour"] is None and r["fin_estimee"] is None
+
+
 # ---------------------------------------------------------------- série
 def test_serie_de_jours_consecutifs():
     j = lambda n: date(2026, 10, n)

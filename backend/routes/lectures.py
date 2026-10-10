@@ -107,14 +107,16 @@ def _valeurs_a_lire(a: ALireIn) -> tuple:
 def rythme(livre: dict, points: list, auj: date) -> dict:
     """Suivi d'un livre en cours d'après ses pages notées (`points` : [(date, page)] triés).
     Le rythme part du début de la lecture (page 0 à `date_debut`) et va jusqu'à la dernière
-    page notée ; la fin estimée prolonge ce rythme à partir d'aujourd'hui."""
+    page notée ; la fin estimée prolonge ce rythme à partir d'aujourd'hui. Pas de rythme sur moins
+    d'un jour : un livre marqué commencé aujourd'hui alors qu'on est déjà page 92 ferait « 92 p. / jour »."""
     if not points:
         return {"page_actuelle": None, "derniere_lecture": None, "pages_par_jour": None, "fin_estimee": None}
     dernier_jour, page = points[-1]
     debut, page_debut = points[0]
     if livre["date_debut"] and livre["date_debut"] <= debut:
         debut, page_debut = livre["date_debut"], 0
-    par_jour = (page - page_debut) / max(1, (dernier_jour - debut).days)
+    jours = (dernier_jour - debut).days
+    par_jour = (page - page_debut) / jours if jours > 0 else 0
     fin = None
     if livre["pages"] and par_jour > 0 and page < livre["pages"]:
         fin = auj + timedelta(days=math.ceil((livre["pages"] - page) / par_jour))

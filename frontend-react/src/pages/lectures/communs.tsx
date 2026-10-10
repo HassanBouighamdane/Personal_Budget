@@ -3,6 +3,7 @@ import { useState } from 'react';
 import {
   ActionIcon, Badge, Box, Button, Group, Image, NumberInput, SegmentedControl, Stack, Text, Textarea, TextInput, Tooltip,
 } from '@mantine/core';
+import { useMediaQuery } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
 import { IconDownload, IconNotes, IconPencil, IconQuote, IconRefresh, IconSearch } from '@tabler/icons-react';
 
@@ -10,6 +11,9 @@ import { api } from '../../lib/api';
 import type { FicheIsbn, NoteLecture } from '../../lib/types';
 import { useEcriture, useNoteDuJour, useNotes } from '../../lib/queries';
 import { BoutonSuppr, Chargement, confirmer, Vide } from '../../components/ui';
+
+/** Téléphone : les boutons d'une ligne passent sous le texte, qui garde toute la largeur */
+export const useMobile = () => useMediaQuery('(max-width: 47.99em)') ?? false;
 
 /** Champ ISBN avec recherche Open Library : `onFiche` reçoit titre, auteur, pages et couverture */
 export function ChampIsbn({ value, onChange, onFiche }: { value: string; onChange: (v: string) => void; onFiche: (f: FicheIsbn) => void }) {

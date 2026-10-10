@@ -13,7 +13,7 @@ import type { ALire, Livre } from '../../lib/types';
 import { useAuteurs, useEcriture, useGenres, useLivres } from '../../lib/queries';
 import { ChampDate } from '../../components/champs';
 import { BoutonSuppr, Carte, Chargement, confirmer, Pastille, Vide } from '../../components/ui';
-import { BoutonNotes, ChampIsbn, Couverture, ouvrirNotes } from './communs';
+import { BoutonNotes, ChampIsbn, Couverture, ouvrirNotes, useMobile } from './communs';
 
 /* ---------- Formulaire (ajout, modification dans une fenêtre, ou livre « à lire » terminé) ---------- */
 export function FormLivre({ livre, depuis, onTermine }: { livre?: Livre; depuis?: ALire; onTermine?: () => void }) {
@@ -113,18 +113,9 @@ function modifier(livre: Livre) {
 function LigneLivre({ l }: { l: Livre }) {
   const ecrire = useEcriture('lectures');
   const details = [l.auteur, l.genre, l.pages ? `${l.pages} pages` : ''].filter(Boolean).join(' · ');
-  return (
-    <Group className="ligne-op" wrap="nowrap" gap="sm" px={6} py={8} align="flex-start">
-      {l.couverture ? <Couverture url={l.couverture} /> : <Pastille icone={IconBook} couleur="marque" taille={34} />}
-      <Box style={{ flex: 1, minWidth: 0 }}>
-        <Text fz="sm" fw={600} truncate>{l.titre}</Text>
-        {details && <Text fz="xs" c="dimmed" truncate>{details}</Text>}
-        {l.commentaire && <Text fz="xs" c="dimmed" fs="italic" lineClamp={2} mt={2}>« {l.commentaire} »</Text>}
-      </Box>
-      <Stack gap={2} align="flex-end">
-        {l.note ? <Rating value={l.note} readOnly size="xs" /> : null}
-        <Text fz="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{dateFr(l.date_fin, false)}</Text>
-      </Stack>
+  const mobile = useMobile();
+  const actions = (
+    <Group gap={0} wrap="nowrap" ml={mobile ? -6 : undefined} mt={mobile ? 4 : undefined}>
       <BoutonNotes nb={l.nb_notes} onClick={() => ouvrirNotes(l.titre, { livre_id: l.id })} />
       <Tooltip label="Modifier" withArrow>
         <ActionIcon variant="subtle" color="gray" onClick={() => modifier(l)} aria-label="Modifier" className="suppr">
@@ -133,6 +124,22 @@ function LigneLivre({ l }: { l: Livre }) {
       </Tooltip>
       <BoutonSuppr onClick={() => confirmer(`Supprimer « ${l.titre} » de ton journal ?`, () =>
         ecrire.mutate({ path: `/api/lectures/livres/${l.id}`, method: 'DELETE', succes: 'Livre supprimé' }))} />
+    </Group>
+  );
+  return (
+    <Group className="ligne-op" wrap="nowrap" gap="sm" px={6} py={8} align="flex-start">
+      {l.couverture ? <Couverture url={l.couverture} /> : <Pastille icone={IconBook} couleur="marque" taille={34} />}
+      <Box style={{ flex: 1, minWidth: 0 }}>
+        <Text fz="sm" fw={600} lineClamp={2} dir="auto">{l.titre}</Text>
+        {details && <Text fz="xs" c="dimmed" truncate dir="auto">{details}</Text>}
+        {l.commentaire && <Text fz="xs" c="dimmed" fs="italic" lineClamp={2} mt={2} dir="auto">« {l.commentaire} »</Text>}
+        {mobile && actions}
+      </Box>
+      <Stack gap={2} align="flex-end">
+        {l.note ? <Rating value={l.note} readOnly size="xs" /> : null}
+        <Text fz="xs" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{dateFr(l.date_fin, false)}</Text>
+      </Stack>
+      {!mobile && actions}
     </Group>
   );
 }
