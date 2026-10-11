@@ -16,10 +16,11 @@ export const theme = createTheme({
   primaryColor: 'marque',
   primaryShade: { light: 6, dark: 6 },
   colors: { marque, rose, bleu, emeraude, rouge, ambre, dark: ardoise },
-  fontFamily: "'Inter', 'Segoe UI', system-ui, sans-serif",
+  // Cairo : les lettres arabes (Inter n'en a pas) ; le texte latin reste en Inter
+  fontFamily: "'Inter', 'Cairo', 'Segoe UI', system-ui, sans-serif",
   fontFamilyMonospace: "'Space Grotesk', monospace",
   headings: {
-    fontFamily: "'Inter', 'Segoe UI', sans-serif",
+    fontFamily: "'Inter', 'Cairo', 'Segoe UI', sans-serif",
     fontWeight: '700',
     sizes: { h1: { fontSize: '1.625rem', lineHeight: '1.25' }, h2: { fontSize: '1.25rem' }, h3: { fontSize: '1.05rem' }, h4: { fontSize: '0.95rem' } },
   },
