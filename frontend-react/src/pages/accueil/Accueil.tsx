@@ -12,7 +12,7 @@ import {
   useALire, useDettes, useEcheances, usePatrimoineSilencieux, useResumeBourseSilencieux, useResumeJour, useResumeMois, useSerieLecture,
 } from '../../lib/queries';
 import { Carte, Chargement, EnTetePage, Kpi, Pastille } from '../../components/ui';
-import { NoteDuJour } from '../lectures/communs';
+import { FenetreNoteDuJour, NoteDuJour } from '../lectures/communs';
 
 /** Écran ouvert depuis l'accueil */
 export type CibleAccueil = 'saisie' | 'dash' | 'bourse' | 'lectures' | 'echeances' | 'dettes' | 'patrimoine';
@@ -162,6 +162,7 @@ export function Accueil({ utilisateur, aller }: { utilisateur: string; aller: (c
         )}
       </SimpleGrid>
       <NoteDuJour />
+      <FenetreNoteDuJour />
       <Grid gap="lg" align="flex-start">
         <Grid.Col span={{ base: 12, md: 6 }}>
           <Stack gap="lg">

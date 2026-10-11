@@ -1,13 +1,14 @@
 /* Lectures — pièces partagées par le journal et la liste à lire : couverture, notes et citations */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
-  ActionIcon, Badge, Box, Button, Group, Image, NumberInput, SegmentedControl, Stack, Text, Textarea, Tooltip,
+  ActionIcon, Badge, Box, Button, Checkbox, Group, Image, Modal, NumberInput, SegmentedControl, Stack, Text, Textarea, Tooltip,
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
 import { IconDownload, IconNotes, IconPencil, IconQuote, IconRefresh } from '@tabler/icons-react';
 
-import type { NoteLecture } from '../../lib/types';
+import { auj } from '../../lib/format';
+import type { NoteDuJour as Note, NoteLecture } from '../../lib/types';
 import { useEcriture, useNoteDuJour, useNotes } from '../../lib/queries';
 import { BoutonSuppr, Chargement, confirmer, Vide } from '../../components/ui';
 
@@ -105,6 +106,21 @@ function ListeNotes({ cible }: { cible: Cible }) {
   );
 }
 
+/** Texte de la note (citation en italique, entre guillemets) et son livre ; dir="auto" pour l'arabe */
+function TexteNote({ note, taille = 'sm', lignes }: { note: Note; taille?: string; lignes?: number }) {
+  const citation = note.type === 'citation';
+  return (
+    <>
+      <Text fz={taille} lh={1.6} fs={citation ? 'italic' : undefined} lineClamp={lignes} style={{ whiteSpace: 'pre-wrap' }} dir="auto">
+        {citation ? `« ${note.texte} »` : note.texte}
+      </Text>
+      <Text fz="xs" c="dimmed" mt={4} dir="auto">
+        {[note.titre, note.auteur].filter(Boolean).join(' · ')}{note.page ? ` · p. ${note.page}` : ''}
+      </Text>
+    </>
+  );
+}
+
 /** Une note ou citation tirée de tes lectures : la même toute la journée, « Une autre » en fait défiler */
 export function NoteDuJour() {
   const [decalage, setDecalage] = useState(0);
@@ -118,12 +134,7 @@ export function NoteDuJour() {
       {citation ? <IconQuote size={18} style={{ flexShrink: 0, marginTop: 2, color: 'var(--c-brand)' }} />
                 : <IconNotes size={18} style={{ flexShrink: 0, marginTop: 2, color: 'var(--c-brand)' }} />}
       <Box style={{ flex: 1, minWidth: 0 }}>
-        <Text fz="sm" lh={1.55} fs={citation ? 'italic' : undefined} lineClamp={6} style={{ whiteSpace: 'pre-wrap' }}>
-          {citation ? `« ${note.texte} »` : note.texte}
-        </Text>
-        <Text fz="xs" c="dimmed" mt={4}>
-          {[note.titre, note.auteur].filter(Boolean).join(' · ')}{note.page ? ` · p. ${note.page}` : ''}
-        </Text>
+        <TexteNote note={note} lignes={6} />
       </Box>
       <Tooltip label="Une autre" withArrow>
         <ActionIcon variant="subtle" color="gray" aria-label="Une autre note" onClick={() => setDecalage(d => d + 1)}>
@@ -131,6 +142,47 @@ export function NoteDuJour() {
         </ActionIcon>
       </Tooltip>
     </Group>
+  );
+}
+
+/* Fenêtre de la note du jour, à l'ouverture de l'application. « Ne plus l'afficher aujourd'hui » la masque
+   jusqu'au lendemain sur cet appareil ; sinon elle revient à la prochaine ouverture (pas à chaque retour sur l'accueil). */
+const CLE_MASQUEE = 'note-du-jour-masquee';
+let vueCetteOuverture = false;
+
+function masqueeAujourdhui() {
+  try { return localStorage.getItem(CLE_MASQUEE) === auj(); } catch { return false; }
+}
+
+export function FenetreNoteDuJour() {
+  const { data: note } = useNoteDuJour(0);
+  const [ouverte, setOuverte] = useState(() => !vueCetteOuverture && !masqueeAujourdhui());
+  const [masquer, setMasquer] = useState(false);
+  useEffect(() => { if (note && ouverte) vueCetteOuverture = true; }, [note, ouverte]);
+
+  function fermer() {
+    if (masquer) {
+      try { localStorage.setItem(CLE_MASQUEE, auj()); } catch { /* stockage indisponible : elle reviendra */ }
+    }
+    setOuverte(false);
+  }
+
+  if (!note) return null;
+  const citation = note.type === 'citation';
+  return (
+    <Modal opened={ouverte} onClose={fermer} centered radius="lg"
+           title={<Group gap={8}>
+             {citation ? <IconQuote size={18} color="var(--c-brand)" /> : <IconNotes size={18} color="var(--c-brand)" />}
+             <Text fw={650}>{citation ? 'Citation du jour' : 'Note du jour'}</Text>
+           </Group>}>
+      <Box pl="sm" style={{ borderLeft: '3px solid var(--c-brand)' }}>
+        <TexteNote note={note} taille="md" />
+      </Box>
+      <Group justify="space-between" mt="lg" gap="sm">
+        <Checkbox size="sm" label="Ne plus l'afficher aujourd'hui" checked={masquer} onChange={e => setMasquer(e.currentTarget.checked)} />
+        <Button onClick={fermer}>Fermer</Button>
+      </Group>
+    </Modal>
   );
 }
 

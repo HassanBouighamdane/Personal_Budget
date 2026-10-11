@@ -57,7 +57,7 @@ From a review of the code on 2026-10-05, updated on 2026-10-10. Everything below
 Built on 2026-10-10 (the three Suivi and reminder items were added the same day), with tests in `backend/tests/` and checked in a browser.
 
 **Features**
-- **Home page**: today's remaining budget, the month, the portfolio, the book in progress and streak, the note of the day, and what needs action. Default page; settings moved to the header on phones.
+- **Home page**: today's remaining budget, the month, the portfolio, the book in progress and streak, the note of the day (also as a popup when the app opens, with "Ne plus l'afficher aujourd'hui" to hide it until the next day on that device), and what needs action. Default page; settings moved to the header on phones.
 - **Full backup**: one JSON file with every table (no accounts or sessions), a copy sent on the 1st of each month by Telegram and e-mail, and `scripts/restaurer_sauvegarde.py` to restore it.
 - **Stay logged in**: 30-day sessions that renew with use; ordinary sessions also renew, within one day.
 - **Year in review**: sent on 1 January, same design as the monthly summary.
