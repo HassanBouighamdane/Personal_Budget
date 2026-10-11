@@ -1,7 +1,7 @@
 /* Lectures — pièces partagées par le journal et la liste à lire : couverture, notes et citations */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
-  ActionIcon, Badge, Box, Button, Checkbox, Group, Image, Modal, NumberInput, SegmentedControl, Stack, Text, Textarea, Tooltip,
+  ActionIcon, Anchor, Badge, Box, Button, Checkbox, Group, Image, Modal, NumberInput, SegmentedControl, Stack, Text, Textarea, Tooltip,
 } from '@mantine/core';
 import { useMediaQuery } from '@mantine/hooks';
 import { modals } from '@mantine/modals';
@@ -109,11 +109,26 @@ function ListeNotes({ cible }: { cible: Cible }) {
 /** Texte de la note (citation en italique, entre guillemets) et son livre ; dir="auto" pour l'arabe */
 function TexteNote({ note, taille = 'sm', lignes }: { note: Note; taille?: string; lignes?: number }) {
   const citation = note.type === 'citation';
+  // Texte coupé à `lignes` lignes : « Lire la suite » n'apparaît que s'il dépasse vraiment
+  const texte = useRef<HTMLParagraphElement>(null);
+  const [deplie, setDeplie] = useState(false);
+  const [coupe, setCoupe] = useState(false);
+  useEffect(() => setDeplie(false), [note.id]);
+  useEffect(() => {
+    const el = texte.current;
+    if (el && !deplie) setCoupe(el.scrollHeight > el.clientHeight + 1);
+  }, [note.id, note.texte, deplie, lignes]);
   return (
     <>
-      <Text fz={taille} lh={1.6} fs={citation ? 'italic' : undefined} lineClamp={lignes} style={{ whiteSpace: 'pre-wrap' }} dir="auto">
+      <Text ref={texte} fz={taille} lh={1.6} fs={citation ? 'italic' : undefined} lineClamp={deplie ? undefined : lignes}
+            style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }} dir="auto">
         {citation ? `« ${note.texte} »` : note.texte}
       </Text>
+      {lignes && coupe && (
+        <Anchor component="button" type="button" fz="xs" fw={600} mt={2} onClick={() => setDeplie(d => !d)}>
+          {deplie ? 'Réduire' : 'Lire la suite'}
+        </Anchor>
+      )}
       <Text fz="xs" c="dimmed" mt={4} dir="auto">
         {[note.titre, note.auteur].filter(Boolean).join(' · ')}{note.page ? ` · p. ${note.page}` : ''}
       </Text>
