@@ -21,7 +21,7 @@ import messagerie
 import resume_rendu
 import sauvegarde
 from database import db
-from schemas import DetteIn, EcheanceIn, NoteMatinIn, RemboursementIn
+from schemas import DetteIn, EcheanceIn, EnvoiIn, RemboursementIn
 from routes import rappels
 from routes.carnet import ajouter_dette, ajouter_echeance, ajouter_remboursement
 from routes.rappels import jours_de_rappel, rappels_du_jour, resume_hebdo, semaine_ecoulee, tache_quotidienne
@@ -396,16 +396,16 @@ def test_note_du_jour_desactivee(monkeypatch):
     memoire = {}
     envois = _cron(monkeypatch, date(1901, 6, 12), memoire)
     for canal in ("telegram", "email"):
-        rappels.regler_note_matin(NoteMatinIn(canal=canal, actif=False))
-    assert rappels.etat()["note_du_jour"] == []
+        rappels.regler_envoi(EnvoiIn(envoi="note", canal=canal, actif=False))
+    assert rappels.etat()["envois"]["note"] == []
     assert tache_quotidienne(authorization="Bearer secret-de-test")["envoyes"] == [] and not envois
-    rappels.regler_note_matin(NoteMatinIn(canal="telegram", actif=True))
-    assert rappels.etat()["note_du_jour"] == ["telegram"]
+    rappels.regler_envoi(EnvoiIn(envoi="note", canal="telegram", actif=True))
+    assert rappels.etat()["envois"]["note"] == ["telegram"]
 
 
 def test_note_du_jour_sur_un_seul_canal(monkeypatch):
     monkeypatch.setattr(rappels.lectures, "note_du_jour", lambda auj, decalage=0: NOTE)
-    memoire = {"note_du_jour_email": 0}                          # la note sur Telegram seulement
+    memoire = {"envoi_note_email": 0}                          # la note sur Telegram seulement
     envois = _cron(monkeypatch, date(1901, 6, 12), memoire)
     monkeypatch.setattr(rappels, "canaux", lambda: ["telegram", "email"])
     # Sans rappel : la note part sur Telegram, l'e-mail ne reçoit rien
@@ -425,3 +425,20 @@ def test_note_du_jour_echappee_dans_les_versions_html():
     m = resume_rendu.rendre_matin(date(1901, 6, 12), [], {**NOTE, "texte": "<script>x</script>", "titre": "A & B"})
     assert "<script>" not in m["telegram"] and "<script>" not in m["html"]
     assert "A &amp; B" in m["telegram"] and "A &amp; B" in m["html"]
+
+
+def test_resumes_sur_les_canaux_choisis(monkeypatch):
+    # Un lundi 1er : bilan du mois sur l'e-mail seulement, résumé de la semaine coupé partout
+    memoire = {"envoi_mois_telegram": 0, "envoi_semaine_telegram": 0, "envoi_semaine_email": 0}
+    envois = _cron(monkeypatch, date(1901, 7, 1), memoire)
+    monkeypatch.setattr(rappels, "canaux", lambda: ["telegram", "email"])
+    monkeypatch.setattr(rappels, "envoyer_sauvegarde", lambda: False)
+    assert tache_quotidienne(authorization="Bearer secret-de-test")["envoyes"] == ["mois"]
+    assert len(envois) == 1 and envois[0][0].endswith("Ton mois de juin 1901") and envois[0][2]["seulement"] == ["email"]
+
+
+def test_resume_choisi_sur_un_canal_non_configure_ne_part_pas(monkeypatch):
+    memoire = {"envoi_semaine_telegram": 0}                     # semaine par e-mail, mais seul Telegram existe
+    envois = _cron(monkeypatch, AUJ, memoire)
+    assert tache_quotidienne(authorization="Bearer secret-de-test")["envoyes"] == []
+    assert not envois

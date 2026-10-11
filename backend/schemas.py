@@ -534,7 +534,9 @@ class ReglagesPatrimoine(BaseModel):
     rendement: Optional[float] = Field(default=None, ge=-0.1, le=0.3)   # rendement annuel après inflation
 
 
-class NoteMatinIn(BaseModel):
-    """Note ou citation du jour dans le message du matin, sur un canal."""
+class EnvoiIn(BaseModel):
+    """Un envoi automatique activé ou coupé sur un canal : la note du jour (avec le message du matin),
+    le résumé de la semaine, le bilan du mois ou celui de l'année."""
+    envoi: Literal["note", "semaine", "mois", "annee"]
     canal: Literal["telegram", "email"]
     actif: bool

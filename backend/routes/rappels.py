@@ -21,7 +21,7 @@ from config import CRON_SECRET, aujourdhui
 from database import db
 import sauvegarde
 from messagerie import EnvoiImpossible, canaux, envoyer, envoyer_fichier
-from schemas import NoteMatinIn
+from schemas import EnvoiIn
 from securite import utilisateur_courant
 from routes import bourse, lectures, patrimoine
 from routes.carnet import lire_dettes, lire_echeances
@@ -64,12 +64,15 @@ def rappels_du_jour(auj: date) -> list:
     return lignes
 
 
-# Note du jour dans le message du matin, choisie canal par canal (Paramètres) ; activée par défaut
+# Ce qui part sur chaque canal se choisit dans les Paramètres (tout est activé par défaut) : la note
+# du jour et les résumés. Les rappels et la sauvegarde mensuelle partent toujours sur tous les canaux.
 CANAUX = ("telegram", "email")
+ENVOIS = ("note", "semaine", "mois", "annee")
 
 
-def note_matin(canal: str) -> bool:
-    return _param(f"note_du_jour_{canal}") != 0
+def canaux_envoi(envoi: str) -> list:
+    """Canaux choisis pour cet envoi (configurés ou non sur le serveur)."""
+    return [c for c in CANAUX if _param(f"envoi_{envoi}_{c}") != 0]
 
 
 def messages_du_matin(auj: date) -> list:
@@ -77,7 +80,7 @@ def messages_du_matin(auj: date) -> list:
     ceux où elle est activée. Un canal sans note ne reçoit rien les jours sans rappel.
     `rappels` / `note` : ce que contient chaque message."""
     lignes = rappels_du_jour(auj)
-    avec = [c for c in CANAUX if note_matin(c)]
+    avec = canaux_envoi("note")
     note = lectures.note_du_jour(auj) if avec else None
     groupes = [(note, avec), (None, [c for c in CANAUX if c not in avec])] if note else [(None, list(CANAUX))]
     return [({**rendre_matin(auj, lignes, n), "rappels": bool(lignes), "note": bool(n)}, groupe)
@@ -295,8 +298,16 @@ def resume_annuel(auj: date) -> dict:
             "html": rendre_email_annee(d), "patrimoine": None}
 
 
-def _envoyer_resume(r: dict) -> list:
-    return envoyer(r["sujet"], r["texte"], html=r["html"], telegram=r["telegram"])
+def _envoyer_resume(r: dict, seulement: list | None = None) -> list:
+    return envoyer(r["sujet"], r["texte"], html=r["html"], telegram=r["telegram"], seulement=seulement)
+
+
+def _envoyer_si_choisi(envoi: str, construire) -> bool:
+    """Envoie le résumé sur les canaux choisis pour lui (et configurés) ; False s'il n'y en a aucun."""
+    groupe = [c for c in canaux_envoi(envoi) if c in canaux()]
+    if groupe:
+        _envoyer_resume(construire(), seulement=groupe)
+    return bool(groupe)
 
 
 # ---------------------------------------------------------------- mémoire entre deux exécutions (table params)
@@ -316,12 +327,13 @@ def _ecrire_param(cle: str, valeur: float):
 @router.get("/etat")
 def etat():
     """Ce qui est configuré côté serveur (aucun secret n'est renvoyé)."""
-    return {"canaux": canaux(), "cron": bool(CRON_SECRET), "note_du_jour": [c for c in CANAUX if note_matin(c)]}
+    return {"canaux": canaux(), "cron": bool(CRON_SECRET), "envois": {e: canaux_envoi(e) for e in ENVOIS}}
 
 
-@router.put("/note_du_jour")
-def regler_note_matin(r: NoteMatinIn):
-    _ecrire_param(f"note_du_jour_{r.canal}", 1 if r.actif else 0)
+@router.put("/envois")
+def regler_envoi(r: EnvoiIn):
+    """Active ou coupe un envoi (note du jour, résumé de la semaine, du mois, de l'année) sur un canal."""
+    _ecrire_param(f"envoi_{r.envoi}_{r.canal}", 1 if r.actif else 0)
     return {"ok": True}
 
 
@@ -380,16 +392,15 @@ def tache_quotidienne(force: bool = False, authorization: Optional[str] = Header
                 continue
             envoyer(matin["sujet"], matin["texte"], html=matin["html"], telegram=matin["telegram"], seulement=groupe)
             envoyes += [quoi for quoi in ("rappels", "note") if matin[quoi] and quoi not in envoyes]
-        if auj.day == 1 and auj.month == 1:
-            _envoyer_resume(resume_annuel(auj))
+        if auj.day == 1 and auj.month == 1 and _envoyer_si_choisi("annee", lambda: resume_annuel(auj)):
             envoyes.append("annee")
-        if auj.day == 1:
-            _envoyer_resume(resume_mensuel(auj))
+        if auj.day == 1 and _envoyer_si_choisi("mois", lambda: resume_mensuel(auj)):
             envoyes.append("mois")
         if auj.weekday() == 0:
             r = resume_hebdo(auj, _param("resume_hebdo_patrimoine"))
-            _envoyer_resume(r)
-            envoyes.append("resume")
+            if _envoyer_si_choisi("semaine", lambda: r):
+                envoyes.append("resume")
+            # Valeur du portefeuille notée chaque lundi, même sans envoi : la comparaison reste sur une semaine
             if r["patrimoine"] is not None:
                 _ecrire_param("resume_hebdo_patrimoine", r["patrimoine"])
     except EnvoiImpossible as e:

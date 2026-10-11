@@ -666,7 +666,11 @@ Tout ce qui a une date limite : CIN, passeport, assurance, visite technique, vig
 
 ### Message du matin
 
-`message_du_matin(auj)` réunit ces rappels et la **note ou citation du jour** des Lectures (`lectures.note_du_jour`, la même que sur l'accueil ce jour-là) en un seul message, en texte, Telegram et e-mail (`rendre_matin`). Sans rappel, la note part seule ; sans note ni rappel, rien ne part. La note se choisit **canal par canal** dans Paramètres → Rappels et résumés (`PUT /api/rappels/note_du_jour` avec `{canal, actif}`, paramètres `note_du_jour_telegram` et `note_du_jour_email`, activés par défaut). Les rappels partent toujours sur tous les canaux : avec la note sur Telegram seulement, l'e-mail ne reçoit que les rappels, et rien les jours sans rappel.
+`message_du_matin(auj)` réunit ces rappels et la **note ou citation du jour** des Lectures (`lectures.note_du_jour`, la même que sur l'accueil ce jour-là) en un seul message, en texte, Telegram et e-mail (`rendre_matin`). Sans rappel, la note part seule ; sans note ni rappel, rien ne part. ### Canaux de chaque envoi
+
+La note du jour, le résumé de la semaine, le bilan du mois et celui de l'année se choisissent **canal par canal** dans Paramètres → Rappels et résumés : `PUT /api/rappels/envois` avec `{envoi: note|semaine|mois|annee, canal: telegram|email, actif}`, gardé dans `params` sous `envoi_<envoi>_<canal>` (tout est activé par défaut ; `GET /api/rappels/etat` renvoie les choix dans `envois`). Un canal choisi mais non configuré sur le serveur ne reçoit rien.
+
+Les rappels et la sauvegarde mensuelle partent toujours sur tous les canaux : avec la note sur Telegram seulement, l'e-mail ne reçoit que les rappels, et rien les jours sans rappel. Le résumé de la semaine coupé partout note quand même la valeur du portefeuille chaque lundi, pour que la comparaison reste sur une semaine quand il est réactivé. Le bouton « Envoyer maintenant » de l'aperçu envoie sur tous les canaux configurés, quels que soient ces choix.
 
 ### Résumé hebdomadaire
 

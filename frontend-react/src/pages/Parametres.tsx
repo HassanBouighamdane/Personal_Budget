@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { ActionIcon, Badge, Box, Button, Checkbox, Divider, Grid, Group, NumberInput, PasswordInput, SegmentedControl, Stack, Table, Text, TextInput, Tooltip } from '@mantine/core';
+import { ActionIcon, Badge, Box, Button, Center, Checkbox, Divider, Grid, Group, NumberInput, PasswordInput, SegmentedControl, Stack, Table, Text, TextInput, Tooltip } from '@mantine/core';
 import { MonthPickerInput } from '@mantine/dates';
 import { modals } from '@mantine/modals';
 import { useQueryClient } from '@tanstack/react-query';
@@ -7,7 +7,7 @@ import { IconBell, IconBriefcase, IconCategory, IconClockHour4, IconDeviceFloppy
 
 import { api, toast } from '../lib/api';
 import { auj, fmt, libelleMois } from '../lib/format';
-import type { Categorie, Source } from '../lib/types';
+import type { Canal, Categorie, Envoi, Source } from '../lib/types';
 import { useApercuRappels, useConfig, useEcriture, useEtatRappels, useHistoriqueBudget } from '../lib/queries';
 import { ImportExport } from '../components/ImportExport';
 import { BoutonSuppr, Carte, Chargement, confirmer, EnTetePage, Info, Pastille, Tableau, Vide } from '../components/ui';
@@ -172,26 +172,29 @@ function ApercuRappels({ peutEnvoyer }: { peutEnvoyer: boolean }) {
   );
 }
 
+const CANAUX: Canal[] = ['telegram', 'email'];
+const NOMS_CANAUX: Record<Canal, string> = { telegram: 'Telegram', email: 'E-mail' };
+const ENVOIS: { id: Envoi; nom: string; quand: string }[] = [
+  { id: 'note', nom: 'Note du jour', quand: "Chaque matin, la même que sur l'accueil" },
+  { id: 'semaine', nom: 'Résumé de la semaine', quand: 'Le lundi' },
+  { id: 'mois', nom: 'Bilan du mois', quand: 'Le 1er du mois' },
+  { id: 'annee', nom: "Bilan de l'année", quand: 'Le 1er janvier' },
+];
+
 function CarteRappels() {
   const { data: etat, isPending } = useEtatRappels();
   const qc = useQueryClient();
   const [reglage, setReglage] = useState(false);
-  async function noteDuJour(canal: 'telegram' | 'email', actif: boolean) {
+  async function regler(envoi: Envoi, canal: Canal, actif: boolean) {
     setReglage(true);
     try {
-      await api('/api/rappels/note_du_jour', { method: 'PUT', body: { canal, actif } });
+      await api('/api/rappels/envois', { method: 'PUT', body: { envoi, canal, actif } });
       await qc.invalidateQueries({ queryKey: ['rappels'] });
-      const nom = canal === 'telegram' ? 'Telegram' : 'e-mail';
-      toast(actif ? `Note du jour par ${nom} ✓` : `Plus de note du jour par ${nom}`);
+      const quoi = ENVOIS.find(e => e.id === envoi)!.nom;
+      toast(`${quoi} : ${actif ? 'envoyé' : 'plus envoyé'} par ${NOMS_CANAUX[canal]}${actif ? ' ✓' : ''}`);
     } catch { /* message déjà affiché */ } finally { setReglage(false); }
   }
-  const CaseNote = ({ canal, children }: { canal: 'telegram' | 'email'; children: string }) => (
-    <Tooltip label="Canal non configuré sur le serveur" disabled={actif(canal)} withArrow>
-      <Checkbox label={children} disabled={reglage || !actif(canal)} checked={actif(canal) && !!etat?.note_du_jour.includes(canal)}
-                onChange={e => noteDuJour(canal, e.currentTarget.checked)} />
-    </Tooltip>
-  );
-  const actif = (c: 'telegram' | 'email') => !!etat?.canaux.includes(c);
+  const actif = (c: Canal) => !!etat?.canaux.includes(c);
   const Etat = ({ ok, children }: { ok: boolean; children: string }) =>
     <Badge variant="light" color={ok ? 'emeraude' : 'gray'}>{children} : {ok ? 'activé' : 'non configuré'}</Badge>;
 
@@ -205,14 +208,37 @@ function CarteRappels() {
             <Etat ok={actif('email')}>E-mail</Etat>
             <Etat ok={!!etat?.cron}>Envoi automatique</Etat>
           </Group>
-          <Box>
-            <Text fz="sm" fw={500}>Note du jour chaque matin</Text>
-            <Text fz="xs" c="dimmed" mb={6}>Une note ou citation de tes lectures, la même que sur l'accueil ce jour-là. Les rappels partent sur tous les canaux.</Text>
-            <Group gap="lg">
-              <CaseNote canal="telegram">Telegram</CaseNote>
-              <CaseNote canal="email">E-mail</CaseNote>
-            </Group>
-          </Box>
+          <Table verticalSpacing={6} horizontalSpacing={4}>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th fz="xs" c="dimmed">Envoyer par</Table.Th>
+                {CANAUX.map(c => <Table.Th key={c} fz="xs" c="dimmed" ta="center" w={72}>{NOMS_CANAUX[c]}</Table.Th>)}
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
+              {ENVOIS.map(e => (
+                <Table.Tr key={e.id}>
+                  <Table.Td>
+                    <Text fz="sm">{e.nom}</Text>
+                    <Text fz="xs" c="dimmed">{e.quand}</Text>
+                  </Table.Td>
+                  {CANAUX.map(c => (
+                    <Table.Td key={c}>
+                      <Tooltip label="Canal non configuré sur le serveur" disabled={actif(c)} withArrow>
+                        <Center>
+                          <Checkbox aria-label={`${e.nom} par ${NOMS_CANAUX[c]}`} disabled={reglage || !actif(c)}
+                                    checked={actif(c) && !!etat?.envois[e.id].includes(c)} onChange={ev => regler(e.id, c, ev.currentTarget.checked)} />
+                        </Center>
+                      </Tooltip>
+                    </Table.Td>
+                  ))}
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+          <Text fz="xs" c="dimmed">
+            Les rappels d'échéances et de remboursements, et la sauvegarde du 1er du mois, partent toujours sur tous les canaux.
+          </Text>
           {(!etat?.canaux.length || !etat.cron) && (
             <Info>
               Ces réglages sont des variables d'environnement du serveur (jeton Telegram ou compte SMTP, et CRON_SECRET pour
