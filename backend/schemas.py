@@ -532,3 +532,9 @@ class ReglagesPatrimoine(BaseModel):
     # Liberté financière ; None = inchangé
     taux_retrait: Optional[float] = Field(default=None, gt=0, le=0.2)   # 4 % → objectif = 25 × dépenses annuelles
     rendement: Optional[float] = Field(default=None, ge=-0.1, le=0.3)   # rendement annuel après inflation
+
+
+class NoteMatinIn(BaseModel):
+    """Note ou citation du jour dans le message du matin, sur un canal."""
+    canal: Literal["telegram", "email"]
+    actif: bool

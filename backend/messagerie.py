@@ -72,10 +72,11 @@ def _expedier(message: EmailMessage):
 _ENVOIS = {"telegram": _telegram, "email": _email}
 
 
-def _sur_chaque_canal(envoi) -> list:
-    """Appelle `envoi(canal)` pour chaque canal configuré et renvoie ceux qui ont réussi. Lève
-    EnvoiImpossible s'il n'y en a aucun ; un canal en échec n'empêche pas l'autre."""
-    actifs = canaux()
+def _sur_chaque_canal(envoi, seulement: list | None = None) -> list:
+    """Appelle `envoi(canal)` pour chaque canal configuré (parmi `seulement` s'il est donné) et
+    renvoie ceux qui ont réussi. Lève EnvoiImpossible s'il n'y en a aucun ; un canal en échec
+    n'empêche pas l'autre."""
+    actifs = [c for c in canaux() if seulement is None or c in seulement]
     if not actifs:
         raise EnvoiImpossible("Aucun canal configuré : renseigne les variables Telegram ou SMTP")
     reussis, erreurs = [], []
@@ -91,10 +92,11 @@ def _sur_chaque_canal(envoi) -> list:
     return reussis
 
 
-def envoyer(sujet: str, texte: str, html: str | None = None, telegram: str | None = None) -> list:
-    """Envoie le message sur chaque canal configuré. `html` (e-mail) et `telegram` sont les
-    versions mises en forme de `texte`, facultatives."""
-    return _sur_chaque_canal(lambda canal: _ENVOIS[canal](sujet, texte, html, telegram))
+def envoyer(sujet: str, texte: str, html: str | None = None, telegram: str | None = None,
+            seulement: list | None = None) -> list:
+    """Envoie le message sur chaque canal configuré, ou sur ceux de `seulement`. `html` (e-mail)
+    et `telegram` sont les versions mises en forme de `texte`, facultatives."""
+    return _sur_chaque_canal(lambda canal: _ENVOIS[canal](sujet, texte, html, telegram), seulement)
 
 
 # ---------------------------------------------------------------- envoi d'un fichier joint

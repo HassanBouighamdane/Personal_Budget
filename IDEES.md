@@ -63,7 +63,7 @@ Built on 2026-10-10 (the three Suivi and reminder items were added the same day)
 - **Year in review**: sent on 1 January, same design as the monthly summary.
 - **Installable app**: web manifest and icons, and a service worker (`vite-plugin-pwa`): the app shell opens offline, `/api` is never cached, an "Hors connexion" screen replaces the login page without network, and a new version is offered with a "Recharger" button.
 - **Lectures: reading pace**: note today's page on a book in progress to get pages per day, an estimated finish date and a streak of reading days.
-- **Lectures: note of the day**, **lent books** ("Prêtés" tab) and **Markdown export** of notes (one book, or a ZIP with one file per book).
+- **Lectures: note of the day**, also sent every morning with the reminders, by Telegram, e-mail or both (chosen per channel in Paramètres); **lent books** ("Prêtés" tab) and **Markdown export** of notes (one book, or a ZIP with one file per book).
 - **Bourse: decision journal** (a note per transaction, with the price change since) and **expected dividends** over 12 months (last dividend per share × shares held today).
 - **Suivi: net worth** ("Patrimoine" tab): other assets with manual values, opening balance, emergency-fund runway in months, and a zakat estimate against the nisab with its due date. The Global dashboard card uses the same total.
 - **Suivi: financial freedom** (Patrimoine tab): target = annual spending ÷ withdrawal rate (4 % → 25×, adjustable), progress, years of lifestyle covered, estimated date (monthly compounding at an adjustable real return of 4 %), and years gained by spending 500 DH less per month. Averages over the last 12 completed months; housing and vehicle excluded.

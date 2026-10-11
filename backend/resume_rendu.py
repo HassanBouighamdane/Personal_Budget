@@ -802,3 +802,44 @@ def rendre_email_annee(d: dict) -> str:
         cartes.append(_carte("🏦 Patrimoine net", _chiffres([("Aujourd'hui", dh(d["patrimoine"]), EP if d["patrimoine"] >= 0 else DEP, "")])))
     return _page("Carnet · bilan de l'année", f"Ton année {d['annee']}", verdict_annee(b, d["annee"]), cartes,
                  "Envoyé le 1er janvier par ton application Carnet")
+
+
+# ================================================================ message du matin : rappels et note du jour
+def _source_note(n: dict) -> str:
+    return " · ".join(filter(None, [n.get("titre"), n.get("auteur"), f"p. {n['page']}" if n.get("page") else ""]))
+
+
+def _texte_note(n: dict) -> str:
+    return f"« {n['texte']} »" if n["type"] == "citation" else n["texte"]
+
+
+def rendre_matin(auj: date, lignes: list, note: dict | None) -> dict:
+    """Rappels du jour (échéances, remboursements) et note ou citation du jour tirée des Lectures,
+    en un seul message : sujet, texte brut, Telegram et e-mail. Les deux parties sont facultatives."""
+    citation = bool(note) and note["type"] == "citation"
+    titre_note = "💬 Citation du jour" if citation else "📖 Note du jour"
+    sujet = ("⏰ Carnet — rappels du jour" if lignes
+             else "💬 Carnet — citation du jour" if citation else "📖 Carnet — note du jour")
+
+    texte, tg, cartes = [], [], []
+    if lignes:
+        texte += ["⏰ Rappels du jour", *lignes]
+        tg += ["<b>⏰ Rappels du jour</b>", *(_tg(l) for l in lignes)]
+        cartes.append(_carte("⏰ Rappels du jour", "".join(
+            f'<div style="font-size:14px;color:{TEXTE};margin:0 0 6px">{escape(l)}</div>' for l in lignes)))
+    if note:
+        source = _source_note(note)
+        if texte:
+            texte.append(""); tg.append("")
+        texte += [titre_note, _texte_note(note), f"— {source}"]
+        tg += [f"<b>{titre_note}</b>", f"<i>{_tg(_texte_note(note))}</i>" if note["type"] == "citation" else _tg(note["texte"]),
+               f"— {_tg(source)}"]
+        style = "font-style:italic;" if note["type"] == "citation" else ""
+        # dir="auto" : une note en arabe s'affiche de droite à gauche
+        cartes.append(_carte(titre_note, (
+            f'<div dir="auto" style="font-size:16px;line-height:1.6;color:{TEXTE};{style}white-space:pre-wrap;'
+            f'border-left:3px solid {MARQUE};padding:2px 0 2px 12px">{escape(_texte_note(note))}</div>'
+            + _discret(escape(f"— {source}"), "10px 0 0"))))
+    html = _page("Carnet · ton matin", f"{JOURS_LONGS[auj.weekday()].capitalize()} {auj.day} {MOIS_LONGS[auj.month - 1]}",
+                 "", cartes, "Envoyé chaque matin par ton application Carnet")
+    return {"sujet": sujet, "texte": "\n".join(texte), "telegram": "\n".join(tg), "html": html}

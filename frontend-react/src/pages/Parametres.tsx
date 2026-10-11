@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ActionIcon, Badge, Box, Button, Checkbox, Divider, Grid, Group, NumberInput, PasswordInput, SegmentedControl, Stack, Table, Text, TextInput, Tooltip } from '@mantine/core';
 import { MonthPickerInput } from '@mantine/dates';
 import { modals } from '@mantine/modals';
+import { useQueryClient } from '@tanstack/react-query';
 import { IconBell, IconBriefcase, IconCategory, IconClockHour4, IconDeviceFloppy, IconEye, IconHistory, IconLock, IconPlus, IconSend, IconTarget } from '@tabler/icons-react';
 
 import { api, toast } from '../lib/api';
@@ -151,7 +152,7 @@ function ApercuRappels({ peutEnvoyer }: { peutEnvoyer: boolean }) {
         <>
           {data.rappels && (
             <Box>
-              <Text fz="xs" fw={700} c="dimmed" tt="uppercase" lts={0.5} mb={4}>Rappels du jour</Text>
+              <Text fz="xs" fw={700} c="dimmed" tt="uppercase" lts={0.5} mb={4}>Message du matin</Text>
               <Text fz="sm" style={{ whiteSpace: 'pre-wrap' }}>{data.rappels}</Text>
             </Box>
           )}
@@ -173,12 +174,29 @@ function ApercuRappels({ peutEnvoyer }: { peutEnvoyer: boolean }) {
 
 function CarteRappels() {
   const { data: etat, isPending } = useEtatRappels();
+  const qc = useQueryClient();
+  const [reglage, setReglage] = useState(false);
+  async function noteDuJour(canal: 'telegram' | 'email', actif: boolean) {
+    setReglage(true);
+    try {
+      await api('/api/rappels/note_du_jour', { method: 'PUT', body: { canal, actif } });
+      await qc.invalidateQueries({ queryKey: ['rappels'] });
+      const nom = canal === 'telegram' ? 'Telegram' : 'e-mail';
+      toast(actif ? `Note du jour par ${nom} ✓` : `Plus de note du jour par ${nom}`);
+    } catch { /* message déjà affiché */ } finally { setReglage(false); }
+  }
+  const CaseNote = ({ canal, children }: { canal: 'telegram' | 'email'; children: string }) => (
+    <Tooltip label="Canal non configuré sur le serveur" disabled={actif(canal)} withArrow>
+      <Checkbox label={children} disabled={reglage || !actif(canal)} checked={actif(canal) && !!etat?.note_du_jour.includes(canal)}
+                onChange={e => noteDuJour(canal, e.currentTarget.checked)} />
+    </Tooltip>
+  );
   const actif = (c: 'telegram' | 'email') => !!etat?.canaux.includes(c);
   const Etat = ({ ok, children }: { ok: boolean; children: string }) =>
     <Badge variant="light" color={ok ? 'emeraude' : 'gray'}>{children} : {ok ? 'activé' : 'non configuré'}</Badge>;
 
   return (
-    <Carte titre="Rappels et résumés" description="Par Telegram ou e-mail : les échéances le matin, la semaine le lundi, le mois le 1er, l'année le 1er janvier"
+    <Carte titre="Rappels et résumés" description="Par Telegram ou e-mail : les échéances et la note du jour le matin, la semaine le lundi, le mois le 1er, l'année le 1er janvier"
            icone={<Pastille icone={IconBell} couleur="ambre" />}>
       {isPending ? <Chargement lignes={2} /> : (
         <Stack gap="sm">
@@ -187,6 +205,14 @@ function CarteRappels() {
             <Etat ok={actif('email')}>E-mail</Etat>
             <Etat ok={!!etat?.cron}>Envoi automatique</Etat>
           </Group>
+          <Box>
+            <Text fz="sm" fw={500}>Note du jour chaque matin</Text>
+            <Text fz="xs" c="dimmed" mb={6}>Une note ou citation de tes lectures, la même que sur l'accueil ce jour-là. Les rappels partent sur tous les canaux.</Text>
+            <Group gap="lg">
+              <CaseNote canal="telegram">Telegram</CaseNote>
+              <CaseNote canal="email">E-mail</CaseNote>
+            </Group>
+          </Box>
           {(!etat?.canaux.length || !etat.cron) && (
             <Info>
               Ces réglages sont des variables d'environnement du serveur (jeton Telegram ou compte SMTP, et CRON_SECRET pour

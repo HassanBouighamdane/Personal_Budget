@@ -21,7 +21,7 @@ import messagerie
 import resume_rendu
 import sauvegarde
 from database import db
-from schemas import DetteIn, EcheanceIn, RemboursementIn
+from schemas import DetteIn, EcheanceIn, NoteMatinIn, RemboursementIn
 from routes import rappels
 from routes.carnet import ajouter_dette, ajouter_echeance, ajouter_remboursement
 from routes.rappels import jours_de_rappel, rappels_du_jour, resume_hebdo, semaine_ecoulee, tache_quotidienne
@@ -37,7 +37,9 @@ def _nettoyer():
 
 
 @pytest.fixture(autouse=True)
-def isolation():
+def isolation(monkeypatch):
+    # Pas de note du jour par défaut : les notes réelles de la base ne doivent pas changer les envois attendus
+    monkeypatch.setattr(rappels.lectures, "note_du_jour", lambda auj, decalage=0: None)
     _nettoyer()
     yield
     _nettoyer()
@@ -349,3 +351,77 @@ def test_bilan_de_l_annee_dans_les_trois_versions():
 def test_resume_annuel_sur_la_base():
     r = rappels.resume_annuel(date(1902, 1, 1))
     assert r["sujet"].endswith("Ton année 1901") and "Aucune opération saisie en 1901." in r["texte"]
+
+
+# ---------------------------------------------------------------- note du jour dans le message du matin
+NOTE = {"id": 1, "type": "citation", "texte": "La peur tue l'esprit.", "page": 8, "titre": "Dune", "auteur": "Frank Herbert"}
+
+
+def _cron(monkeypatch, auj, memoire):
+    envois = []
+    monkeypatch.setattr(rappels, "CRON_SECRET", "secret-de-test")
+    monkeypatch.setattr(rappels, "aujourdhui", lambda: auj)
+    monkeypatch.setattr(rappels, "canaux", lambda: ["telegram"])
+    monkeypatch.setattr(rappels, "envoyer", lambda sujet, texte, **k: envois.append((sujet, texte, k)) or ["telegram"])
+    monkeypatch.setattr(rappels, "_param", memoire.get)
+    monkeypatch.setattr(rappels, "_ecrire_param", memoire.__setitem__)
+    monkeypatch.setattr(rappels.bourse, "_actualiser_cours", lambda force: None)
+    return envois
+
+
+def test_la_note_du_jour_part_seule_chaque_matin(monkeypatch):
+    monkeypatch.setattr(rappels.lectures, "note_du_jour", lambda auj, decalage=0: NOTE)
+    envois = _cron(monkeypatch, date(1901, 6, 12), {})          # un mercredi sans rappel
+    assert tache_quotidienne(authorization="Bearer secret-de-test")["envoyes"] == ["note"]
+    sujet, texte, k = envois[0]
+    assert sujet == "💬 Carnet — citation du jour"
+    assert "« La peur tue l'esprit. »" in texte and "— Dune · Frank Herbert · p. 8" in texte
+    assert "<b>💬 Citation du jour</b>\n<i>« La peur tue l'esprit. »</i>" in k["telegram"]
+    assert "Mercredi 12 juin" in k["html"]
+
+
+def test_rappels_et_note_dans_le_meme_message(monkeypatch):
+    monkeypatch.setattr(rappels.lectures, "note_du_jour", lambda auj, decalage=0: {**NOTE, "type": "note", "page": None})
+    envois = _cron(monkeypatch, date(1901, 6, 12), {})
+    ajouter_echeance(EcheanceIn(titre=f"{PREFIXE} Vignette", date_echeance=date(1901, 6, 12), rappel_jours=0))
+    assert tache_quotidienne(authorization="Bearer secret-de-test")["envoyes"] == ["rappels", "note"]
+    assert len(envois) == 1
+    sujet, texte, _ = envois[0]
+    assert sujet == "⏰ Carnet — rappels du jour"
+    assert texte.index("Vignette") < texte.index("📖 Note du jour") and "— Dune · Frank Herbert" in texte
+
+
+def test_note_du_jour_desactivee(monkeypatch):
+    monkeypatch.setattr(rappels.lectures, "note_du_jour", lambda auj, decalage=0: NOTE)
+    memoire = {}
+    envois = _cron(monkeypatch, date(1901, 6, 12), memoire)
+    for canal in ("telegram", "email"):
+        rappels.regler_note_matin(NoteMatinIn(canal=canal, actif=False))
+    assert rappels.etat()["note_du_jour"] == []
+    assert tache_quotidienne(authorization="Bearer secret-de-test")["envoyes"] == [] and not envois
+    rappels.regler_note_matin(NoteMatinIn(canal="telegram", actif=True))
+    assert rappels.etat()["note_du_jour"] == ["telegram"]
+
+
+def test_note_du_jour_sur_un_seul_canal(monkeypatch):
+    monkeypatch.setattr(rappels.lectures, "note_du_jour", lambda auj, decalage=0: NOTE)
+    memoire = {"note_du_jour_email": 0}                          # la note sur Telegram seulement
+    envois = _cron(monkeypatch, date(1901, 6, 12), memoire)
+    monkeypatch.setattr(rappels, "canaux", lambda: ["telegram", "email"])
+    # Sans rappel : la note part sur Telegram, l'e-mail ne reçoit rien
+    assert tache_quotidienne(authorization="Bearer secret-de-test")["envoyes"] == ["note"]
+    assert [(sujet, k["seulement"]) for sujet, _, k in envois] == [("💬 Carnet — citation du jour", ["telegram"])]
+    # Avec un rappel : Telegram reçoit rappel et note, l'e-mail le rappel seul
+    envois.clear()
+    ajouter_echeance(EcheanceIn(titre=f"{PREFIXE} Vignette", date_echeance=date(1901, 6, 13), rappel_jours=0))
+    monkeypatch.setattr(rappels, "aujourdhui", lambda: date(1901, 6, 13))
+    assert tache_quotidienne(authorization="Bearer secret-de-test")["envoyes"] == ["rappels", "note"]
+    par_canal = {k["seulement"][0]: texte for _, texte, k in envois}
+    assert "Vignette" in par_canal["telegram"] and "Citation du jour" in par_canal["telegram"]
+    assert "Vignette" in par_canal["email"] and "Citation du jour" not in par_canal["email"]
+
+
+def test_note_du_jour_echappee_dans_les_versions_html():
+    m = resume_rendu.rendre_matin(date(1901, 6, 12), [], {**NOTE, "texte": "<script>x</script>", "titre": "A & B"})
+    assert "<script>" not in m["telegram"] and "<script>" not in m["html"]
+    assert "A &amp; B" in m["telegram"] and "A &amp; B" in m["html"]

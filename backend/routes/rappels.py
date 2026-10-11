@@ -3,7 +3,8 @@
 Rappels et résumé hebdomadaire, envoyés par Telegram ou e-mail (cf. messagerie.py).
 
 Une seule tâche planifiée, GET /api/cron/quotidien, appelée chaque matin (Vercel Cron, cf.
-vercel.json) : elle envoie les rappels du jour (échéances, remboursements attendus) et, le
+vercel.json) : elle envoie le message du matin (échéances, remboursements attendus, et la note
+ou citation du jour tirée des Lectures, la même que dans l'application) et, le
 lundi, le résumé de la semaine écoulée (Budget, Bourse, Lectures, Carnet) ; le 1er du mois,
 le bilan du mois écoulé.
 
@@ -20,11 +21,12 @@ from config import CRON_SECRET, aujourdhui
 from database import db
 import sauvegarde
 from messagerie import EnvoiImpossible, canaux, envoyer, envoyer_fichier
+from schemas import NoteMatinIn
 from securite import utilisateur_courant
 from routes import bourse, lectures, patrimoine
 from routes.carnet import lire_dettes, lire_echeances
 from routes.rapports import calculer_resume, calculer_resume_annuel, calculer_resume_semaine
-from resume_rendu import (delai, dh, jour, rendre_email, rendre_email_annee, rendre_email_mois, rendre_telegram,
+from resume_rendu import (delai, dh, jour, rendre_email, rendre_matin, rendre_email_annee, rendre_email_mois, rendre_telegram,
                           rendre_telegram_annee, rendre_telegram_mois, rendre_texte, rendre_texte_annee, rendre_texte_mois)
 
 router = APIRouter(prefix="/api/rappels", tags=["rappels"], dependencies=[Depends(utilisateur_courant)])
@@ -60,6 +62,26 @@ def rappels_du_jour(auj: date) -> list:
         if d["reste"] > 0 and d["echeance"] and (d["echeance"] - auj).days in RAPPEL_DETTE_JOURS:
             lignes.append(f"• {_dette_libelle(d)} : remboursement prévu {delai((d['echeance'] - auj).days)}")
     return lignes
+
+
+# Note du jour dans le message du matin, choisie canal par canal (Paramètres) ; activée par défaut
+CANAUX = ("telegram", "email")
+
+
+def note_matin(canal: str) -> bool:
+    return _param(f"note_du_jour_{canal}") != 0
+
+
+def messages_du_matin(auj: date) -> list:
+    """[(message, canaux)] : les rappels partent sur tous les canaux, la note du jour seulement sur
+    ceux où elle est activée. Un canal sans note ne reçoit rien les jours sans rappel.
+    `rappels` / `note` : ce que contient chaque message."""
+    lignes = rappels_du_jour(auj)
+    avec = [c for c in CANAUX if note_matin(c)]
+    note = lectures.note_du_jour(auj) if avec else None
+    groupes = [(note, avec), (None, [c for c in CANAUX if c not in avec])] if note else [(None, list(CANAUX))]
+    return [({**rendre_matin(auj, lignes, n), "rappels": bool(lignes), "note": bool(n)}, groupe)
+            for n, groupe in groupes if groupe and (lignes or n)]
 
 
 # ---------------------------------------------------------------- résumé hebdomadaire : données
@@ -294,7 +316,13 @@ def _ecrire_param(cle: str, valeur: float):
 @router.get("/etat")
 def etat():
     """Ce qui est configuré côté serveur (aucun secret n'est renvoyé)."""
-    return {"canaux": canaux(), "cron": bool(CRON_SECRET)}
+    return {"canaux": canaux(), "cron": bool(CRON_SECRET), "note_du_jour": [c for c in CANAUX if note_matin(c)]}
+
+
+@router.put("/note_du_jour")
+def regler_note_matin(r: NoteMatinIn):
+    _ecrire_param(f"note_du_jour_{r.canal}", 1 if r.actif else 0)
+    return {"ok": True}
 
 
 def _resume(periode: str, auj: date) -> dict:
@@ -305,11 +333,13 @@ def _resume(periode: str, auj: date) -> dict:
 
 @router.get("/apercu")
 def apercu(periode: Literal["semaine", "mois", "annee"] = "semaine"):
-    """Ce qui serait envoyé maintenant : rappels du jour, et résumé de la dernière semaine
-    terminée ou bilan du dernier mois terminé."""
+    """Ce qui serait envoyé maintenant : message du matin (rappels et note du jour), et résumé de
+    la dernière semaine terminée ou bilan du dernier mois terminé."""
     auj = aujourdhui()
     r = _resume(periode, auj)
-    return {"rappels": "\n".join(rappels_du_jour(auj)), "sujet": r["sujet"], "resume": r["texte"], "html": r["html"]}
+    # Le plus complet des messages du matin (avec la note s'il y en a une)
+    matin = max((m for m, _ in messages_du_matin(auj)), key=lambda m: m["note"], default=None)
+    return {"rappels": matin["texte"] if matin else "", "sujet": r["sujet"], "resume": r["texte"], "html": r["html"]}
 
 
 @router.post("/envoyer")
@@ -325,7 +355,7 @@ def envoyer_maintenant(periode: Literal["semaine", "mois", "annee"] = "semaine")
 # ---------------------------------------------------------------- tâche planifiée
 @cron.get("/quotidien")
 def tache_quotidienne(force: bool = False, authorization: Optional[str] = Header(default=None)):
-    """Rappels du jour, plus le résumé de la semaine le lundi, le bilan du mois le 1er (avec une copie
+    """Message du matin (rappels et note du jour), plus le résumé de la semaine le lundi, le bilan du mois le 1er (avec une copie
     de sauvegarde en pièce jointe) et le bilan de l'année le 1er janvier. Au plus un envoi par jour :
     un second appel le même jour ne renvoie rien (`force=true` pour passer outre)."""
     if not CRON_SECRET:
@@ -345,10 +375,11 @@ def tache_quotidienne(force: bool = False, authorization: Optional[str] = Header
 
     envoyes = []
     try:
-        lignes = rappels_du_jour(auj)
-        if lignes:
-            envoyer("⏰ Carnet — rappels du jour", "\n".join(lignes))
-            envoyes.append("rappels")
+        for matin, groupe in messages_du_matin(auj):
+            if not set(groupe) & set(canaux()):
+                continue
+            envoyer(matin["sujet"], matin["texte"], html=matin["html"], telegram=matin["telegram"], seulement=groupe)
+            envoyes += [quoi for quoi in ("rappels", "note") if matin[quoi] and quoi not in envoyes]
         if auj.day == 1 and auj.month == 1:
             _envoyer_resume(resume_annuel(auj))
             envoyes.append("annee")

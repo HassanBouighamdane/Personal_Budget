@@ -61,7 +61,7 @@ Personal_Budget/
 │       ├── lectures.py           module Lectures (livres lus, objectifs, bilan annuel)
 │       ├── carnet.py             onglet Suivi (dettes et prêts, échéances)
 │       ├── patrimoine.py         patrimoine net, autres actifs, réserve de sécurité, zakat (voir §11)
-│       └── rappels.py            rappels du jour, résumé hebdomadaire, tâche planifiée
+│       └── rappels.py            message du matin, résumé hebdomadaire, tâche planifiée
 ├── frontend-react/         Frontend React (voir §7)
 │   ├── src/                Code source TypeScript
 │   ├── public/             Favicons (copiés tels quels dans dist/)
@@ -664,6 +664,10 @@ Tout ce qui a une date limite : CIN, passeport, assurance, visite technique, vig
 - une dette non soldée qui a une échéance est rappelée à J−3 et le jour même ;
 - une échéance dépassée n'est plus rappelée chaque jour : elle figure dans le résumé du lundi tant qu'elle n'est pas traitée.
 
+### Message du matin
+
+`message_du_matin(auj)` réunit ces rappels et la **note ou citation du jour** des Lectures (`lectures.note_du_jour`, la même que sur l'accueil ce jour-là) en un seul message, en texte, Telegram et e-mail (`rendre_matin`). Sans rappel, la note part seule ; sans note ni rappel, rien ne part. La note se choisit **canal par canal** dans Paramètres → Rappels et résumés (`PUT /api/rappels/note_du_jour` avec `{canal, actif}`, paramètres `note_du_jour_telegram` et `note_du_jour_email`, activés par défaut). Les rappels partent toujours sur tous les canaux : avec la note sur Telegram seulement, l'e-mail ne reçoit que les rappels, et rien les jours sans rappel.
+
 ### Résumé hebdomadaire
 
 `resume_hebdo(auj)` couvre la **dernière semaine terminée** (du lundi au dimanche) :
@@ -704,7 +708,7 @@ Mêmes trois versions et mêmes règles que le résumé de la semaine.
 
 ### Tâche planifiée
 
-`GET /api/cron/quotidien` envoie les rappels du jour, **le lundi** le résumé de la semaine, **le 1er du mois** le bilan du mois avec une copie de sauvegarde en pièce jointe, et **le 1er janvier** le bilan de l'année (plusieurs le même jour si les dates coïncident). Elle n'utilise pas de session : elle exige l'en-tête `Authorization: Bearer <CRON_SECRET>`.
+`GET /api/cron/quotidien` envoie le message du matin (rappels et note du jour), **le lundi** le résumé de la semaine, **le 1er du mois** le bilan du mois avec une copie de sauvegarde en pièce jointe, et **le 1er janvier** le bilan de l'année (plusieurs le même jour si les dates coïncident). Elle n'utilise pas de session : elle exige l'en-tête `Authorization: Bearer <CRON_SECRET>`.
 
 - **Vercel** : `vercel.json` déclare la tâche (`0 7 * * *`, soit entre 8 h et 9 h au Maroc ; l'offre gratuite autorise une exécution par jour, à une minute non garantie dans l'heure). Vercel envoie `CRON_SECRET` tout seul dès que la variable existe.
 - **Render** (pas de tâche planifiée gratuite) : un service comme cron-job.org peut appeler l'adresse chaque matin avec le même en-tête.

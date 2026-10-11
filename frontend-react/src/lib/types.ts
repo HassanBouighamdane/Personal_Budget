@@ -314,7 +314,8 @@ export type Echeance = {
 };
 
 /* ---------- Rappels et résumé hebdomadaire ---------- */
-export type EtatRappels = { canaux: ('telegram' | 'email')[]; cron: boolean };
+/** `note_du_jour` : canaux où la note ou citation du jour part avec le message du matin */
+export type EtatRappels = { canaux: ('telegram' | 'email')[]; cron: boolean; note_du_jour: ('telegram' | 'email')[] };
 /** `html` : l'e-mail tel qu'il sera envoyé ; `resume` : sa version texte brut */
 export type ApercuRappels = { rappels: string; sujet: string; resume: string; html: string };
 

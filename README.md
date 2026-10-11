@@ -36,7 +36,7 @@ Application web personnelle pour gérer et suivre son budget au quotidien, avec 
 - Échéances : papiers, assurance, visite technique, garanties, avec délai de rappel et récurrence
 - Patrimoine net (liquidités, Bourse, autres actifs, dettes), réserve de sécurité en mois de dépenses, estimation de la zakat
 - Liberté financière : objectif (25 × les dépenses annuelles), progression et date estimée pour l'atteindre
-- Rappels du matin, résumé de la semaine le lundi, bilan du mois le 1er et de l'année le 1er janvier, par Telegram ou e-mail (optionnel, voir DOCUMENTATION.md §10)
+- Rappels et note ou citation du jour le matin, résumé de la semaine le lundi, bilan du mois le 1er et de l'année le 1er janvier, par Telegram ou e-mail (optionnel, voir DOCUMENTATION.md §10)
 
 **Autres**
 - Page d'accueil : l'essentiel du jour (reste à dépenser, Bourse, lecture en cours, échéances)
