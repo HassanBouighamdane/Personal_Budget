@@ -7,7 +7,7 @@ import { IconBell, IconBriefcase, IconCategory, IconClockHour4, IconDeviceFloppy
 
 import { api, toast } from '../lib/api';
 import { auj, fmt, libelleMois } from '../lib/format';
-import type { Canal, Categorie, Envoi, Source } from '../lib/types';
+import type { Canal, Categorie, Envoi, PassageCron, Source } from '../lib/types';
 import { useApercuRappels, useConfig, useEcriture, useEtatRappels, useHistoriqueBudget } from '../lib/queries';
 import { ImportExport } from '../components/ImportExport';
 import { BoutonSuppr, Carte, Chargement, confirmer, EnTetePage, Info, Pastille, Tableau, Vide } from '../components/ui';
@@ -181,6 +181,34 @@ const ENVOIS: { id: Envoi; nom: string; quand: string }[] = [
   { id: 'annee', nom: "Bilan de l'année", quand: 'Le 1er janvier' },
 ];
 
+const ETATS_PASSAGE: Record<PassageCron['etat'], { nom: string; couleur: string }> = {
+  ok: { nom: 'envoyé', couleur: 'emeraude' },
+  deja_fait: { nom: 'déjà fait ce jour-là', couleur: 'gray' },
+  aucun_canal: { nom: 'aucun canal configuré', couleur: 'ambre' },
+  erreur: { nom: 'échec', couleur: 'rouge' },
+};
+
+/** Derniers appels de la tâche du matin : les journaux de Vercel ne durent qu'une heure */
+function PassagesCron({ passages }: { passages: PassageCron[] }) {
+  if (!passages.length) {
+    return <Text fz="xs" c="dimmed">Envoi automatique : aucun passage enregistré pour l'instant (le premier a lieu vers 8 h).</Text>;
+  }
+  return (
+    <Stack gap={2}>
+      <Text fz="xs" fw={700} c="dimmed" tt="uppercase" lts={0.5}>Derniers envois automatiques</Text>
+      {passages.map(p => {
+        const e = ETATS_PASSAGE[p.etat] ?? { nom: p.etat, couleur: 'gray' };
+        const le = new Date(p.le).toLocaleString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        return (
+          <Text key={p.le} fz="xs">
+            <Text span c="dimmed">{le}</Text> — <Text span c={e.couleur} fw={600}>{e.nom}</Text>{p.detail && ` · ${p.detail}`}
+          </Text>
+        );
+      })}
+    </Stack>
+  );
+}
+
 function CarteRappels() {
   const { data: etat, isPending } = useEtatRappels();
   const qc = useQueryClient();
@@ -208,6 +236,7 @@ function CarteRappels() {
             <Etat ok={actif('email')}>E-mail</Etat>
             <Etat ok={!!etat?.cron}>Envoi automatique</Etat>
           </Group>
+          {etat?.cron && <PassagesCron passages={etat.passages ?? []} />}
           <Table verticalSpacing={6} horizontalSpacing={4}>
             <Table.Thead>
               <Table.Tr>

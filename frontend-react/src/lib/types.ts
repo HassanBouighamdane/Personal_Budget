@@ -318,7 +318,10 @@ export type Canal = 'telegram' | 'email';
 /** Envoi automatique réglable canal par canal : note du jour (avec le message du matin) et résumés */
 export type Envoi = 'note' | 'semaine' | 'mois' | 'annee';
 /** `envois` : canaux choisis pour chaque envoi (configurés sur le serveur ou non) */
-export type EtatRappels = { canaux: Canal[]; cron: boolean; envois: Record<Envoi, Canal[]> };
+/** Un appel de la tâche planifiée : `detail` = ce qui est parti (et sur quels canaux) ou l'erreur */
+export type PassageCron = { le: string; etat: 'ok' | 'deja_fait' | 'aucun_canal' | 'erreur'; detail: string };
+/** `passages` : derniers appels de la tâche planifiée, du plus récent au plus ancien */
+export type EtatRappels = { canaux: Canal[]; cron: boolean; envois: Record<Envoi, Canal[]>; passages: PassageCron[] };
 /** `html` : l'e-mail tel qu'il sera envoyé ; `resume` : sa version texte brut */
 export type ApercuRappels = { rappels: string; sujet: string; resume: string; html: string };
 

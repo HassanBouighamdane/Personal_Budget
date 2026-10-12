@@ -191,6 +191,13 @@ def init_db():
             cle TEXT PRIMARY KEY,
             valeur DOUBLE PRECISION NOT NULL
         );
+        -- Journal de la tâche planifiée /api/cron/quotidien (derniers appels), affiché dans les Paramètres
+        CREATE TABLE IF NOT EXISTS cron_journal (
+            id     SERIAL PRIMARY KEY,
+            le     TIMESTAMPTZ NOT NULL DEFAULT now(),
+            etat   VARCHAR(20) NOT NULL,
+            detail TEXT NOT NULL DEFAULT ''
+        );
         CREATE TABLE IF NOT EXISTS sources_revenus (
             id SERIAL PRIMARY KEY,
             nom TEXT UNIQUE NOT NULL,

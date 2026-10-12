@@ -15,7 +15,7 @@ from psycopg import sql
 from config import aujourdhui
 from database import db
 
-TABLES_EXCLUES = {"utilisateurs", "sessions"}
+TABLES_EXCLUES = {"utilisateurs", "sessions", "cron_journal"}
 FORMAT = 1
 APPLICATION = "Carnet"
 # Nom de l'application avant son renommage : ses sauvegardes restent lisibles

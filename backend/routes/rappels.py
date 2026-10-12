@@ -302,12 +302,11 @@ def _envoyer_resume(r: dict, seulement: list | None = None) -> list:
     return envoyer(r["sujet"], r["texte"], html=r["html"], telegram=r["telegram"], seulement=seulement)
 
 
-def _envoyer_si_choisi(envoi: str, construire) -> bool:
-    """Envoie le résumé sur les canaux choisis pour lui (et configurés) ; False s'il n'y en a aucun."""
+def _envoyer_si_choisi(envoi: str, construire) -> list:
+    """Envoie le résumé sur les canaux choisis pour lui (et configurés) ; renvoie ceux qui l'ont
+    reçu (liste vide s'il n'y en a aucun de choisi)."""
     groupe = [c for c in canaux_envoi(envoi) if c in canaux()]
-    if groupe:
-        _envoyer_resume(construire(), seulement=groupe)
-    return bool(groupe)
+    return _envoyer_resume(construire(), seulement=groupe) if groupe else []
 
 
 # ---------------------------------------------------------------- mémoire entre deux exécutions (table params)
@@ -323,11 +322,33 @@ def _ecrire_param(cle: str, valeur: float):
                      ON CONFLICT (cle) DO UPDATE SET valeur=EXCLUDED.valeur""", (cle, valeur))
 
 
+# ---------------------------------------------------------------- journal de la tâche planifiée
+JOURNAL_TAILLE = 30
+
+
+def _journaliser(etat: str, detail: str = ""):
+    """Garde une trace de chaque appel de la tâche planifiée (les journaux de Vercel ne durent
+    qu'une heure). Ne lève jamais : le journal ne doit pas faire échouer la tâche."""
+    try:
+        with db() as c:
+            c.execute("INSERT INTO cron_journal(etat, detail) VALUES(%s,%s)", (etat, detail[:500]))
+            c.execute("DELETE FROM cron_journal WHERE id NOT IN "
+                      "(SELECT id FROM cron_journal ORDER BY id DESC LIMIT %s)", (JOURNAL_TAILLE,))
+    except Exception as e:
+        print(f"[rappels] journal non écrit — {e!r}", flush=True)
+
+
+def _derniers_passages(n: int = 5) -> list:
+    with db() as c:
+        return c.execute("SELECT le, etat, detail FROM cron_journal ORDER BY id DESC LIMIT %s", (n,)).fetchall()
+
+
 # ---------------------------------------------------------------- routes (session requise)
 @router.get("/etat")
 def etat():
-    """Ce qui est configuré côté serveur (aucun secret n'est renvoyé)."""
-    return {"canaux": canaux(), "cron": bool(CRON_SECRET), "envois": {e: canaux_envoi(e) for e in ENVOIS}}
+    """Ce qui est configuré côté serveur (aucun secret n'est renvoyé), et les derniers appels de la tâche planifiée."""
+    return {"canaux": canaux(), "cron": bool(CRON_SECRET), "envois": {e: canaux_envoi(e) for e in ENVOIS},
+            "passages": _derniers_passages()}
 
 
 @router.put("/envois")
@@ -367,6 +388,24 @@ def envoyer_maintenant(periode: Literal["semaine", "mois", "annee"] = "semaine")
 # ---------------------------------------------------------------- tâche planifiée
 @cron.get("/quotidien")
 def tache_quotidienne(force: bool = False, authorization: Optional[str] = Header(default=None)):
+    """Tâche du matin (cf. _tache_quotidienne), dont chaque appel est noté dans cron_journal :
+    résultat, ce qui est parti et sur quels canaux, ou l'erreur."""
+    try:
+        r = _tache_quotidienne(force, authorization)
+    except HTTPException as e:
+        _journaliser("erreur", f"HTTP {e.status_code} — {e.detail}")
+        raise
+    except Exception as e:
+        _journaliser("erreur", repr(e))
+        raise
+    detail = ", ".join(r.get("envoyes", []))
+    if r.get("canaux"):
+        detail += f" → {', '.join(r['canaux'])}"
+    _journaliser(r["etat"], detail)
+    return r
+
+
+def _tache_quotidienne(force: bool, authorization: Optional[str]) -> dict:
     """Message du matin (rappels et note du jour), plus le résumé de la semaine le lundi, le bilan du mois le 1er (avec une copie
     de sauvegarde en pièce jointe) et le bilan de l'année le 1er janvier. Au plus un envoi par jour :
     un second appel le même jour ne renvoie rien (`force=true` pour passer outre)."""
@@ -385,21 +424,22 @@ def tache_quotidienne(force: bool = False, authorization: Optional[str] = Header
     except Exception as e:
         print(f"[rappels] cours non actualisés — {e!r}", flush=True)
 
-    envoyes = []
+    envoyes, atteints = [], set()   # atteints : canaux qui ont reçu au moins un message
     try:
         for matin, groupe in messages_du_matin(auj):
             if not set(groupe) & set(canaux()):
                 continue
-            envoyer(matin["sujet"], matin["texte"], html=matin["html"], telegram=matin["telegram"], seulement=groupe)
+            atteints |= set(envoyer(matin["sujet"], matin["texte"], html=matin["html"], telegram=matin["telegram"],
+                                    seulement=groupe))
             envoyes += [quoi for quoi in ("rappels", "note") if matin[quoi] and quoi not in envoyes]
-        if auj.day == 1 and auj.month == 1 and _envoyer_si_choisi("annee", lambda: resume_annuel(auj)):
-            envoyes.append("annee")
-        if auj.day == 1 and _envoyer_si_choisi("mois", lambda: resume_mensuel(auj)):
-            envoyes.append("mois")
+        if auj.day == 1 and auj.month == 1 and (recus := _envoyer_si_choisi("annee", lambda: resume_annuel(auj))):
+            envoyes.append("annee"); atteints |= set(recus)
+        if auj.day == 1 and (recus := _envoyer_si_choisi("mois", lambda: resume_mensuel(auj))):
+            envoyes.append("mois"); atteints |= set(recus)
         if auj.weekday() == 0:
             r = resume_hebdo(auj, _param("resume_hebdo_patrimoine"))
-            if _envoyer_si_choisi("semaine", lambda: r):
-                envoyes.append("resume")
+            if recus := _envoyer_si_choisi("semaine", lambda: r):
+                envoyes.append("resume"); atteints |= set(recus)
             # Valeur du portefeuille notée chaque lundi, même sans envoi : la comparaison reste sur une semaine
             if r["patrimoine"] is not None:
                 _ecrire_param("resume_hebdo_patrimoine", r["patrimoine"])
@@ -409,7 +449,8 @@ def tache_quotidienne(force: bool = False, authorization: Optional[str] = Header
     if auj.day == 1 and envoyer_sauvegarde():
         envoyes.append("sauvegarde")
     _ecrire_param("cron_dernier_jour", auj.toordinal())
-    return {"etat": "ok", "envoyes": envoyes}
+    # `canaux` : ceux qui ont reçu au moins un message (un canal en échec n'y figure pas)
+    return {"etat": "ok", "envoyes": envoyes, "canaux": [c for c in CANAUX if c in atteints]}
 
 
 def envoyer_sauvegarde() -> bool:

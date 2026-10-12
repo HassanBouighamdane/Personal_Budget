@@ -40,6 +40,9 @@ def _nettoyer():
 def isolation(monkeypatch):
     # Pas de note du jour par défaut : les notes réelles de la base ne doivent pas changer les envois attendus
     monkeypatch.setattr(rappels.lectures, "note_du_jour", lambda auj, decalage=0: None)
+    # Le journal de la tâche planifiée est celui de la vraie base : les tests n'y écrivent pas
+    journal = []
+    monkeypatch.setattr(rappels, "_journaliser", lambda etat, detail="": journal.append((etat, detail)))
     _nettoyer()
     yield
     _nettoyer()
@@ -127,7 +130,7 @@ def test_tache_quotidienne_envoie_une_seule_fois_par_jour(monkeypatch):
     ajouter_echeance(EcheanceIn(titre=f"{PREFIXE} Vignette", date_echeance=AUJ, rappel_jours=0))
 
     r = tache_quotidienne(authorization="Bearer secret-de-test")
-    assert r == {"etat": "ok", "envoyes": ["rappels", "resume"]}      # AUJ est un lundi
+    assert r == {"etat": "ok", "envoyes": ["rappels", "resume"], "canaux": ["telegram"]}      # AUJ est un lundi
     assert len(envois) == 2 and memoire["cron_dernier_jour"] == AUJ.toordinal()
     assert tache_quotidienne(authorization="Bearer secret-de-test") == {"etat": "deja_fait"}
     assert len(envois) == 2
@@ -181,6 +184,20 @@ def test_tache_quotidienne_reessayable_apres_un_echec(monkeypatch):
     with pytest.raises(HTTPException) as exc:
         tache_quotidienne(authorization="Bearer secret-de-test")
     assert exc.value.status_code == 502 and "cron_dernier_jour" not in memoire
+
+
+def test_chaque_appel_de_la_tache_est_journalise(monkeypatch):
+    journal = []
+    monkeypatch.setattr(rappels, "_journaliser", lambda etat, detail="": journal.append((etat, detail)))
+    monkeypatch.setattr(rappels, "CRON_SECRET", "secret-de-test")
+    with pytest.raises(HTTPException):
+        tache_quotidienne(authorization="Bearer autre")
+    assert journal == [("erreur", "HTTP 401 — Non autorisé")]
+    envois = _cron(monkeypatch, AUJ, {})
+    tache_quotidienne(authorization="Bearer secret-de-test")
+    assert journal[-1] == ("ok", "resume → telegram") and len(envois) == 1
+    tache_quotidienne(authorization="Bearer secret-de-test")
+    assert journal[-1] == ("deja_fait", "")
 
 
 def test_envoyer_sans_canal(monkeypatch):
