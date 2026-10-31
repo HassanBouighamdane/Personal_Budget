@@ -488,18 +488,17 @@ def init_db():
         # anciennes colonnes de taux figés restent en base (non détruites) mais
         # ne sont plus lues par l'application.
         # ------------------------------------------------------------------
-        # Colonne requise par la migration ci-dessous, quelle que soit l'ancienneté
-        # de l'installation (peut être absente si bourse_parametres existait déjà
-        # avant l'ajout du module Dividendes).
-        c.execute("""
-        ALTER TABLE bourse_parametres ADD COLUMN IF NOT EXISTS taux_retenue_source_dividendes NUMERIC(6,4) NOT NULL DEFAULT 0.15;
-        """)
-
         ancienne_colonne = c.execute("""
             SELECT 1 FROM information_schema.columns
             WHERE table_name = 'bourse_dividendes' AND column_name = 'montant_brut'
         """).fetchone()
         if ancienne_colonne:
+            # Requise par l'UPDATE ci-dessous (peut être absente si bourse_parametres existait
+            # déjà avant l'ajout du module Dividendes). Ne pas la sortir de ce `if` : ajoutée puis
+            # supprimée à chaque démarrage, chaque cycle consomme définitivement un numéro de
+            # colonne PostgreSQL, et la table atteint sa limite de 1600 colonnes.
+            c.execute("ALTER TABLE bourse_parametres ADD COLUMN IF NOT EXISTS "
+                      "taux_retenue_source_dividendes NUMERIC(6,4) NOT NULL DEFAULT 0.15")
             c.execute("ALTER TABLE bourse_dividendes ADD COLUMN IF NOT EXISTS montant NUMERIC(14,4)")
             c.execute("""
                 UPDATE bourse_dividendes d SET montant = d.montant_brut * (1 - COALESCE(d.taux_retenue_source, p.taux_retenue_source_dividendes))
