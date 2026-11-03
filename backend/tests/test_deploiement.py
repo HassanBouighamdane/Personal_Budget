@@ -49,3 +49,30 @@ def test_demarrage_ne_consomme_pas_de_numeros_de_colonnes():
     avant = numeros()
     init_db()
     assert numeros() == avant
+
+
+def test_migrations_une_seule_fois_par_version(monkeypatch):
+    """Démarrage à froid : init_db ne tourne qu'une fois par version déployée, et une version dont
+    les migrations ont échoué n'est pas notée (la suivante réessaie)."""
+    sys.path.insert(0, str(RACINE / "backend"))
+    import database
+    from database import db, init_db, migrations_a_faire
+
+    init_db()
+    monkeypatch.setattr(database, "VERSION_DEPLOYEE", "test-version-migrations")
+    with db() as c:
+        c.execute("DELETE FROM migrations_appliquees WHERE version = 'test-version-migrations'")
+    try:
+        try:
+            with migrations_a_faire() as a_faire:
+                assert a_faire
+                raise RuntimeError("échec simulé")
+        except RuntimeError:
+            pass
+        with migrations_a_faire() as a_faire:
+            assert a_faire            # l'échec n'a pas été noté
+        with migrations_a_faire() as a_faire:
+            assert not a_faire        # cette fois, c'est fait
+    finally:
+        with db() as c:
+            c.execute("DELETE FROM migrations_appliquees WHERE version = 'test-version-migrations'")

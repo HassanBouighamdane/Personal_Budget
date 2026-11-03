@@ -94,7 +94,7 @@ Réponse JSON  → le JS génère le HTML (échappé par esc()) et les graphique
 - **Pool de connexions** : `db()` emprunte une connexion à un pool partagé (1 à 10 connexions), la valide (commit) puis la rend. En cas d'exception, le pool annule la transaction (rollback) avant de réutiliser la connexion. Chaque connexion est testée avant d'être prêtée et remplacée si l'hébergeur l'a coupée ; une connexion inactive depuis 5 minutes est fermée.
 - **Suppression douce** : les catégories, sources et titres ne sont jamais supprimés. On met `actif=0`, et l'historique reste intact.
 - **Noms stockés en texte** : une dépense référence sa catégorie par son nom, un revenu sa source, une transaction son code de titre. Renommer l'un d'eux met donc à jour en cascade les lignes déjà saisies.
-- **Schéma idempotent** : il n'y a pas d'outil de migration. `init_db()` s'exécute à chaque démarrage avec `CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS` et `DROP COLUMN IF EXISTS`, sans risque à rejouer.
+- **Schéma idempotent** : il n'y a pas d'outil de migration. `init_db()` s'exécute au démarrage avec `CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS` et `DROP COLUMN IF EXISTS`, sans risque à rejouer. En production, une seule fois par version déployée (voir `migrations_a_faire()` ci-dessous).
 - **Nommage en français** dans tout le code (fonctions, variables, colonnes).
 
 ---
@@ -198,7 +198,9 @@ with db() as c:
 ```
 `row_factory=dict_row` fait que chaque ligne est un `dict` (`row["montant"]`), directement sérialisable en JSON. `app.py` ferme le pool à l'arrêt du serveur.
 
-**`init_db()`**, appelée au démarrage :
+**`migrations_a_faire()`** : décide si le démarrage doit lancer `init_db()` et `remplir_tpcvm_manquantes()`. La version déployée (`VERSION_DEPLOYEE` : commit Git fourni par Vercel ou Render) est notée dans la table `migrations_appliquees` une fois ses migrations réussies ; les démarrages à froid suivants de la même version ne font plus qu'une requête. Un verrou PostgreSQL (`pg_advisory_xact_lock`) empêche plusieurs instances Vercel lancées en même temps d'exécuter les mêmes `CREATE`/`ALTER` en parallèle, ce qui provoquait des erreurs 500 à la première ouverture. En local, sans version connue, les migrations tournent à chaque lancement.
+
+**`init_db()`**, appelée au démarrage (si `migrations_a_faire()` le demande) :
 1. crée les tables et les index manquants (voir [§4](#4-schéma-de-la-base-de-données)) ;
 2. applique les ajustements de schéma du module Bourse, tous idempotents ;
 3. insère les valeurs par défaut dans les tables vides : catégories, sources, objectif d'épargne (5000), compte administrateur, paramètres Bourse, titres BVC ;
@@ -243,7 +245,7 @@ Ces modèles valident automatiquement les données reçues. En cas d'échec, Fas
 ### 3.5 `app.py` — point d'entrée
 
 1. Ajoute `backend/` au `sys.path`, pour que l'application se lance depuis n'importe quel dossier.
-2. Déclare le cycle de vie (`lifespan`) : `init_db()` et `remplir_tpcvm_manquantes()` s'exécutent au démarrage du serveur, pas à l'import du module ; le pool de connexions est fermé à l'arrêt. Importer `app` (tests, build Vercel) ne touche donc pas la base.
+2. Déclare le cycle de vie (`lifespan`) : `init_db()` et `remplir_tpcvm_manquantes()` s'exécutent au démarrage du serveur, pas à l'import du module, et une seule fois par version déployée (`migrations_a_faire()`) ; le pool de connexions est fermé à l'arrêt. Importer `app` (tests, build Vercel) ne touche donc pas la base.
 3. Crée l'application FastAPI. CORS n'est activé que si `CORS_ORIGINS` est renseigné, et seulement pour ces origines.
 4. Branche les routeurs (un par fichier de `routes/`, plus celui de la tâche planifiée `/api/cron`).
 5. Monte `FRONT_DIR` sur `/` **après** les routes API, pour que `/api/...` reste prioritaire.

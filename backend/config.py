@@ -25,6 +25,11 @@ if not DATABASE_URL:
     )
 
 PORT = int(os.environ.get("PORT", 8500))                       # Render fournit PORT automatiquement
+# Version déployée (commit Git), fournie par l'hébergeur : les migrations du schéma ne tournent
+# qu'une fois par version, et non à chaque démarrage à froid (cf. database.migrations_a_faire).
+# Vide en local : elles tournent alors à chaque lancement, comme avant.
+VERSION_DEPLOYEE = (os.environ.get("VERCEL_GIT_COMMIT_SHA") or os.environ.get("RENDER_GIT_COMMIT")
+                    or os.environ.get("VERCEL_DEPLOYMENT_ID") or "").strip()
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() == "true"   # true en production HTTPS
 ADMIN_UTILISATEUR = os.environ.get("ADMIN_UTILISATEUR")
 ADMIN_MOT_DE_PASSE = os.environ.get("ADMIN_MOT_DE_PASSE")
