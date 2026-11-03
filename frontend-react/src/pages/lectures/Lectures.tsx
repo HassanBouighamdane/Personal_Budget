@@ -19,11 +19,11 @@ const AVEC_ANNEE: VueLectures[] = ['journal', 'bilan'];
 /** État de navigation du module Lectures, gardé par App pour survivre aux changements d'onglet.
  *  `initial` : segments de l'URL après « lectures » (ex : ['bilan', '2025']). */
 export function useNavLectures(initial: string[] = []) {
-  const [vue, setVue] = useState<VueLectures>(parmi(initial[0], VUES_LECTURES, 'journal'));
+  const [vue, setVue] = useState<VueLectures>(parmi(initial[0], VUES_LECTURES, 'a_lire'));
   const [annee, setAnnee] = useState(estAnnee(initial[1]) ? +initial[1] : new Date().getFullYear());
   const chemin = () => AVEC_ANNEE.includes(vue) ? [vue, String(annee)] : [vue];
   function appliquer([v, a]: string[]) {
-    setVue(parmi(v, VUES_LECTURES, 'journal'));
+    setVue(parmi(v, VUES_LECTURES, 'a_lire'));
     if (estAnnee(a)) setAnnee(+a);
   }
   return { vue, setVue, annee, setAnnee, chemin, appliquer };

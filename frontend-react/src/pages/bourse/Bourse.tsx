@@ -21,7 +21,7 @@ const PERIODES = ['global', 'mois', 'annee'] as const;
 /** État de navigation du module Bourse, gardé par App pour survivre aux changements d'onglet.
  *  `initial` : segments de l'URL après « bourse » (ex : ['dashboard', 'annee', '2026'] ou ['fiscalite', '2025']). */
 export function useNavBourse(initial: string[] = []) {
-  const [vue, setVue] = useState<VueBourse>(parmi(initial[0], VUES_BOURSE, 'transactions'));
+  const [vue, setVue] = useState<VueBourse>(parmi(initial[0], VUES_BOURSE, 'positions'));   // par défaut : positions
   const [periode, setPeriode] = useState<PeriodeBourse>(initial[0] === 'dashboard' ? parmi(initial[1], PERIODES, 'global') : 'global');   // par défaut : tout l'historique
   const [mois, setMois] = useState(estMois(initial[2]) ? initial[2] : auj().slice(0, 7));
   const [annee, setAnnee] = useState(estAnnee(initial[2]) ? +initial[2] : estAnnee(initial[1]) ? +initial[1] : new Date().getFullYear());
@@ -31,7 +31,7 @@ export function useNavBourse(initial: string[] = []) {
     return [vue];
   }
   function appliquer([v, a, b]: string[]) {
-    const nv = parmi(v, VUES_BOURSE, 'transactions');
+    const nv = parmi(v, VUES_BOURSE, 'positions');
     setVue(nv);
     if (nv === 'dashboard') setPeriode(parmi(a, PERIODES, 'global'));
     if (estMois(b)) setMois(b);
