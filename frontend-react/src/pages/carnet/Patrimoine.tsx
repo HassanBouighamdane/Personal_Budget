@@ -150,13 +150,17 @@ function SoldeDepart({ p }: { p: Patrimoine }) {
   );
 }
 
-/* ---------- Réserve de sécurité ---------- */
-function Reserve({ p }: { p: Patrimoine }) {
+/* ---------- Réserve de sécurité (aussi affichée sur l'accueil) ---------- */
+/** Vert à partir de 6 mois de dépenses couverts, ambre de 3 à 6, rouge en dessous ; gris sans estimation */
+export const couleurReserve = (mois: number | null) =>
+  mois === null ? 'gray' : mois >= 6 ? 'emeraude' : mois >= 3 ? 'ambre' : 'rouge';
+
+export function Reserve({ p }: { p: Patrimoine }) {
   const r = p.reserve;
   if (r.mois_couverts === null) {
     return <Info>Il faut au moins un mois terminé avec des dépenses pour estimer combien de temps ton argent te ferait tenir.</Info>;
   }
-  const couleur = r.mois_couverts >= 6 ? 'emeraude' : r.mois_couverts >= 3 ? 'ambre' : 'rouge';
+  const couleur = couleurReserve(r.mois_couverts);
   const conseil = r.mois_couverts >= 6 ? 'Réserve confortable : au-delà de 6 mois, le surplus peut travailler ailleurs.'
     : r.mois_couverts >= 3 ? 'Réserve correcte. On vise en général entre 3 et 6 mois de dépenses.'
     : `Réserve fragile : il manque ${fmt(Math.max(0, r.depense_moyenne * 3 - r.disponible))} pour atteindre 3 mois de dépenses.`;

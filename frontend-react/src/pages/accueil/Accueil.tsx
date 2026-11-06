@@ -1,9 +1,9 @@
-/* Accueil — l'essentiel du jour, tiré de chaque module : ce qu'il reste à dépenser, la Bourse, la lecture
- * en cours, la note du jour et ce qui demande une action. Chaque bloc mène à son écran. */
+/* Accueil — l'essentiel du jour, tiré de chaque module : ce qu'il reste à dépenser, la réserve de sécurité, la Bourse,
+ * la lecture en cours, la note du jour et ce qui demande une action. Chaque bloc mène à son écran. */
 import type { ReactNode } from 'react';
 import { Badge, Box, Button, Grid, Group, Progress, SimpleGrid, Stack, Text } from '@mantine/core';
 import {
-  IconArrowRight, IconBook2, IconBuildingBank, IconCalendarDue, IconCheck, IconFlame, IconPencilPlus, IconTrendingUp, IconWallet,
+  IconArrowRight, IconBook2, IconBuildingBank, IconCalendarDue, IconCheck, IconFlame, IconPencilPlus, IconShieldCheck, IconTrendingUp, IconWallet,
 } from '@tabler/icons-react';
 
 import { auj, dateFr, fmt, libelleMois } from '../../lib/format';
@@ -13,6 +13,7 @@ import {
 } from '../../lib/queries';
 import { Carte, Chargement, EnTetePage, Kpi, Pastille } from '../../components/ui';
 import { FenetreNoteDuJour, NoteDuJour } from '../lectures/communs';
+import { couleurReserve, Reserve } from '../carnet/Patrimoine';
 
 /** Écran ouvert depuis l'accueil */
 export type CibleAccueil = 'saisie' | 'dash' | 'bourse' | 'lectures' | 'echeances' | 'dettes' | 'patrimoine';
@@ -172,6 +173,13 @@ export function Accueil({ utilisateur, aller }: { utilisateur: string; aller: (c
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 6 }}>
           <Stack gap="lg">
+            {/* Toujours visible : couleur de la pastille selon le niveau de la réserve (comme dans Patrimoine) */}
+            {patrimoine !== null && (
+              <Carte titre="Réserve de sécurité" icone={<Pastille icone={IconShieldCheck} couleur={couleurReserve(reserve ?? null)} />}
+                     droite={<Lien onClick={() => aller('patrimoine')}>Patrimoine</Lien>}>
+                {patrimoine ? <Reserve p={patrimoine} /> : <Chargement lignes={2} />}
+              </Carte>
+            )}
             <CarteLecture aller={aller} />
             {aBourse && (
               <Carte titre="Bourse" icone={<Pastille icone={IconTrendingUp} couleur="emeraude" />} droite={<Lien onClick={() => aller('bourse')}>Portefeuille</Lien>}>
@@ -187,11 +195,6 @@ export function Accueil({ utilisateur, aller }: { utilisateur: string; aller: (c
                   ))}
                 </Stack>
               </Carte>
-            )}
-            {patrimoine && (
-              <Button variant="default" rightSection={<IconArrowRight size={14} />} onClick={() => aller('patrimoine')} style={{ alignSelf: 'flex-start' }}>
-                Voir le détail du patrimoine
-              </Button>
             )}
           </Stack>
         </Grid.Col>
