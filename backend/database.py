@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
-from config import (DATABASE_URL, CATEGORIES_DEFAUT, SOURCES_DEFAUT,
+from config import (DATABASE_URL, VERSION_DEPLOYEE, CATEGORIES_DEFAUT, SOURCES_DEFAUT,
                     ADMIN_UTILISATEUR, ADMIN_MOT_DE_PASSE, GENRES_DEFAUT,
                     OBJECTIF_LECTURE_ANNUEL_DEFAUT, OBJECTIF_LECTURE_MENSUEL_DEFAUT)
 
@@ -155,6 +155,43 @@ def db():
         yield conn
         conn.commit()
 
+# Clé arbitraire du verrou PostgreSQL (pg_advisory_xact_lock) qui sérialise les migrations
+VERROU_MIGRATIONS = 4_815_162_342
+
+
+@contextmanager
+def migrations_a_faire():
+    """Indique (True/False) s'il faut lancer init_db et les migrations pour la version déployée.
+
+    Sur Vercel, chaque démarrage à froid lançait init_db, parfois dans plusieurs instances à la
+    fois (le dashboard envoie ses requêtes en parallèle) : les mêmes CREATE/ALTER concurrents
+    échouaient en 500. Désormais, elles ne tournent qu'une fois par version (VERSION_DEPLOYEE),
+    notée dans la table migrations_appliquees, et sous un verrou : les autres instances attendent
+    la fin de la première puis constatent que c'est fait. La version n'est notée que si le corps
+    du `with` réussit ; sinon la suivante réessaie. Sans version connue (en local) : toujours True."""
+    with db() as c:
+        def deja_faite():
+            if not VERSION_DEPLOYEE:
+                return False
+            # Table absente : base neuve, ou première version qui note ses migrations
+            if not c.execute("SELECT to_regclass('migrations_appliquees') IS NOT NULL ok").fetchone()["ok"]:
+                return False
+            return c.execute("SELECT 1 FROM migrations_appliquees WHERE version = %s",
+                             (VERSION_DEPLOYEE,)).fetchone() is not None
+
+        if deja_faite():           # cas courant : une seule petite requête par démarrage à froid
+            yield False
+            return
+        # Verrou tenu jusqu'à la fin de la transaction de `c`, donc après init_db (autre connexion)
+        c.execute("SELECT pg_advisory_xact_lock(%s)", (VERROU_MIGRATIONS,))
+        if deja_faite():           # une autre instance vient de les faire pendant l'attente
+            yield False
+            return
+        yield True
+        if VERSION_DEPLOYEE:
+            c.execute("INSERT INTO migrations_appliquees(version) VALUES(%s) ON CONFLICT DO NOTHING",
+                      (VERSION_DEPLOYEE,))
+
 def init_db():
     """Crée les tables si besoin, insère les valeurs par défaut et le compte admin."""
     from securite import hacher_mdp   # import local pour éviter un import circulaire
@@ -187,6 +224,11 @@ def init_db():
         ALTER TABLE categories ADD COLUMN IF NOT EXISTS fixe BOOLEAN NOT NULL DEFAULT false;
         -- Description libre d'un revenu (ajoutée après coup : les bases existantes la reçoivent ici)
         ALTER TABLE revenus ADD COLUMN IF NOT EXISTS description TEXT DEFAULT '';
+        -- Versions déployées dont les migrations ont tourné (cf. migrations_a_faire)
+        CREATE TABLE IF NOT EXISTS migrations_appliquees (
+            version TEXT PRIMARY KEY,
+            le      TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
         CREATE TABLE IF NOT EXISTS params (
             cle TEXT PRIMARY KEY,
             valeur DOUBLE PRECISION NOT NULL

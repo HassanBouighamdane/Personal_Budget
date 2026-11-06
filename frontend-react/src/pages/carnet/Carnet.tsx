@@ -15,9 +15,9 @@ const VUES_CARNET = ['dettes', 'echeances', 'patrimoine'] as const;
 /** État de navigation de l'onglet Suivi (dettes, échéances, patrimoine), gardé par App pour survivre aux
  *  changements d'onglet. `initial` : segments de l'URL après « suivi » (ex : ['echeances']). */
 export function useNavCarnet(initial: string[] = []) {
-  const [vue, setVue] = useState<VueCarnet>(parmi(initial[0], VUES_CARNET, 'dettes'));
+  const [vue, setVue] = useState<VueCarnet>(parmi(initial[0], VUES_CARNET, 'patrimoine'));
   const chemin = () => [vue];
-  const appliquer = ([v]: string[]) => setVue(parmi(v, VUES_CARNET, 'dettes'));
+  const appliquer = ([v]: string[]) => setVue(parmi(v, VUES_CARNET, 'patrimoine'));
   return { vue, setVue, chemin, appliquer };
 }
 export type NavCarnet = ReturnType<typeof useNavCarnet>;

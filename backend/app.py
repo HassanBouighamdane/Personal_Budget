@@ -35,15 +35,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from config import FRONT_DIR, DATABASE_URL, PORT, CORS_ORIGINS
-from database import init_db, _pool
+from database import init_db, migrations_a_faire, _pool
 from routes import auth, configuration, transactions, rapports, bourse, lectures, carnet, patrimoine, rappels, sauvegarde
 
 @asynccontextmanager
 async def cycle_de_vie(_app: FastAPI):
-    """Au démarrage du serveur (et non à l'import du module) : schéma de la base et migrations.
-    Importer `app` (tests, analyse du build Vercel) ne touche donc plus la base de données."""
-    init_db()
-    bourse.remplir_tpcvm_manquantes()
+    """Au démarrage du serveur (et non à l'import du module) : schéma de la base et migrations,
+    une seule fois par version déployée. Importer `app` (tests, analyse du build Vercel) ne
+    touche donc pas la base de données."""
+    with migrations_a_faire() as a_faire:
+        if a_faire:
+            init_db()
+            bourse.remplir_tpcvm_manquantes()
     yield
     _pool.close()
 
