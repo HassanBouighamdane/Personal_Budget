@@ -173,7 +173,7 @@ export function Positions() {
                 <Table.Th className="num">Cours actuel</Table.Th><ThTri cle="valeur" num {...th}>Valeur marché</ThTri>
                 <ThTri cle="pv" num {...th}>+/- value latente</ThTri><ThTri cle="perf" num {...th}>Perf.</ThTri>
                 <ThTri cle="rdt" num {...th}>
-                  <Tooltip label="Dividendes nets des 12 derniers mois ÷ coût de la position (÷ valeur de marché dessous)" multiline w={240}>
+                  <Tooltip label="Dividendes des 12 derniers mois ramenés aux actions détenues aujourd'hui, ÷ coût de la position (÷ valeur de marché dessous)" multiline w={260}>
                     <span>Rdt div.</span>
                   </Tooltip>
                 </ThTri>
@@ -197,7 +197,7 @@ export function Positions() {
                   <Table.Td className="num chiffre" c={signe(p.performance_latente)}>{pctFr(p.performance_latente)}</Table.Td>
                   <Table.Td className="num chiffre">
                     {p.dividendes_12m ? (
-                      <Tooltip label={`${fmt(p.dividendes_12m)} reçus sur 12 mois`} withArrow>
+                      <Tooltip label={`${fmt(p.dividendes_12m)} par an sur tes ${p.quantite_detenue} actions (dividendes des 12 derniers mois)`} withArrow>
                         <Stack gap={0} align="flex-end">
                           <span>{pctFr(p.rendement_cout)}</span>
                           <Text fz={10} c="dimmed">{pctFr(p.rendement_marche)} au cours</Text>
@@ -300,7 +300,19 @@ export function DashboardBourse({ nav }: { nav: NavBourse }) {
             <Kpi label="Apports nets" icone={IconArrowsExchange} teinte="gray" valeur={fmt(d.apports_nets)} aide="argent sorti de ta banque (apports − retraits)" />
             <Kpi label="Performance globale" icone={IconTrendingUp} teinte="emeraude" couleur={signe(d.performance_globale)}
                  valeur={(d.performance_globale >= 0 ? '+' : '') + fmt(d.performance_globale)}
-                 aide={d.apports_nets > 0 ? pctFr(d.performance_globale_pct) + ' des apports nets' : 'saisis tes apports pour la calculer'} />
+                 aide={d.apports_nets <= 0 ? 'saisis tes apports pour la calculer' : (
+                   <>
+                     {pctFr(d.performance_globale_pct)} des apports nets
+                     {d.rendement_annualise !== null && (
+                       <Tooltip multiline w={280} withArrow
+                                label="Rendement annuel tenant compte de la date de chaque apport et retrait (TRI). Comparable à un livret ou au MASI ; un apport récent ne le fait pas baisser.">
+                         <span style={{ display: 'block', textDecoration: 'underline dotted', textUnderlineOffset: 3 }}>
+                           soit <b style={{ color: signe(d.rendement_annualise) }}>{(d.rendement_annualise >= 0 ? '+' : '') + pctFr(d.rendement_annualise)}</b> par an
+                         </span>
+                       </Tooltip>
+                     )}
+                   </>
+                 )} />
           </GrilleKpi>
 
           <TitreSection>Portefeuille actuel</TitreSection>

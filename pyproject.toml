@@ -1,6 +1,6 @@
-# Configuration lue par Vercel (cf. DEPLOY_VERCEL.md). Render n'en tient pas compte : il installe
-# backend/requirements.txt. Les deux listes de dépendances doivent rester identiques
-# (vérifié par backend/tests/test_deploiement.py) ; gunicorn et pytest ne servent pas sur Vercel.
+# Configuration lue par Vercel (cf. DEPLOY_VERCEL.md). En local, on installe backend/requirements.txt :
+# les deux listes de dépendances doivent rester identiques (vérifié par backend/tests/test_deploiement.py),
+# à pytest près, qui ne sert pas sur Vercel.
 [project]
 name = "mon-budget"
 version = "2.2.0"

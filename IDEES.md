@@ -5,56 +5,60 @@ From a review of the code on 2026-10-05, updated on 2026-10-10 and 2026-11-11. E
 ## 1. Budget
 
 1. **Recurring transactions** (M): rent, subscriptions and salary are retyped every month. Add a `recurrences` table (amount, category or source, day of month, active) and a "generate this month's entries" button on Saisie. Store the last generated month per recurrence so pressing twice does nothing, and clamp day 31 to the month's last day. Categories marked "Fixe" are the natural first candidates; "Dupliquer" already covers one-off copies.
-2. **Budget alert at entry time** (S): show "Restaurants: 92 % of budget used" when saving an expense. Can be done in the frontend from the month's `/resume` data, which is usually already cached.
-3. **Savings goals by project** (M): named goals (travel, emergency fund, car) with target, deadline and progress bar. This is new, not a replacement of `objectif_epargne` (which is a monthly target). Decide first how money is assigned to a goal: manual contributions are the simplest. Tags could feed the "spent" side.
-4. **Same month last year** (S): the month view compares with the previous month only (up to the same day for the current month). Add the same month of the previous year, which is more meaningful for seasonal spending (Ramadan, summer, back-to-school).
+2. **Savings goals fed by a tag** (S): a goal is filled by hand today ("Mettre de côté" / "Reprendre"). Optionally link a goal to a tag (`#voyage-turquie`): expenses with that tag would show as "already spent" on the goal, so the trip budget is followed without retyping.
 
 ## 2. Bourse
 
-5. **Price history** (S to start, M for the chart): `bourse_prix` keeps one price per stock. Insert a row into `bourse_prix_historique(titre, date, cours)` in `maj_prix` and `_actualiser_cours` **now**, so there is history when the portfolio-value chart is built. The daily cron already calls `_actualiser_cours` every morning, so this fills itself with no extra request (one row per stock and day: `ON CONFLICT (titre, date) DO UPDATE`). Holdings at a past date can already be rebuilt from transactions.
-6. **Bulk price update** (S): one screen listing every held stock with its price field, saved in one request, instead of one update per stock.
-7. **Annualised return (XIRR)** (M): `performance_globale_pct` is (portfolio − net deposits) ÷ net deposits, so it ignores *when* money was deposited: a deposit made yesterday lowers the % although nothing moved. Deposits and withdrawals are dated, so a money-weighted annual return is computable and is the honest number to compare with a savings account or the MASI. Show it in the "Performance globale" card, next to the current %.
-8. **Dividend yield on shares actually held** (S): `calculer_positions` divides the last 12 months of dividends by the cost of the position held *today*. After a partial sale it is inflated (dividends were paid on more shares). The expected-dividends route already rebuilds the quantity held on each payment date to get a dividend per share; extract that into a helper and reuse it here (dividend per share × current quantity).
+5. **Price history** (S to start, M for the chart): `bourse_prix` keeps one price per stock. Insert a row into `bourse_prix_historique(titre, date, cours)` in `maj_prix` and `_actualiser_cours`, so a portfolio-value chart per stock becomes possible. The daily task already calls `_actualiser_cours` every morning, so this fills itself with no extra request (one row per stock and day: `ON CONFLICT (titre, date) DO UPDATE`). Holdings at a past date can already be rebuilt from transactions. Like the net-worth curve, the history only exists from the day it is enabled.
+6. **Bulk price update** (S, now low value): prices are fetched automatically every morning and when the app opens, so a bulk screen only helps for stocks set to manual or when the sources fail. A smaller version is an "out-of-date prices" list: held stocks whose price is more than 3 days old.
 
 ## 3. Across modules
 
-10. **Net worth curve** (M): net worth now includes other assets, debts and an opening balance (Suivi → Patrimoine), but only as today's figure. A curve over time needs the price history (idea 5) for the Bourse part, and a history of the manual asset values. Cheaper start (S): have the daily cron write `calculer_patrimoine(auj)["total"]` and the Bourse total to a `patrimoine_historique(date, total, bourse)` table. The weekly summary already keeps last Monday's portfolio value, but only one value, in `params`. The curve then builds itself from that day on, and the exact rebuild of the past can come later.
-11. **Warn when the daily task stops** (S): `cron_journal` now records each run, but it is only visible in Paramètres. If the last successful run is more than two days old, show it under "what needs action" on the home page. The Vercel cron can fail silently (an expired secret, or a deploy that drops `vercel.json`), and the reminders, summaries and monthly backup all depend on it.
+10. **Backfill the net-worth curve** (L): the curve (Suivi → Patrimoine → Évolution) starts on 2026-11-11 because past prices and past asset values were not kept. With the price history (5), the Bourse part of earlier days could be rebuilt from transactions; the manual assets would still be flat at their current value. Only worth it if a long curve matters.
 
 ## 5. Backend best practices
 
-- **Numbered migrations** (M): since 2026-11-03, `init_db()` runs once per deployed version, under a lock (`migrations_appliquees`, see [Done](#done)). It still replays *all* the DDL each time, and data migrations are hidden `if` blocks in it. That is how one of them added and dropped a column on every start until the table nearly hit PostgreSQL's 1600-column limit. Numbered SQL files in `backend/migrations/`, each applied once and recorded, make data migrations like the `TEXT` dates safe. `migrations_appliquees` can become that record.
-- **Pick one host** (S): the app is set up for both Render and Vercel, which means two requirement lists to keep in sync, two version variables, and a cron that only exists on Vercel (Render's free plan has none). Once Vercel has proved itself, switch Render off and drop `requirements.txt`, or keep it only for local use.
-- **`DATE` and `NUMERIC` in the Budget tables** (M): Bourse already uses them. `DOUBLE PRECISION` amounts accumulate rounding errors. Do it as the first real migration; `rapports.py` now has its first tests, extend them to the day and global views before.
+- **Numbered migrations** (M): since 2026-11-03, `init_db()` runs once per deployed version, under a lock (`migrations_appliquees`). It still replays *all* the DDL each time, and data migrations are hidden `if` blocks in it (the `modifie_le` columns added on 2026-11-11 are one more). That is how one of them added and dropped a column on every start until the table nearly hit PostgreSQL's 1600-column limit. Numbered SQL files in `backend/migrations/`, each applied once and recorded, make data migrations like the `TEXT` dates safe. `migrations_appliquees` can become that record.
+- **`DATE` and `NUMERIC` in the Budget tables** (M): Bourse already uses them. `DOUBLE PRECISION` amounts accumulate rounding errors. Do it as the first real migration; `rapports.py` has tests for the month, week and year views, extend them to the day and global views before.
 - **Foreign keys instead of manual cascades** (M): `depenses.categorie`, `revenus.source` and Bourse `titre` reference names without constraints, and renames are cascaded by hand. `FOREIGN KEY ... ON UPDATE CASCADE` on the name would replace the `_verifier_categorie` and `_valider_titre` checks and the rename code. (`budgets_historique` already uses the category id.)
-- **Health check** (S): `GET /api/health` doing `SELECT 1`, for Render's health check and uptime monitoring.
-- **Logging** (S): no logging is configured; a 500 on Render leaves only a stack trace. Log unhandled exceptions with the route, and the start-up migrations.
-- **`updated_at` columns** (S): only `depenses` and `revenus` have `cree_le`. A modification date on every table helps debugging and any future sync or export.
+- **Logging** (S): no logging is configured, and Vercel keeps logs for one hour only. Log unhandled exceptions with the route, and the start-up migrations; `cron_journal` shows that a table in the database is a simple way to keep what matters longer.
+- **Health check** (S, low value on Vercel): `GET /api/health` doing `SELECT 1`, for an external uptime monitor. The home page already warns when the morning task stops.
 
 ## 6. Security
 
 - **Security headers** (S): add `Content-Security-Policy`, `X-Frame-Options: DENY` (or `frame-ancestors`), `X-Content-Type-Options: nosniff` and `Referrer-Policy` with a small middleware.
-- **Rate limiter in the database** (S): the login limiter is in memory, reset on restart and per process (DOCUMENTATION.md §8). A small `echecs_login` table fixes both.
-- **Input limits** (S): descriptions and names have no max length, and amounts no upper bound. Add `max_length` and `le=` to the Pydantic models. Also strip names before validating: a category or source named `"  "` passes `min_length=1` and is saved as `""`.
+- **Rate limiter in the database** (S): the login limiter is in memory, reset on restart and per process (DOCUMENTATION.md §8). On Vercel each instance has its own, so it barely limits anything. A small `echecs_login` table fixes both.
+- **Input limits** (S): Budget descriptions and names have no max length, and amounts no upper bound (the newer Suivi and goal models have them). Add `max_length` and `le=` to the remaining Pydantic models. Also strip names before validating: a category or source named `"  "` passes `min_length=1` and is saved as `""`.
 
 ## 7. Tests and tooling
 
-- **Separate test database** (S): tests run against the `.env` database and only rely on a `ZZTEST` prefix. Read `TEST_DATABASE_URL` and refuse to run if it is missing or equals `DATABASE_URL`. Tests also don't run `init_db()`, so a database behind the code fails with `UndefinedColumn` until the app has been started once.
-- **More tests for `rapports.py`** (S): `test_rapports.py` and `test_budget.py` cover the projection, fixed costs, comparisons, year statistics and per-month budgets. Still missing: the global view, and outside reports, auth and the login limiter.
-- **Pinned dependencies** (S): `requirements.txt` has no versions, so a deploy can pull a breaking FastAPI or psycopg release. Pin them (or use `uv` with a lock file). `package-lock.json` already covers the frontend.
+- **Separate test database** (S): tests run against the `.env` database and only rely on a `ZZTEST` prefix or dates in 1901. Read `TEST_DATABASE_URL` and refuse to run if it is missing or equals `DATABASE_URL`. Tests also don't run `init_db()`, so a database behind the code fails with `UndefinedColumn` until the app has been started once (after the 2026-11-11 changes: start the app locally once before `pytest`).
+- **More tests** (S): still missing the global view, auth and the login limiter.
+- **Pinned dependencies** (S): `requirements.txt` and `pyproject.toml` have no versions, so a deploy can pull a breaking FastAPI or psycopg release. Pin them (or use `uv` with a lock file). `package-lock.json` already covers the frontend.
 - **CI** (S): a GitHub Actions workflow running `pytest` against a Postgres service container, `npm run typecheck`, and `ruff check`.
-- **Frontend tests** (S to start): Vitest for `lib/format.ts`, `lib/csv.ts` (date and amount parsing of bank statements) and the filtering/total logic in `Transactions.tsx`, which is easy to break.
-- **Build `dist/` on deploy** (S): committing `dist/` creates a new hashed bundle in every diff and merge conflicts. Render can run `npm ci && npm run build` at deploy time; keep the commit only if the Python-only server matters.
+- **Frontend tests** (S to start): Vitest for `lib/format.ts`, `lib/csv.ts` (date and amount parsing of bank statements), the budget alert of the expense form and `alerteTache` on the home page.
+- **Build `dist/` on deploy** (S): committing `dist/` creates a new hashed bundle in every diff and merge conflicts. Vercel can run `npm ci && npm run build` in `frontend-react/` at deploy time (a build command in `vercel.json`); the committed `dist/` then only serves local runs.
 
 ## Suggested order
 
-1. The separate test database: it protects the data.
-2. Start recording history now, from the daily cron: prices (5) and the net worth snapshot (10). History only exists from the day it is enabled, and nearly a month has passed since this was first suggested.
-3. Daily friction: budget alert (2), recurring transactions (1), warning when the daily task stops (11).
-4. Foundations: more tests for `rapports.py`, numbered migrations, then `DATE`/`NUMERIC`.
-5. Then the larger features: net worth chart (10), XIRR (7), savings goals (3).
+1. The separate test database: it protects the data, and the test suite keeps growing.
+2. Price history (5): like the net-worth curve, it only exists from the day it is enabled.
+3. Daily friction: recurring transactions (1).
+4. Foundations: numbered migrations, then `DATE`/`NUMERIC`, then pinned dependencies and CI.
+5. Then the smaller extras: goals fed by a tag (2), out-of-date prices (6).
 
 ## Done
+
+**Built on 2026-11-11** (type-checked and built; the backend tests below need a database and were written but not run here)
+- **Budget alert at entry time** (Saisie): under the category, how much of its monthly budget is already spent (for the month of the expense's date) and the % with the amount typed. After saving, an amber notification from 80 %, red above 100 %. Computed in the browser from `/api/resume`.
+- **Savings goals by project** (Suivi → Objectifs): goals with a target and an optional deadline, contributions in and out ("Mettre de côté" / "Reprendre"), progress, monthly amount needed to meet the deadline, late goals on the home page, archive. The money stays in the cash total: "Liquidités libres" shows cash minus what is set aside. Tables `objectifs`, `objectifs_versements`; `routes/objectifs.py`; `tests/test_objectifs.py`.
+- **Same month last year** (Dashboard → Mois): an "N−1" badge on income and spending, same "up to the same day" rule for the current month, and last year's amount per category in the "Budget vs Réel" tooltip.
+- **Annualised return (XIRR)**: `taux_rendement_annualise()` (bisection), from 90 days of history; shown under "Performance globale" (Bourse) and on the home page.
+- **Dividend yield on shares actually held**: `dividendes_par_action()` is shared by the yield and the expected dividends; a partial sale no longer inflates the yield.
+- **Net worth curve**: `patrimoine_historique` gets one row a day (morning task, and each read of `/api/patrimoine`); "Évolution" card over 3 months, 1 year or everything, with the Bourse part. The morning task now refreshes prices and records the snapshot even without a message channel.
+- **Warn when the daily task stops**: "À traiter" on the home page shows it when the last successful run is more than 36 hours old or the last run failed (`dernier_succes` in `/api/rappels/etat`).
+- **One host (Vercel)**: Render removed from the code and docs (`RENDER_GIT_COMMIT`, `gunicorn`); `requirements.txt` is kept for local installs and must match `pyproject.toml`.
+- **`modifie_le` columns**: on every data table, kept up to date by the `trg_modifie_le` trigger; existing rows got their `cree_le`.
 
 Built on 2026-10-10 (the three Suivi and reminder items were added the same day), with tests in `backend/tests/` and checked in a browser.
 
@@ -89,8 +93,8 @@ Built on 2026-10-10 (the three Suivi and reminder items were added the same day)
 - **Lectures: ISBN lookup** from Open Library: removed on 2026-10-10 at the user's request. Covers already fetched are kept and still shown; the `isbn` columns stay in the database but are no longer filled.
 - **URL navigation**: tab, view and period in the address; refresh keeps the page, back/forward work, views can be bookmarked.
 - **Startup in `lifespan`**: `init_db()` and the pool close moved from import time / `@app.on_event` into FastAPI's lifespan, so importing `app` no longer touches the database (needed for Vercel's build).
-- **Vercel hosting**: `pyproject.toml`, `vercel.json` and DEPLOY_VERCEL.md, alongside Render.
-- **Migrations once per version** (2026-11-03): `migrations_a_faire()` runs `init_db()` only on the first start of a deployed version (`VERSION_DEPLOYEE`, the Git commit from Vercel or Render), under `pg_advisory_xact_lock`. This fixed the 500s when several Vercel instances started at once. A test checks that a start no longer uses up PostgreSQL column numbers.
+- **Vercel hosting**: `pyproject.toml`, `vercel.json` and DEPLOY_VERCEL.md (Render was switched off later).
+- **Migrations once per version** (2026-11-03): `migrations_a_faire()` runs `init_db()` only on the first start of a deployed version (`VERSION_DEPLOYEE`, the Git commit from Vercel), under `pg_advisory_xact_lock`. This fixed the 500s when several Vercel instances started at once. A test checks that a start no longer uses up PostgreSQL column numbers.
 - **Daily task log** (2026-10-12): each call of `/api/cron/quotidien` is saved in `cron_journal` (last 30) with what was sent and on which channels, or the error, and the last runs are shown in Paramètres.
 - **Old frontend removed**: `frontend/` (HTML/JS, no longer maintained) is deleted; the server only serves `frontend-react/dist/` and prints a warning if it is missing.
 

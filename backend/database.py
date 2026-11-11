@@ -2,6 +2,7 @@
 """Accès à la base PostgreSQL : connexion et initialisation du schéma."""
 from contextlib import contextmanager
 
+from psycopg import sql
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
@@ -191,6 +192,43 @@ def migrations_a_faire():
         if VERSION_DEPLOYEE:
             c.execute("INSERT INTO migrations_appliquees(version) VALUES(%s) ON CONFLICT DO NOTHING",
                       (VERSION_DEPLOYEE,))
+
+# Tables de données : chacune reçoit `modifie_le`, la date de la dernière modification d'une ligne.
+# Un déclencheur PostgreSQL la tient à jour, y compris pour un UPDATE fait hors de l'application.
+TABLES_MODIFIE_LE = (
+    "categories", "depenses", "revenus", "sources_revenus", "budgets_historique", "params", "utilisateurs",
+    "bourse_parametres", "bourse_transactions", "bourse_titres", "bourse_dividendes", "bourse_frais",
+    "bourse_mouvements", "bourse_cibles_secteur",
+    "lectures_livres", "lectures_genres", "lectures_a_lire", "lectures_notes", "lectures_prets",
+    "dettes", "dettes_remboursements", "echeances", "actifs", "objectifs", "objectifs_versements",
+)
+
+
+def _colonnes_modifie_le(c):
+    """Ajoute `modifie_le` aux tables qui ne l'ont pas encore (une seule fois : ajouter et
+    supprimer une colonne à chaque démarrage consommerait des numéros de colonne, cf.
+    test_deploiement) et (re)crée le déclencheur qui la met à jour à chaque UPDATE."""
+    c.execute("""CREATE OR REPLACE FUNCTION maj_modifie_le() RETURNS trigger AS $$
+                 BEGIN NEW.modifie_le = now(); RETURN NEW; END $$ LANGUAGE plpgsql""")
+    colonnes = c.execute("""SELECT table_name, column_name FROM information_schema.columns
+                            WHERE table_schema = current_schema() AND column_name IN ('modifie_le', 'cree_le')""").fetchall()
+    ont = lambda colonne: {r["table_name"] for r in colonnes if r["column_name"] == colonne}
+    deja, avec_cree_le = ont("modifie_le"), ont("cree_le")
+    for t in TABLES_MODIFIE_LE:
+        table = sql.Identifier(t)
+        if t not in deja:
+            c.execute(sql.SQL("ALTER TABLE {} ADD COLUMN modifie_le TIMESTAMPTZ").format(table))
+            # Lignes existantes : leur date de création si la table la garde, sinon celle de la migration
+            if t in avec_cree_le:
+                c.execute(sql.SQL("UPDATE {} SET modifie_le = cree_le").format(table))
+            c.execute(sql.SQL("UPDATE {} SET modifie_le = now() WHERE modifie_le IS NULL").format(table))
+            c.execute(sql.SQL("ALTER TABLE {} ALTER COLUMN modifie_le SET DEFAULT now(), "
+                              "ALTER COLUMN modifie_le SET NOT NULL").format(table))
+        # DROP + CREATE plutôt que CREATE OR REPLACE TRIGGER (PostgreSQL 14+ seulement)
+        c.execute(sql.SQL("DROP TRIGGER IF EXISTS trg_modifie_le ON {}").format(table))
+        c.execute(sql.SQL("CREATE TRIGGER trg_modifie_le BEFORE UPDATE ON {} "
+                          "FOR EACH ROW EXECUTE FUNCTION maj_modifie_le()").format(table))
+
 
 def init_db():
     """Crée les tables si besoin, insère les valeurs par défaut et le compte admin."""
@@ -520,6 +558,42 @@ def init_db():
             cree_le TIMESTAMP NOT NULL DEFAULT now()
         );
 
+        -- Objectifs d'épargne par projet (voyage, fonds d'urgence, voiture). Un versement met de
+        -- l'argent de côté pour l'objectif : il reste dans les liquidités (ce n'est ni une dépense
+        -- ni un transfert), il est seulement réservé. Négatif = argent repris à l'objectif.
+        CREATE TABLE IF NOT EXISTS objectifs (
+            id          SERIAL PRIMARY KEY,
+            nom         VARCHAR(100) NOT NULL,
+            cible       NUMERIC(14,2) NOT NULL CHECK (cible > 0),
+            date_limite DATE,
+            note        TEXT NOT NULL DEFAULT '',
+            archive     BOOLEAN NOT NULL DEFAULT false,      -- atteint ou abandonné : sorti de la liste en cours
+            cree_le     TIMESTAMP NOT NULL DEFAULT now()
+        );
+        CREATE TABLE IF NOT EXISTS objectifs_versements (
+            id             SERIAL PRIMARY KEY,
+            objectif_id    INTEGER NOT NULL REFERENCES objectifs(id) ON DELETE CASCADE,
+            date_operation DATE NOT NULL,
+            montant        NUMERIC(14,2) NOT NULL CHECK (montant <> 0),
+            libelle        VARCHAR(200) NOT NULL DEFAULT '',
+            cree_le        TIMESTAMP NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_objectifs_versements ON objectifs_versements (objectif_id);
+
+        -- Patrimoine net noté une fois par jour (tâche du matin, et à chaque ouverture de l'écran
+        -- Patrimoine) : la courbe se construit jour après jour. Les cours passés n'étant pas
+        -- conservés, les jours d'avant ne peuvent pas être recalculés.
+        CREATE TABLE IF NOT EXISTS patrimoine_historique (
+            date          DATE PRIMARY KEY,
+            total         NUMERIC(14,2) NOT NULL,
+            liquidites    NUMERIC(14,2) NOT NULL,
+            bourse        NUMERIC(14,2) NOT NULL,
+            autres_actifs NUMERIC(14,2) NOT NULL,
+            creances      NUMERIC(14,2) NOT NULL,
+            dettes        NUMERIC(14,2) NOT NULL,
+            maj_le        TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
         """)
 
         # ------------------------------------------------------------------
@@ -592,6 +666,8 @@ def init_db():
                             WHERE table_name = 'sources_revenus' AND column_name = 'travail'""").fetchone():
             c.execute("ALTER TABLE sources_revenus ADD COLUMN travail BOOLEAN NOT NULL DEFAULT true")
             c.execute("UPDATE sources_revenus SET travail = false WHERE nom = 'Remboursement'")
+
+        _colonnes_modifie_le(c)
 
         with c.cursor() as cur:
             if c.execute("SELECT COUNT(*) n FROM categories").fetchone()["n"] == 0:

@@ -20,7 +20,7 @@ Application web personnelle pour suivre son budget (dépenses, revenus, épargne
 8. [Points restants](#8-points-restants)
 9. [Module Lectures](#9-module-lectures)
 10. [Suivi, rappels et résumés](#10-suivi-rappels-et-résumés)
-11. [Patrimoine, réserve de sécurité et zakat](#11-patrimoine-réserve-de-sécurité-et-zakat)
+11. [Patrimoine, objectifs, réserve de sécurité et zakat](#11-patrimoine-objectifs-réserve-de-sécurité-et-zakat)
 12. [Accueil, sauvegarde, sessions et installation](#12-accueil-sauvegarde-sessions-et-installation)
 
 ---
@@ -112,7 +112,7 @@ Réponse JSON  → le JS génère le HTML (échappé par esc()) et les graphique
 DATABASE_URL=postgresql://user:motdepasse@hote:5432/nom_base
 ADMIN_UTILISATEUR=hassan
 ADMIN_MOT_DE_PASSE=un_mot_de_passe_solide
-PORT=8500               # optionnel, 8500 par défaut (Render fournit PORT automatiquement)
+PORT=8500               # optionnel, 8500 par défaut (lancement local)
 COOKIE_SECURE=false     # true en production derrière HTTPS
 CORS_ORIGINS=           # optionnel : seulement si le frontend est hébergé sur un autre domaine
 
@@ -198,7 +198,7 @@ with db() as c:
 ```
 `row_factory=dict_row` fait que chaque ligne est un `dict` (`row["montant"]`), directement sérialisable en JSON. `app.py` ferme le pool à l'arrêt du serveur.
 
-**`migrations_a_faire()`** : décide si le démarrage doit lancer `init_db()` et `remplir_tpcvm_manquantes()`. La version déployée (`VERSION_DEPLOYEE` : commit Git fourni par Vercel ou Render) est notée dans la table `migrations_appliquees` une fois ses migrations réussies ; les démarrages à froid suivants de la même version ne font plus qu'une requête. Un verrou PostgreSQL (`pg_advisory_xact_lock`) empêche plusieurs instances Vercel lancées en même temps d'exécuter les mêmes `CREATE`/`ALTER` en parallèle, ce qui provoquait des erreurs 500 à la première ouverture. En local, sans version connue, les migrations tournent à chaque lancement.
+**`migrations_a_faire()`** : décide si le démarrage doit lancer `init_db()` et `remplir_tpcvm_manquantes()`. La version déployée (`VERSION_DEPLOYEE` : commit Git fourni par Vercel) est notée dans la table `migrations_appliquees` une fois ses migrations réussies ; les démarrages à froid suivants de la même version ne font plus qu'une requête. Un verrou PostgreSQL (`pg_advisory_xact_lock`) empêche plusieurs instances Vercel lancées en même temps d'exécuter les mêmes `CREATE`/`ALTER` en parallèle, ce qui provoquait des erreurs 500 à la première ouverture. En local, sans version connue, les migrations tournent à chaque lancement.
 
 **`init_db()`**, appelée au démarrage (si `migrations_a_faire()` le demande) :
 1. crée les tables et les index manquants (voir [§4](#4-schéma-de-la-base-de-données)) ;
@@ -363,7 +363,15 @@ Les objectifs de lecture sont dans `params` : `objectif_lecture_annuel` (24 par 
 
 Deux clés de `params` servent à la tâche planifiée : `cron_dernier_jour` (dernier jour traité, en numéro de jour) et `resume_hebdo_patrimoine` (valeur du compte Bourse au dernier résumé).
 
+| `objectifs` | `nom`, `cible`, `date_limite` (optionnelle), `note`, `archive` | objectifs d'épargne par projet (voir §11) |
+| `objectifs_versements` | `objectif_id`, `date_operation`, `montant` (négatif = argent repris), `libelle` | supprimés avec leur objectif (`ON DELETE CASCADE`) |
+| `patrimoine_historique` | `date` PK, `total`, `liquidites`, `bourse`, `autres_actifs`, `creances`, `dettes`, `maj_le` | patrimoine noté une fois par jour, pour sa courbe (voir §11) |
+
 Les modules Bourse et Suivi utilisent les types `DATE` et `NUMERIC`. Le module Budget utilise `TEXT` pour les dates et `DOUBLE PRECISION` pour les montants.
+
+**`modifie_le`** : chaque table de données (Budget, Bourse, Lectures, Suivi, objectifs, `params`, `utilisateurs`) a une colonne `modifie_le TIMESTAMPTZ`, mise à jour par le déclencheur `trg_modifie_le` (fonction `maj_modifie_le()`) à chaque `UPDATE`, y compris fait hors de l'application. À sa création, elle a reçu `cree_le` pour les lignes existantes (ou la date de la migration pour les tables qui n'en ont pas). La liste est `TABLES_MODIFIE_LE` dans `database.py`.
+
+`cron_journal` garde les 30 derniers appels de la tâche planifiée (`le`, `etat`, `detail`) ; `migrations_appliquees` les versions déployées dont les migrations ont tourné.
 
 ---
 
@@ -394,7 +402,7 @@ Toutes les routes sauf `/api/login`, `/api/logout` et `/api/cron/quotidien` (pro
 | GET | `/api/transactions?mois=` | — | `{depenses, revenus}` |
 | GET | `/api/resume_jour?date=` | — | résumé du jour |
 | GET | `/api/resume_semaine?date=` | — | résumé de la semaine |
-| GET | `/api/resume?mois=` | — | résumé du mois |
+| GET | `/api/resume?mois=` | — | résumé du mois, comparé au mois précédent et au même mois l'an dernier (`*_annee_precedente`, `budget_vs_reel[].an_dernier`) |
 | GET | `/api/resume_annuel?annee=` | — | résumé de l'année |
 | GET | `/api/resume_global` | — | résumé de tout l'historique |
 | GET / PUT | `/api/bourse/parametres` | `{taux_tpcvm}` | `ParametresBourse` |
@@ -407,11 +415,11 @@ Toutes les routes sauf `/api/login`, `/api/logout` et `/api/cron/quotidien` (pro
 | GET / POST / PUT / DELETE | `/api/bourse/dividendes[/{id}]` | `?mois=&annee=` / `{date_operation, titre, montant}` | `[DividendeOut]` |
 | GET / POST / PUT / DELETE | `/api/bourse/frais[/{id}]` | `?mois=&annee=` / `{date_operation, libelle, montant}` | `[FraisBourseOut]` |
 | GET / POST / PUT / DELETE | `/api/bourse/mouvements[/{id}]` | `?mois=&annee=` / `{date_operation, type_mouvement, montant, libelle}` | `[MouvementBourseOut]` |
-| GET | `/api/bourse/positions` | — | `[PositionBourse]`, avec dividendes des 12 derniers mois et rendement (sur coût, sur valeur de marché) |
+| GET | `/api/bourse/positions` | — | `[PositionBourse]`, avec dividendes des 12 derniers mois ramenés aux actions détenues aujourd'hui et rendement (sur coût, sur valeur de marché) |
 | GET / PUT | `/api/bourse/cibles` | `{cibles: [{secteur, cible}]}` (ratio, somme ≤ 1) | `[{secteur, cible}]` ; PUT remplace toutes les cibles |
 | GET | `/api/bourse/fiscalite` | `?annee=` | plus et moins-values, résultat de cession, TPCVM retenue et « au taux », dividendes, détail par titre |
 | GET | `/api/bourse/gains` | `?mois=&annee=` | `[GainRealise]` |
-| GET | `/api/bourse/dashboard` | `?mois=&annee=` | `DashboardBourse` |
+| GET | `/api/bourse/dashboard` | `?mois=&annee=` | `DashboardBourse`, dont `rendement_annualise` (TRI, `null` avant 3 mois) |
 | GET / POST / PUT / DELETE | `/api/lectures/livres[/{id}]` | `?annee=` / `LivreIn` | `[LivreOut]` / `LivreOut` / 204 |
 | GET | `/api/lectures/auteurs` | — | `[str]` (autocomplétion) |
 | GET / POST / PUT / DELETE | `/api/lectures/a_lire[/{id}]` | `ALireIn` (`date_debut` renseignée = en cours) | `[ALireOut]` / `ALireOut` / 204 |
@@ -427,7 +435,11 @@ Toutes les routes sauf `/api/login`, `/api/logout` et `/api/cron/quotidien` (pro
 | GET | `/api/lectures/notes/export_tout` | — | archive ZIP, un fichier Markdown par livre annoté |
 | GET / POST / PUT / DELETE | `/api/lectures/prets[/{id}]` | `PretLivreIn` | `[PretLivreOut]` (avec `jours`) / `PretLivreOut` / 204 |
 | GET | `/api/bourse/dividendes/calendrier` | — | `{total, lignes}` : dividendes attendus sur 12 mois |
-| GET | `/api/patrimoine` | — | composition, actifs, réserve de sécurité, zakat (voir §11) |
+| GET | `/api/patrimoine` | — | composition, actifs, réserve de sécurité, zakat (voir §11) ; note aussi le patrimoine du jour dans `patrimoine_historique` |
+| GET | `/api/patrimoine/historique` | `?jours=` (facultatif) | `[{date, total, liquidites, bourse, autres_actifs, creances, dettes}]`, du plus ancien au plus récent |
+| GET / POST / PUT / DELETE | `/api/objectifs[/{id}]` | `{nom, cible, date_limite, note, archive}` | `[ProjetOut]` / `ProjetOut` (avec `verse`, `reste`, `progression`, `mois_restants`, `par_mois`, `en_retard`, `versements`) / 204 |
+| POST | `/api/objectifs/{id}/versements` | `{date_operation, montant, libelle}` (montant négatif = argent repris) | `ProjetOut` ; 400 si l'on reprend plus que ce qui est de côté |
+| DELETE | `/api/objectifs/versements/{id}` | — | 204 ; 400 si le total mis de côté deviendrait négatif |
 | PUT | `/api/patrimoine/reglages` | `{solde_depart, prix_or_gramme, debut_hawl}` | `{ok}` |
 | POST / PUT / DELETE | `/api/patrimoine/actifs[/{id}]` | `ActifIn` | l'actif / 204 |
 | GET | `/api/sauvegarde` | — | fichier JSON de toutes les tables (sans comptes ni sessions) |
@@ -436,7 +448,7 @@ Toutes les routes sauf `/api/login`, `/api/logout` et `/api/cron/quotidien` (pro
 | DELETE | `/api/carnet/remboursements/{id}` | — | 204 |
 | GET / POST / PUT / DELETE | `/api/carnet/echeances[/{id}]` | `EcheanceIn` | `[EcheanceOut]` / `EcheanceOut` (avec `jours_restants`, `a_rappeler`) / 204 |
 | POST | `/api/carnet/echeances/{id}/reporter` | — | `EcheanceOut` : la date avance de `recurrence_mois` ; 400 si l'échéance est ponctuelle |
-| GET | `/api/rappels/etat` | — | `{canaux: ["telegram", "email"], cron: bool}` (aucun secret) |
+| GET | `/api/rappels/etat` | — | `{canaux, cron, envois, passages, dernier_succes}` (aucun secret) ; `dernier_succes` : dernier appel de la tâche planifiée qui n'a pas échoué |
 | GET | `/api/rappels/apercu` | `?periode=semaine\|mois\|annee` | `{rappels, sujet, resume, html}` : ce qui serait envoyé maintenant (`html` : l'e-mail) |
 | POST | `/api/rappels/envoyer` | `?periode=semaine\|mois\|annee` | `{canaux}` : envoie le résumé choisi tout de suite ; 502 si aucun canal ou envoi refusé |
 | GET | `/api/cron/quotidien` | en-tête `Authorization: Bearer <CRON_SECRET>`, `?force=` | `{etat, envoyes}` ; **sans session** ; 401 sans le secret, 503 si `CRON_SECRET` est vide |
@@ -458,6 +470,8 @@ Toutes les routes sauf `/api/login`, `/api/logout` et `/api/cron/quotidien` (pro
 | Budget hebdomadaire | budget mensuel des catégories variables × 12 ÷ 52, comparé aux dépenses variables de la semaine |
 | Projection fin de mois | Σ catégories fixes max(dépensé, budget) + dépenses variables à ce jour ÷ jour actuel × nombre de jours du mois |
 | Badge ▲/▼ | (actuel − précédent) ÷ précédent × 100 ; « ＝ » si l'écart est inférieur à 0,5 %. Pour le mois ou la semaine en cours, la période précédente est prise jusqu'au même jour (le 1er–10 contre le 1er–10) |
+| Badge « N−1 » (vue Mois) | même calcul contre le même mois de l'année précédente, plus parlant pour les dépenses saisonnières (été, rentrée, fêtes) ; même règle du « jusqu'au même jour » pour le mois en cours. Dans « Budget vs Réel », l'info-bulle d'une catégorie donne son montant l'an dernier |
+| Alerte de saisie | à la saisie d'une dépense : ce que la catégorie a déjà consommé de son budget du mois (celui de la date saisie), puis le pourcentage avec cette dépense. Après l'enregistrement, une notification ambre à partir de 80 %, rouge au-delà de 100 %. Calculé dans le navigateur à partir de `/api/resume` |
 | Moyennes, meilleur/pire mois, objectif atteint (vues Année et Globale) | calculés sur les mois terminés uniquement : le mois en cours est exclu |
 | Budget annuel par catégorie (vue Année) | budget mensuel × mois écoulés (ex : 9,3 au 10 octobre) pour l'année en cours, × 12 pour une année passée |
 | Couleur « budget vs réel » | vert ≤ 80 %, jaune ≤ 100 %, rouge au-delà |
@@ -481,16 +495,19 @@ Toutes les routes sauf `/api/login`, `/api/logout` et `/api/cron/quotidien` (pro
 | **Espèces disponibles** | apports − retraits − Σ achats nets + Σ (ventes nettes − TPCVM) + dividendes − frais de compte, sur tout l'historique |
 | Apports nets | apports − retraits |
 | Patrimoine Bourse | valeur de marché des titres + espèces disponibles |
-| **Performance globale** | patrimoine − apports nets ; en % : ÷ apports nets. Équivaut à gains nets + plus-value latente + dividendes − frais de compte : les gains réinvestis sont comptés une seule fois |
+| **Performance globale** | patrimoine − apports nets ; en % : ÷ apports nets. Équivaut à gains nets + plus-value latente + dividendes − frais de compte : les gains réinvestis sont comptés une seule fois. Ce % ignore la date des apports : un apport d'hier le fait baisser |
+| **Rendement annualisé** (TRI) | taux annuel r tel que Σ flux ÷ (1 + r)^(jours depuis le premier flux ÷ 365) = 0, avec les apports en négatif, les retraits en positif et le patrimoine Bourse du jour comme dernier flux positif (`taux_rendement_annualise()`, résolu par dichotomie). Tient compte de la date de chaque apport : comparable à un livret ou au MASI. Non calculé avant 90 jours d'historique |
+| Dividende par action | montant reçu ÷ quantité détenue le jour du versement (`dividendes_par_action()`) |
+| Rendement des dividendes d'une position | Σ dividende par action × quantité détenue aujourd'hui, sur les 12 derniers mois, ÷ valeur comptable (et ÷ valeur de marché). Ramené à la quantité actuelle : après une vente partielle, le dividende reçu avait été versé sur plus d'actions |
 
 ### 6.3 Cours automatiques
 
 `cours_bvc.py` récupère les cours auprès de deux sources, essayées dans l'ordre. Aucune n'est une API documentée : elles peuvent changer ou devenir injoignables.
 
 1. **Bourse de Casablanca** (`casablanca-bourse.com/live-market/actions`) : les cours sont dans le JSON embarqué dans la page, identifiés par le code BVC. Cinq codes de l'application diffèrent du symbole officiel (`SYMBOLES_OFFICIELS`). Le site n'envoie pas son certificat intermédiaire : il est fourni dans `backend/certs/sectigo_dv_r36.pem` (valable jusqu'en 2036, à remplacer si le site change d'autorité de certification). La vérification TLS reste active.
-2. **Médias24** (secours) : flux JSON identifié par ISIN, d'où la colonne `isin` de `bourse_titres`. Protégé par Cloudflare, il refuse les serveurs de Render (HTTP 403) : il ne sert en pratique qu'en local.
+2. **Médias24** (secours) : flux JSON identifié par ISIN, d'où la colonne `isin` de `bourse_titres`. Protégé par Cloudflare, il refuse souvent les serveurs des hébergeurs (HTTP 403) : il ne sert en pratique qu'en local.
 
-- **Déclenchement** : à l'ouverture du Dashboard ou de la Bourse (`useCoursAuto`), au plus une fois toutes les 15 minutes, et par le bouton « Actualiser les cours » (sans délai). Il n'y a pas de tâche planifiée : l'instance Render dort entre deux visites.
+- **Déclenchement** : chaque matin par la tâche planifiée (§10), à l'ouverture du Dashboard ou de la Bourse (`useCoursAuto`), au plus une fois toutes les 15 minutes, et par le bouton « Actualiser les cours » (sans délai).
 - **Titres concernés** : ceux détenus qui ne sont pas en cours manuel.
 - **Cours manuel** : saisir un cours dans Positions le verrouille ; il n'est plus écrasé jusqu'à sa remise en automatique (icône à côté de « manuel »).
 - **Échec** : si aucune source ne répond, rien n'est modifié, les derniers cours connus restent affichés et la cause est écrite dans les logs du serveur (ligne `[cours]`).
@@ -591,7 +608,7 @@ Une migration toucherait toutes les requêtes de `rapports.py` et `transactions.
 La TPCVM saisie sur une vente est retirée du montant encaissé : l'application suppose que l'intermédiaire la retient à la source. Le prix de vente doit donc être saisi AVANT TPCVM, sinon elle est déduite deux fois et les espèces paraissent trop basses.
 
 **3. Couverture des tests**
-Les tests couvrent les calculs Bourse, le renommage et les 404 du Budget, les apports/retraits et le module Lectures (34 tests). L'authentification, la limitation des connexions et les calculs de `rapports.py` n'ont pas de tests automatisés.
+Les tests (`backend/tests/`, un fichier par module) couvrent les calculs Bourse et le TRI, les rapports du Budget (projection, charges fixes, comparaisons au mois précédent et à l'an dernier, statistiques annuelles), le Suivi, les objectifs d'épargne, le patrimoine, les rappels, les sauvegardes et le déploiement. L'authentification, la limitation des connexions et la vue Globale n'ont pas de tests automatisés. Ils tournent sur la base de `backend/.env` (données préfixées `ZZTEST` ou datées de 1901).
 
 **4. Limitation des connexions en mémoire**
 Le compteur d'échecs est remis à zéro au redémarrage et propre à chaque processus serveur. Le blocage se fait par nom d'utilisateur (l'adresse IP n'est pas fiable derrière le proxy de l'hébergeur) : quelqu'un qui connaît le nom d'utilisateur peut bloquer la connexion pendant 15 minutes.
@@ -717,9 +734,9 @@ Mêmes trois versions et mêmes règles que le résumé de la semaine.
 `GET /api/cron/quotidien` envoie le message du matin (rappels et note du jour), **le lundi** le résumé de la semaine, **le 1er du mois** le bilan du mois avec une copie de sauvegarde en pièce jointe, et **le 1er janvier** le bilan de l'année (plusieurs le même jour si les dates coïncident). Elle n'utilise pas de session : elle exige l'en-tête `Authorization: Bearer <CRON_SECRET>`.
 
 - **Vercel** : `vercel.json` déclare la tâche (`0 7 * * *`, soit entre 8 h et 9 h au Maroc ; l'offre gratuite autorise une exécution par jour, à une minute non garantie dans l'heure). Vercel envoie `CRON_SECRET` tout seul dès que la variable existe.
-- **Render** (pas de tâche planifiée gratuite) : un service comme cron-job.org peut appeler l'adresse chaque matin avec le même en-tête.
 - Au plus un envoi par jour : le jour traité est noté dans `params`, un second appel répond `deja_fait` (`?force=true` passe outre). Si l'envoi échoue, le jour n'est pas noté et un nouvel appel réessaie.
-- Avant le résumé, les cours de la Bourse sont actualisés (comme à l'ouverture de l'application).
+- Avant les envois, et même si aucun canal n'est configuré : les cours de la Bourse sont actualisés, puis le patrimoine du jour est noté dans `patrimoine_historique` (courbe du §11). Un échec de l'un ou de l'autre n'empêche pas les envois.
+- Chaque appel est noté dans `cron_journal` (Paramètres affiche les derniers). Si le dernier appel réussi date de plus de 36 heures, ou si le dernier a échoué, l'accueil le signale dans « À traiter » avec un lien vers les Paramètres. Rien n'est signalé tant que `CRON_SECRET` n'est pas configuré ou que la tâche n'a encore jamais tourné.
 
 ### Configurer l'envoi
 
@@ -736,17 +753,19 @@ Un canal est actif dès que ses variables sont renseignées ; les deux peuvent l
 
 **Envoi automatique** : `CRON_SECRET=` une longue chaîne aléatoire (par exemple `python -c "import secrets; print(secrets.token_urlsafe(32))"`).
 
-Sur Vercel et Render, ces variables se règlent dans le tableau de bord de l'hébergeur, puis il faut redéployer.
+Sur Vercel, ces variables se règlent dans **Settings → Environment Variables**, puis il faut redéployer.
 
 ### Frontend
 
-Onglet **Suivi**, avec deux sous-onglets :
+Onglet **Suivi**, avec quatre sous-onglets :
 - **Dettes et prêts** : totaux (on me doit, je dois, solde net), formulaire, dettes en cours avec leur avancement, fenêtre des remboursements (le champ montant vide solde la dette), dettes soldées ;
-- **Échéances** : formulaire (catégorie, date limite, délai de rappel, récurrence), « À traiter » et « Plus tard ». Le nombre d'échéances à traiter s'affiche sur l'onglet.
+- **Échéances** : formulaire (catégorie, date limite, délai de rappel, récurrence), « À traiter » et « Plus tard ». Le nombre d'échéances à traiter s'affiche sur l'onglet ;
+- **Objectifs** : objectifs d'épargne par projet (voir §11) ;
+- **Patrimoine** : voir §11.
 
 ---
 
-## 11. Patrimoine, réserve de sécurité et zakat
+## 11. Patrimoine, objectifs, réserve de sécurité et zakat
 
 Onglet **Suivi → Patrimoine** (`routes/patrimoine.py`). La carte « Patrimoine net » de la vue Global du dashboard affiche le même total.
 
@@ -763,6 +782,22 @@ patrimoine = liquidités + compte Bourse + autres actifs + ce qu'on me doit − 
 - Un **actif** (or, compte épargne, placement, immobilier) a une valeur saisie à la main et une date de relevé. `verse` est l'argent sorti de l'épargne pour lui **sans** être saisi en dépense : il est retiré des liquidités, donc seul le gain de valeur augmente le patrimoine. Un actif saisi en dépense, ou détenu avant l'application, garde `verse = 0` et s'ajoute en entier.
 - Un prêt ou un emprunt déplace de l'argent entre les liquidités et les créances ou dettes : le total ne change pas.
 
+### Évolution du patrimoine
+
+Le patrimoine n'est connu qu'au jour le jour : les cours passés ne sont pas conservés, la valeur passée des actifs non plus. `noter_patrimoine()` écrit donc chaque jour une ligne dans `patrimoine_historique` (une par date, remplacée par le dernier calcul de la journée) : à chaque matin par la tâche planifiée, et à chaque lecture de `/api/patrimoine` (écran Patrimoine, accueil, vue Globale). La carte « Évolution » trace cette courbe sur 3 mois, 1 an ou tout l'historique, avec la part Bourse en pointillé et l'écart depuis le premier point affiché. Elle commence le jour où la fonction a été déployée.
+
+### Objectifs d'épargne par projet
+
+Onglet **Suivi → Objectifs** (`routes/objectifs.py`). Un objectif (voyage, fonds d'urgence, voiture) a un montant visé et, s'il le faut, une date limite. On y met de l'argent de côté par **versements** ; un versement négatif reprend de l'argent (par exemple quand on dépense pour le projet).
+
+- Mettre de côté **ne déplace pas d'argent** : il reste dans les liquidités, il est seulement réservé. Ce n'est ni une dépense du Budget ni un transfert, et le patrimoine ne change pas. La carte « Liquidités libres » affiche les liquidités moins tout ce qui est réservé aux objectifs en cours.
+- `verse` = Σ versements ; `reste` = max(cible − verse, 0) ; `progression` = verse ÷ cible (peut dépasser 100 %).
+- **Rythme à tenir** : `par_mois` = reste ÷ `mois_restants`, où `mois_restants` compte le mois en cours et celui de la date limite (le 11 novembre pour le 31 décembre : 2). Rien sans date limite, une fois l'objectif atteint ou archivé.
+- `en_retard` : date limite dépassée sans avoir atteint la cible ; l'objectif apparaît alors dans « À traiter » sur l'accueil.
+- On ne peut pas reprendre plus que ce qui est de côté, ni supprimer un versement si le total devenait négatif.
+- **Archiver** sort un objectif (atteint ou abandonné) de la liste en cours sans perdre ses versements. Supprimer efface ses versements, pas l'argent, qui n'a jamais quitté les liquidités.
+- À ne pas confondre avec l'**objectif d'épargne mensuel** du Budget (`params.objectif_epargne`), qui est un montant à épargner chaque mois.
+
 ### Réserve de sécurité
 
 Mois de dépenses couverts = argent disponible ÷ dépense mensuelle moyenne. L'argent disponible est la somme des liquidités (si positives) et des actifs de type « Compte épargne ». La moyenne porte sur les 6 derniers mois **terminés** ayant des dépenses. Repères affichés : moins de 3 mois fragile, 3 à 6 correct, au-delà confortable.
@@ -777,7 +812,7 @@ Mois de dépenses couverts = argent disponible ÷ dépense mensuelle moyenne. L'
 ### Bourse : journal des décisions et dividendes attendus
 
 - Chaque transaction peut porter une **note** (pourquoi j'achète ou je vends). L'onglet Transactions les rassemble dans « Journal des décisions », avec l'évolution du cours depuis pour les titres encore détenus.
-- **Dividendes attendus** (`calculer_calendrier_dividendes()`) : chaque dividende reçu depuis un an sur un titre encore détenu est supposé revenir un an plus tard, au même montant **par action** (montant reçu ÷ quantité détenue ce jour-là), appliqué à la quantité détenue aujourd'hui.
+- **Dividendes attendus** (`calculer_calendrier_dividendes()`) : chaque dividende reçu depuis un an sur un titre encore détenu est supposé revenir un an plus tard, au même montant **par action** (montant reçu ÷ quantité détenue ce jour-là), appliqué à la quantité détenue aujourd'hui. Le rendement des positions utilise le même calcul (`dividendes_par_action()`).
 
 ---
 
@@ -791,11 +826,11 @@ Page par défaut (`#/accueil`, aussi ouverte par un clic sur le logo). Elle ne d
 |---|---|
 | Reste à dépenser aujourd'hui | budget journalier − dépenses variables du jour (`/api/resume_jour`) |
 | Reste ce mois-ci, carte du mois | `/api/resume` : dépensé, budget, épargne, projection |
-| Portefeuille, carte Bourse | `/api/bourse/dashboard` (masqués sans compte Bourse) |
+| Portefeuille, carte Bourse | `/api/bourse/dashboard` (masqués sans compte Bourse), avec le rendement annuel une fois 3 mois d'historique |
 | Patrimoine net | `/api/patrimoine` : total et réserve de sécurité |
 | Note du jour | `/api/lectures/note_du_jour` |
 | Lecture en cours | `/api/lectures/a_lire` et `/serie` |
-| À traiter | échéances dans leur fenêtre de rappel, dettes dont l'échéance est dépassée |
+| À traiter | échéances dans leur fenêtre de rappel, dettes dont l'échéance est dépassée, objectifs d'épargne dont la date limite est passée, tâche du matin arrêtée ou en échec (`/api/rappels/etat`) |
 
 Sur mobile, la barre du bas garde six onglets (Accueil, Saisie, Dashboard, Bourse, Lectures, Suivi) ; les Paramètres passent dans l'en-tête.
 

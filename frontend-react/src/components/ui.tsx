@@ -108,20 +108,23 @@ export function TitreSection({ children }: { children: ReactNode }) {
   return <Text fz="xs" fw={700} tt="uppercase" c="dimmed" lts={0.6} mt="sm">{children}</Text>;
 }
 
-/** Variation par rapport à la période précédente (repris de badge() de l'ancien app.js) */
-export function Variation({ actuel, precedent, inverse = false, libelle = 'par rapport à la période précédente' }: {
-  actuel: number; precedent: number; inverse?: boolean; libelle?: string;
+/** Variation par rapport à la période précédente (repris de badge() de l'ancien app.js).
+ *  `prefixe` distingue deux badges côte à côte (ex : « N−1 » pour le même mois l'an dernier). */
+export function Variation({ actuel, precedent, inverse = false, libelle = 'par rapport à la période précédente', prefixe }: {
+  actuel: number; precedent: number; inverse?: boolean; libelle?: string; prefixe?: string;
 }) {
   if (!precedent) return null;
   const delta = (actuel - precedent) / precedent * 100;
-  if (Math.abs(delta) < 0.5) return <Badge variant="light" color="gray" size="sm" radius="sm">＝ 0%</Badge>;
+  if (Math.abs(delta) < 0.5) {
+    return <Tooltip label={libelle}><Badge variant="light" color="gray" size="sm" radius="sm">{prefixe ? prefixe + ' ' : ''}＝ 0%</Badge></Tooltip>;
+  }
   const hausse = delta > 0;
   const bon = inverse ? hausse : !hausse;   // hausse de revenus = bon ; hausse de dépenses = mauvais
   const Fleche = hausse ? IconArrowUpRight : IconArrowDownRight;
   return (
     <Tooltip label={libelle}>
       <Badge variant="light" color={bon ? 'emeraude' : 'rouge'} size="sm" radius="sm" leftSection={<Fleche size={12} stroke={2.4} />}>
-        {Math.abs(delta).toFixed(0)}%
+        {prefixe ? prefixe + ' ' : ''}{Math.abs(delta).toFixed(0)}%
       </Badge>
     </Tooltip>
   );

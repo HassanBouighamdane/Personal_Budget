@@ -2,16 +2,16 @@
  * mois et résultats de recherche. Utilisé par la Saisie. */
 import { useEffect, useState } from 'react';
 import {
-  ActionIcon, Autocomplete, Badge, Box, Button, Group, SegmentedControl, Select, SimpleGrid, Stack, TagsInput, Text, TextInput, Tooltip,
+  ActionIcon, Autocomplete, Badge, Box, Button, Group, Progress, SegmentedControl, Select, SimpleGrid, Stack, TagsInput, Text, TextInput, Tooltip,
 } from '@mantine/core';
 import { modals } from '@mantine/modals';
 import { IconArrowDownLeft, IconArrowUpRight, IconClockHour4, IconCopy, IconPencil, IconReceipt, IconSearch } from '@tabler/icons-react';
 
-import { toast } from '../lib/api';
-import { auj, decalerDate, fmt, JOURS_FR, lireMontant, MOIS_FR, prixEnTravail } from '../lib/format';
+import { avertir, toast } from '../lib/api';
+import { auj, decalerDate, fmt, JOURS_FR, libelleMois, lireMontant, MOIS_FR, prixEnTravail } from '../lib/format';
 import { T } from '../lib/palette';
 import type { Depense, ResultatRecherche, Revenu } from '../lib/types';
-import { useConfig, useEcriture, useRecherche, useSuggestions, useTags, useTransactionsMois } from '../lib/queries';
+import { useConfig, useEcriture, useRecherche, useResumeMois, useSuggestions, useTags, useTransactionsMois } from '../lib/queries';
 import { ChampDate, ChampMontant } from './champs';
 import { BoutonSuppr, Carte, Chargement, notifierAnnulable, Pastille, Vide } from './ui';
 
@@ -53,6 +53,56 @@ function ChampDescription({ type, nom, value, onChange, onMontant, placeholder }
   );
 }
 
+/* ---------- Budget de la catégorie, au moment de la saisie ---------- */
+/** Seuil à partir duquel la saisie prévient : la catégorie a consommé 80 % de son budget du mois */
+const SEUIL_ALERTE = 80;
+
+type EtatBudget = { budget: number; deja: number; apres: number; pct: number; mois: string };
+
+/** Où en est le budget de `categorie` le mois de `date`, avec `montant` en plus ; null sans budget.
+ *  Lu dans le résumé du mois (souvent déjà en cache depuis le dashboard ou l'accueil). */
+function useEtatBudget(categorie: string | null, date: string, montant: number, existante?: Depense): EtatBudget | null {
+  const mois = date.slice(0, 7);
+  const { data: r } = useResumeMois(mois);
+  // r.mois : le résumé affiché pendant le chargement peut être celui du mois précédemment choisi
+  if (!categorie || !r || r.mois !== mois) return null;
+  const b = r.budget_vs_reel.find(x => x.cat === categorie);
+  if (!b || b.budget <= 0) return null;
+  // En modification, l'ancien montant est déjà compté dans le réel du mois
+  const ancien = existante && existante.categorie === categorie && existante.date.slice(0, 7) === mois ? existante.montant : 0;
+  const deja = Math.round((b.reel - ancien) * 100) / 100;
+  const apres = deja + (montant > 0 ? montant : 0);
+  return { budget: b.budget, deja, apres, pct: apres / b.budget * 100, mois };
+}
+
+const couleurBudget = (pct: number) => pct > 100 ? 'rouge' : pct >= SEUIL_ALERTE ? 'ambre' : 'marque';
+const pctTexte = (pct: number) => Math.round(pct) + ' %';
+
+function LigneBudget({ categorie, etat, avecMontant }: { categorie: string; etat: EtatBudget; avecMontant: boolean }) {
+  const couleur = couleurBudget(etat.pct);
+  return (
+    <Box>
+      <Progress value={Math.min(100, etat.pct)} color={couleur} size={5} radius="xl" />
+      <Text fz="xs" c="dimmed" mt={4}>
+        {categorie} : {fmt(etat.deja)} dépensés sur {fmt(etat.budget)} en {libelleMois(etat.mois).toLowerCase()}
+        {avecMontant && (
+          <> · <Text span inherit fw={600} c={couleur === 'marque' ? undefined : `var(--mantine-color-${couleur}-6)`}>
+            {etat.pct > 100 ? `dépassé de ${fmt(etat.apres - etat.budget)}` : `${pctTexte(etat.pct)} avec celle-ci`}
+          </Text></>
+        )}
+      </Text>
+    </Box>
+  );
+}
+
+/** Après l'enregistrement : prévient si la catégorie atteint 80 % de son budget ou le dépasse */
+function alerteBudget(categorie: string, e: EtatBudget | null) {
+  if (!e || e.pct < SEUIL_ALERTE) return;
+  const detail = `${fmt(e.apres)} sur ${fmt(e.budget)} en ${libelleMois(e.mois).toLowerCase()}`;
+  if (e.pct > 100) avertir(`${categorie} : budget dépassé de ${fmt(e.apres - e.budget)}`, detail, true);
+  else avertir(`${categorie} : ${pctTexte(e.pct)} du budget utilisé`, `${detail} · reste ${fmt(e.budget - e.apres)}`);
+}
+
 /* ---------- Formulaires ---------- */
 type PropsForm<O> = {
   /** Opération modifiée (fenêtre « Modifier ») */
@@ -77,16 +127,20 @@ export function FormDepense({ existante, modele, mois, onTermine }: PropsForm<De
   // Formulaire de saisie : en changeant de mois dans la liste, la date suit
   useEffect(() => { if (!existante && !modele) setDate(dateParDefaut(mois)); }, [mois, existante, modele]);
 
+  const montantLu = lireMontant(montant);
+  const budget = useEtatBudget(categorie, date, montantLu, existante);
+
   function enregistrer() {
     const m = lireMontant(montant);
     if (!categorie) return toast('Choisis une catégorie', false);
     if (isNaN(m) || m <= 0) return toast('Montant invalide', false);
     const body = { date, categorie, description, montant: m, tags };
+    const etatBudget = budget;   // calculé avant l'enregistrement (le résumé est rechargé ensuite)
     ecrire.mutate(
       existante
         ? { path: `/api/depenses/${existante.id}`, method: 'PUT', body, succes: 'Dépense modifiée ✓' }
         : { path: '/api/depenses', method: 'POST', body, succes: 'Dépense ajoutée ✓' },
-      { onSuccess: () => { if (!existante) { setMontant(''); setDescription(''); } onTermine?.(); } },
+      { onSuccess: () => { alerteBudget(categorie, etatBudget); if (!existante) { setMontant(''); setDescription(''); } onTermine?.(); } },
     );
   }
 
@@ -113,6 +167,7 @@ export function FormDepense({ existante, modele, mois, onTermine }: PropsForm<De
       <Select label="Catégorie" placeholder="— Choisir une catégorie —" data={cats} searchable
               nothingFoundMessage="Aucune catégorie"
               value={categorie && cats.includes(categorie) ? categorie : null} onChange={setCategorie} />
+      {categorie && budget && <LigneBudget categorie={categorie} etat={budget} avecMontant={montantLu > 0} />}
       <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
         <ChampDate value={date} onChange={setDate} />
         <ChampDescription type="depenses" nom={categorie} value={description} onChange={setDescription}

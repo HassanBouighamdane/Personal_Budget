@@ -12,6 +12,11 @@ export function toast(message: string, succes = true) {
   notifications.show({ message, color: succes ? 'emeraude' : 'rouge', autoClose: 2500 });
 }
 
+/** Avertissement qui reste un peu plus longtemps (budget presque épuisé ou dépassé) */
+export function avertir(titre: string, message: string, grave = false) {
+  notifications.show({ title: titre, message, color: grave ? 'rouge' : 'ambre', autoClose: 6000 });
+}
+
 export class ErreurApi extends Error {
   status: number;
   constructor(status: number, message: string) {

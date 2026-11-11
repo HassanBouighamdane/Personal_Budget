@@ -117,6 +117,28 @@ def test_mois_precedent_plus_court_pris_en_entier():
     assert r["jour_comparaison"] is None
 
 
+def test_mois_en_cours_compare_au_meme_mois_l_an_dernier_jusqu_au_meme_jour():
+    _dep("1901-03-05", 100)
+    _dep("1901-03-25", 300, LOYER)
+    _dep("1902-03-04", 80)
+    r = calculer_resume("1902-03", date(1902, 3, 10))
+    assert r["depenses_annee_precedente"] == 100          # du 1er au 10 mars 1901
+    assert r["depenses_annee_precedente_total"] == 400
+    assert r["jour_comparaison_annee"] == 10
+    lignes = {b["cat"]: b["an_dernier"] for b in r["budget_vs_reel"]}
+    assert lignes[COURSES] == 100 and lignes[LOYER] == 0  # par catégorie, sur la même durée
+
+
+def test_mois_termine_compare_au_meme_mois_l_an_dernier_entier():
+    _dep("1901-03-05", 100)
+    _dep("1901-03-25", 300, LOYER)
+    _rev("1901-03-28", 2000)
+    r = calculer_resume("1902-03", date(1902, 5, 1))
+    assert (r["depenses_annee_precedente"], r["revenus_annee_precedente"]) == (400, 2000)
+    assert r["jour_comparaison_annee"] is None
+    assert {b["cat"]: b["an_dernier"] for b in r["budget_vs_reel"]}[LOYER] == 300
+
+
 def test_semaine_en_cours_comparee_jusqu_au_meme_jour():
     mercredi = date(1901, 3, 6)
     lundi = mercredi - timedelta(days=mercredi.weekday())

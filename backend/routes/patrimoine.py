@@ -171,9 +171,42 @@ def calculer_patrimoine(auj: date) -> dict:
             "reserve": reserve, "zakat": zakat, "liberte": liberte}
 
 
+COLONNES_HISTORIQUE = ("total", "liquidites", "bourse", "autres_actifs", "creances", "dettes")
+
+
+def noter_patrimoine(auj: date, p: Optional[dict] = None) -> dict:
+    """Note le patrimoine du jour dans patrimoine_historique (une ligne par jour, remplacée par
+    le dernier calcul de la journée) : la courbe se construit ainsi au fil des jours. Appelée par
+    la tâche du matin et à chaque lecture du patrimoine. Renvoie le patrimoine calculé."""
+    p = p or calculer_patrimoine(auj)
+    with db() as c:
+        c.execute(f"""INSERT INTO patrimoine_historique (date, {", ".join(COLONNES_HISTORIQUE)})
+                      VALUES (%s, {", ".join(["%s"] * len(COLONNES_HISTORIQUE))})
+                      ON CONFLICT (date) DO UPDATE SET {", ".join(f"{k}=EXCLUDED.{k}" for k in COLONNES_HISTORIQUE)},
+                                                       maj_le=now()""",
+                  (auj, *(p[k] for k in COLONNES_HISTORIQUE)))
+    return p
+
+
 @router.get("")
 def obtenir_patrimoine():
-    return calculer_patrimoine(aujourdhui())
+    auj = aujourdhui()
+    p = calculer_patrimoine(auj)
+    try:
+        noter_patrimoine(auj, p)
+    except Exception as e:   # la courbe ne doit jamais empêcher d'afficher le patrimoine
+        print(f"[patrimoine] historique non noté — {e!r}", flush=True)
+    return p
+
+
+@router.get("/historique")
+def historique_patrimoine(jours: Optional[int] = None):
+    """Patrimoine noté jour après jour, du plus ancien au plus récent ; `jours` : seulement les N derniers jours."""
+    clause, params = ("WHERE date > %s", (aujourdhui() - timedelta(days=jours),)) if jours else ("", ())
+    with db() as c:
+        rows = c.execute(f"SELECT date, {', '.join(COLONNES_HISTORIQUE)} FROM patrimoine_historique {clause} ORDER BY date",
+                         params).fetchall()
+    return [{"date": r["date"], **{k: float(r[k]) for k in COLONNES_HISTORIQUE}} for r in rows]
 
 
 @router.put("/reglages")

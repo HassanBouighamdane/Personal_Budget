@@ -5,7 +5,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 
 import { api, apiSilencieux, toast } from './api';
 import type {
-  ALire, ApercuRappels, BilanLecture, CalendrierDividendes, NoteDuJour, Patrimoine, PretLivre, SerieLecture, BudgetHistorique, CibleSecteur, Config, CoursActualisation, DashboardBourse, Dette, Dividende, Echeance, EtatRappels, Fiscalite, FraisBourse, Gain, Genre,
+  ALire, ApercuRappels, BilanLecture, CalendrierDividendes, NoteDuJour, Patrimoine, PointPatrimoine, PretLivre, Projet, SerieLecture, BudgetHistorique, CibleSecteur, Config, CoursActualisation, DashboardBourse, Dette, Dividende, Echeance, EtatRappels, Fiscalite, FraisBourse, Gain, Genre,
   Livre, Mouvement, NoteLecture, ObjectifsLecture, Position, Recherche, ResumeAnnee, ResumeGlobal, ResumeJour, ResumeMois, ResumeSemaine, ResumeTag,
   Suggestion, Titre, TransactionBourse, TransactionsMois,
 } from './types';
@@ -108,6 +108,8 @@ export const useNotes = (filtre: string) => lire<NoteLecture[]>(['lectures', 'no
 /* ---------- Carnet ---------- */
 export const useDettes = () => lire<Dette[]>(['carnet', 'dettes'], '/api/carnet/dettes');
 export const useEcheances = () => lire<Echeance[]>(['carnet', 'echeances'], '/api/carnet/echeances');
+/** Objectifs d'épargne par projet (rangés avec le Carnet : useEcriture('carnet') les recharge) */
+export const useObjectifs = () => lire<Projet[]>(['carnet', 'objectifs'], '/api/objectifs');
 
 /* ---------- Patrimoine (dépend de tous les modules : rechargé après chaque écriture) ---------- */
 export const usePatrimoine = () => lire<Patrimoine>(['patrimoine'], '/api/patrimoine');
@@ -115,6 +117,10 @@ export const usePatrimoine = () => lire<Patrimoine>(['patrimoine'], '/api/patrim
 export const usePatrimoineSilencieux = () => useQuery({
   queryKey: ['patrimoine', 'silencieux'], queryFn: () => apiSilencieux<Patrimoine>('/api/patrimoine'), placeholderData: keepPreviousData,
 });
+
+/** Courbe du patrimoine ; `jours` null = tout l'historique */
+export const useHistoriquePatrimoine = (jours: number | null) =>
+  lire<PointPatrimoine[]>(['patrimoine', 'historique', jours], '/api/patrimoine/historique' + (jours ? '?jours=' + jours : ''));
 
 /* ---------- Rappels et résumé hebdomadaire ---------- */
 export const useEtatRappels = () => lire<EtatRappels>(['rappels', 'etat'], '/api/rappels/etat');

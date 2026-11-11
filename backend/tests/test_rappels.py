@@ -43,6 +43,9 @@ def isolation(monkeypatch):
     # Le journal de la tâche planifiée est celui de la vraie base : les tests n'y écrivent pas
     journal = []
     monkeypatch.setattr(rappels, "_journaliser", lambda etat, detail="": journal.append((etat, detail)))
+    # Ni la courbe du patrimoine (une ligne datée de 1901 y apparaîtrait)
+    notes = []
+    monkeypatch.setattr(rappels.patrimoine, "noter_patrimoine", lambda auj, p=None: notes.append(auj))
     _nettoyer()
     yield
     _nettoyer()
@@ -459,3 +462,23 @@ def test_resume_choisi_sur_un_canal_non_configure_ne_part_pas(monkeypatch):
     envois = _cron(monkeypatch, AUJ, memoire)
     assert tache_quotidienne(authorization="Bearer secret-de-test")["envoyes"] == []
     assert not envois
+
+
+def test_patrimoine_du_jour_note_meme_sans_canal(monkeypatch):
+    notes = []
+    monkeypatch.setattr(rappels.patrimoine, "noter_patrimoine", lambda auj, p=None: notes.append(auj))
+    monkeypatch.setattr(rappels, "CRON_SECRET", "secret-de-test")
+    monkeypatch.setattr(rappels, "aujourdhui", lambda: AUJ)
+    monkeypatch.setattr(rappels, "canaux", lambda: [])
+    monkeypatch.setattr(rappels, "_param", {}.get)
+    monkeypatch.setattr(rappels.bourse, "_actualiser_cours", lambda force: None)
+    assert tache_quotidienne(authorization="Bearer secret-de-test") == {"etat": "aucun_canal"}
+    assert notes == [AUJ]
+
+
+def test_un_echec_de_la_courbe_n_empeche_pas_les_envois(monkeypatch):
+    def panne(auj, p=None):
+        raise RuntimeError("base indisponible")
+    monkeypatch.setattr(rappels.patrimoine, "noter_patrimoine", panne)
+    envois = _cron(monkeypatch, AUJ, {})
+    assert tache_quotidienne(authorization="Bearer secret-de-test")["etat"] == "ok" and len(envois) == 1

@@ -1,8 +1,6 @@
 # Deploying Carnet on Vercel
 
-This guide puts the app on Vercel's free Hobby plan **next to** the current Render deployment. Both use the same Neon database, so you can try Vercel for a while and switch Render off only once you are happy.
-
-Why Vercel: on Render's free plan the app sleeps after 15 minutes and takes about a minute to wake up. On Vercel it starts on demand in about 1–2 seconds, with no credit card.
+Carnet runs on Vercel's free Hobby plan, with a PostgreSQL database on Neon. The app starts on demand in about 1–2 seconds and needs no credit card. This guide sets it up from scratch, or again on a new Vercel account.
 
 Total time: about 20 minutes.
 
@@ -12,33 +10,26 @@ You don't need to write any code. These files are already there:
 
 | File | Role |
 |---|---|
-| `pyproject.toml` | Tells Vercel where the app is (`backend.app:app`) and which Python packages to install. Render ignores it. |
-| `vercel.json` | Keeps tests, the React sources and the docs out of the deployed bundle. |
-| `backend/app.py` | Database setup now runs when the server starts, not when the file is imported. It works the same on Render. |
+| `pyproject.toml` | Tells Vercel where the app is (`backend.app:app`) and which Python packages to install. |
+| `vercel.json` | Schedules the morning task (`/api/cron/quotidien`) and keeps tests, the React sources and the docs out of the deployed bundle. |
+| `backend/app.py` | Database setup runs when the server starts, once per deployed version, not when the file is imported. |
 | `backend/tests/test_deploiement.py` | Fails if `pyproject.toml` and `backend/requirements.txt` stop listing the same packages. |
 
-The React frontend is served from the committed `frontend-react/dist/` folder, as on Render. As today, run `npm run build` in `frontend-react/` before pushing frontend changes.
+The React frontend is served from the committed `frontend-react/dist/` folder. Run `npm run build` in `frontend-react/` and commit `dist/` before pushing frontend changes.
 
-> **When you add a Python package**, add it to both `backend/requirements.txt` (Render) and the `dependencies` list in `pyproject.toml` (Vercel). The test above reminds you if you forget.
+> **When you add a Python package**, add it to both `backend/requirements.txt` (local install and tests) and the `dependencies` list in `pyproject.toml` (Vercel). The test above reminds you if you forget.
 
 ---
 
-## Step 1 — Push the changes to GitHub
+## Step 1 — Push the code to GitHub
 
-```bash
-git add pyproject.toml vercel.json DEPLOY_VERCEL.md backend/app.py backend/tests/test_deploiement.py README.md DOCUMENTATION.md IDEES.md
-git commit -m "Add Vercel deployment"
-git push
-```
-
-Render redeploys automatically. Nothing changes for it: the startup change was tested with Render's own start command.
+Vercel deploys from a GitHub repository: push the project (with `frontend-react/dist/` built and committed) to a repository on your account.
 
 ## Step 2 — Collect what you need
 
-You need four values, all of which you already use on Render:
-
-1. **Render dashboard** → your service → **Environment**: copy `DATABASE_URL`, `ADMIN_UTILISATEUR` and `ADMIN_MOT_DE_PASSE`.
-2. **Neon console** → your project → **Settings** (or the project dashboard): note the **region**, for example "AWS Europe Central 1 (Frankfurt)".
+1. **Neon console** → your project → **Connection Details**: copy the connection string → `DATABASE_URL`. It is the same value as in your local `backend/.env` if you use the same database.
+2. `ADMIN_UTILISATEUR` and `ADMIN_MOT_DE_PASSE`: the account created on the very first start, when the database has no user yet. With an existing database, your usual login is kept and these two values are not used.
+3. **Neon console** → your project → **Settings** (or the project dashboard): note the **region**, for example "AWS Europe Central 1 (Frankfurt)".
 
 Keep them in a note for step 4.
 
@@ -60,9 +51,9 @@ Keep them in a note for step 4.
 
    | Name | Value |
    |---|---|
-   | `DATABASE_URL` | same as on Render |
-   | `ADMIN_UTILISATEUR` | same as on Render |
-   | `ADMIN_MOT_DE_PASSE` | same as on Render |
+   | `DATABASE_URL` | the Neon connection string |
+   | `ADMIN_UTILISATEUR` | your login name |
+   | `ADMIN_MOT_DE_PASSE` | a strong password (change it later in Paramètres) |
    | `COOKIE_SECURE` | `true` |
 
    Don't add `PORT`: Vercel doesn't use it.
@@ -101,7 +92,7 @@ Open the Vercel address on your computer **and your phone**, then check:
 - [ ] **Saisie**: your data is there. Add a test expense (for example "ZZTEST"), then delete it.
 - [ ] **Dashboard**: the Month, Year and Global views load.
 - [ ] **Bourse → Positions → "Actualiser les cours"**. If the message says the sources are unreachable, the stock-exchange site blocks Vercel's servers. The last known prices stay, and you can still type a price by hand.
-- [ ] **Lectures → À lire**: an ISBN search fills in the book.
+- [ ] **Suivi → Patrimoine**: the "Évolution" card shows today's first point.
 - [ ] **Refresh** on a deep page (for example `…/#/dashboard/annee/2025`): you stay on it.
 - [ ] Come back after 15+ minutes without using it: the first page should appear within 1–2 seconds.
 
@@ -115,25 +106,13 @@ The app can send deadline reminders every morning, a summary of your week every 
 2. In **Settings → Environment Variables**, add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` (or the `SMTP_…` variables), plus `CRON_SECRET` with a long random value. Vercel sends this secret with each scheduled call by itself.
 3. **Redeploy**, then open **Paramètres → Rappels et résumés**: the three badges should be green. "Aperçu et envoi" shows the weekly or monthly message, and "Envoyer maintenant" sends it to you.
 
-If Render is still running on the same database, only one of the two sends each day's messages.
+Even without Telegram or e-mail, keep `CRON_SECRET`: the morning task also refreshes the stock prices and records the day's net worth for its chart. If it stops running, the home page says so under "À traiter".
 
-## Step 7 — Run both for a while
+## Step 7 — Deploying changes
 
-During the trial (a week or two is enough):
-
-- **Same data:** both addresses read and write the same Neon database. Anything you enter on one appears on the other.
-- **Separate logins:** you log in on each address separately (each has its own cookie).
-- **Both deploy:** `git push` updates Render and Vercel at the same time.
+- `git push` to the main branch redeploys automatically. For frontend changes, run `npm run build` in `frontend-react/` and commit `dist/` first.
+- The first start of a new version runs the database migrations once (`migrations_appliquees`), so the first page after a deploy can take a few seconds more.
 - Don't add a keep-alive monitor on the Vercel address. It isn't needed, and it would use your free allowance for nothing.
-
-## Step 8 — Switch off Render
-
-When the Vercel version has worked well for you:
-
-1. **Render dashboard** → your service → **Settings** → **Suspend Web Service**. The service stops but stays configured, so you can **Resume** it in one click if needed.
-2. If you created an UptimeRobot / cron-job.org monitor for Render, delete it.
-3. A few weeks later, if all is well: **Settings → Delete Web Service** on Render.
-4. Optional cleanup afterwards: `gunicorn` in `backend/requirements.txt` and the Render section of `README.md` are no longer needed.
 
 ---
 

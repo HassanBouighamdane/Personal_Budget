@@ -103,15 +103,9 @@ npm run build    # à relancer après chaque modification, puis committer dist/
 
 ## Déploiement
 
-L'application peut être hébergée sur une plateforme comme Render, avec une base PostgreSQL managée. Commande de démarrage :
+L'application est hébergée sur Vercel (offre gratuite Hobby), avec une base PostgreSQL Neon : voir [DEPLOY_VERCEL.md](DEPLOY_VERCEL.md). Vercel lit `pyproject.toml` (dépendances et point d'entrée) et `vercel.json` (tâche planifiée du matin) à la racine ; `backend/requirements.txt` ne sert qu'en local et doit lister les mêmes paquets (vérifié par `tests/test_deploiement.py`).
 
-```bash
-cd backend && gunicorn app:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT
-```
-
-Pense à définir `COOKIE_SECURE=true` quand le site est servi en HTTPS.
-
-L'application peut aussi être hébergée gratuitement sur Vercel, sans mise en veille d'une minute : voir [DEPLOY_VERCEL.md](DEPLOY_VERCEL.md). Vercel lit `pyproject.toml` et `vercel.json` à la racine ; Render les ignore.
+Pense à définir `COOKIE_SECURE=true` en production (HTTPS). Le frontend compilé (`frontend-react/dist/`) est versionné : relance `npm run build` et committe `dist/` avant de pousser une modification du frontend.
 
 ## Structure du projet
 
@@ -122,7 +116,7 @@ backend/
   database.py       connexion PostgreSQL et création du schéma
   securite.py       mots de passe et sessions
   schemas.py        modèles Pydantic
-  routes/           auth, configuration, transactions, rapports, bourse, lectures
+  routes/           auth, configuration, transactions, rapports, bourse, lectures, carnet, objectifs, patrimoine, rappels
 frontend-react/
   src/              code React (pages, composants, appels API)
   dist/             build de production servi par FastAPI

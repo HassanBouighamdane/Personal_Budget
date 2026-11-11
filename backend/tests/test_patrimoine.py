@@ -21,8 +21,9 @@ from config import aujourdhui
 from database import db
 from schemas import ActifIn, DetteIn, ReglagesPatrimoine
 from routes.carnet import ajouter_dette
-from routes.patrimoine import (JOURS_HAWL, PARAMS, ajouter_actif, calculer_patrimoine, liberte_financiere,
-                               mois_avant_liberte, modifier_actif, modifier_reglages, supprimer_actif)
+from routes.patrimoine import (JOURS_HAWL, PARAMS, ajouter_actif, calculer_patrimoine, historique_patrimoine,
+                               liberte_financiere, mois_avant_liberte, modifier_actif, modifier_reglages,
+                               noter_patrimoine, supprimer_actif)
 
 PREFIXE = "ZZTEST"
 AUJ = aujourdhui()
@@ -169,3 +170,20 @@ def test_reglages_liberte_conserves_si_absents():
     modifier_reglages(ReglagesPatrimoine(solde_depart=0))          # ne touche pas aux réglages de liberté
     l = calculer_patrimoine(AUJ)["liberte"]
     assert l["taux_retrait"] == 0.035 and l["rendement"] == 0.05
+
+
+def test_patrimoine_note_une_fois_par_jour():
+    """Une ligne par jour : un second calcul le même jour la remplace. Datée de 1901 pour ne pas
+    toucher à la vraie courbe."""
+    jour = date(1901, 1, 1)
+    p = calculer_patrimoine(AUJ)
+    try:
+        noter_patrimoine(jour, p)
+        noter_patrimoine(jour, {**p, "total": p["total"] + 100})
+        lignes = [l for l in historique_patrimoine() if l["date"] == jour]
+        assert len(lignes) == 1 and lignes[0]["total"] == round(p["total"] + 100, 2)
+        assert lignes[0]["bourse"] == round(p["bourse"], 2)
+        assert all(l["date"] != jour for l in historique_patrimoine(jours=30))   # hors des 30 derniers jours
+    finally:
+        with db() as c:
+            c.execute("DELETE FROM patrimoine_historique WHERE date = %s", (jour,))

@@ -3,20 +3,23 @@
 import type { ReactNode } from 'react';
 import { Badge, Box, Button, Grid, Group, Progress, SimpleGrid, Stack, Text } from '@mantine/core';
 import {
-  IconArrowRight, IconBook2, IconBuildingBank, IconCalendarDue, IconCheck, IconFlame, IconPencilPlus, IconShieldCheck, IconTrendingUp, IconWallet,
+  IconAlertTriangle, IconArrowRight, IconBook2, IconBuildingBank, IconCalendarDue, IconCheck, IconFlame, IconPencilPlus, IconShieldCheck,
+  IconTarget, IconTrendingUp, IconWallet,
 } from '@tabler/icons-react';
 
 import { auj, dateFr, fmt, libelleMois } from '../../lib/format';
 import { T, signe } from '../../lib/palette';
+import type { EtatRappels } from '../../lib/types';
 import {
-  useALire, useDettes, useEcheances, usePatrimoineSilencieux, useResumeBourseSilencieux, useResumeJour, useResumeMois, useSerieLecture,
+  useALire, useDettes, useEcheances, useEtatRappels, useObjectifs, usePatrimoineSilencieux, useResumeBourseSilencieux, useResumeJour,
+  useResumeMois, useSerieLecture,
 } from '../../lib/queries';
 import { Carte, Chargement, EnTetePage, Kpi, Pastille } from '../../components/ui';
 import { FenetreNoteDuJour, NoteDuJour } from '../lectures/communs';
 import { couleurReserve, Reserve } from '../carnet/Patrimoine';
 
 /** Écran ouvert depuis l'accueil */
-export type CibleAccueil = 'saisie' | 'dash' | 'bourse' | 'lectures' | 'echeances' | 'dettes' | 'patrimoine';
+export type CibleAccueil = 'saisie' | 'dash' | 'bourse' | 'lectures' | 'echeances' | 'dettes' | 'patrimoine' | 'objectifs' | 'params';
 
 const fmtSigne = (v: number) => (v >= 0 ? '+' : '−') + fmt(Math.abs(v));
 
@@ -97,13 +100,37 @@ function CarteLecture({ aller }: { aller: (c: CibleAccueil) => void }) {
   );
 }
 
-/* ---------- À traiter : échéances et remboursements en retard ---------- */
+/* ---------- Tâche du matin : prévenir quand elle ne tourne plus ---------- */
+/** Au-delà, la tâche (appelée vers 8 h chaque matin) a manqué au moins un passage */
+const HEURES_SANS_PASSAGE = 36;
+
+/** Problème de la tâche planifiée à signaler, ou null. Rien tant qu'elle n'est pas configurée
+ *  (CRON_SECRET) ni tant qu'elle n'a jamais tourné (installation toute neuve). */
+export function alerteTache(e: EtatRappels | undefined, maintenant = Date.now()): { titre: string; detail: string } | null {
+  if (!e?.cron || !e.passages.length) return null;
+  const dernier = e.passages[0];
+  const heures = e.dernier_succes ? (maintenant - Date.parse(e.dernier_succes)) / 3.6e6 : Infinity;
+  if (heures > HEURES_SANS_PASSAGE) {
+    const jours = Math.max(1, Math.round(heures / 24));
+    const quand = e.dernier_succes ? `depuis ${jours} jour${jours > 1 ? 's' : ''}` : 'récemment';
+    return { titre: `La tâche du matin n'a pas tourné ${quand}`,
+             detail: dernier.etat === 'erreur' ? dernier.detail : 'Rappels, résumés et sauvegarde du mois ne partent plus.' };
+  }
+  if (dernier.etat === 'erreur') return { titre: 'Le dernier passage de la tâche du matin a échoué', detail: dernier.detail };
+  return null;
+}
+
+/* ---------- À traiter : échéances, remboursements et objectifs en retard, tâche du matin ---------- */
 function CarteATraiter({ aller }: { aller: (c: CibleAccueil) => void }) {
   const { data: echeances, isPending } = useEcheances();
   const { data: dettes } = useDettes();
+  const { data: etatRappels } = useEtatRappels();
+  const { data: objectifs } = useObjectifs();
   const aTraiter = (echeances ?? []).filter(e => e.a_rappeler);
   const enRetard = (dettes ?? []).filter(d => d.reste > 0 && d.echeance && d.echeance < auj());
-  const rien = !aTraiter.length && !enRetard.length;
+  const tache = alerteTache(etatRappels);
+  const objectifsEnRetard = (objectifs ?? []).filter(o => o.en_retard);
+  const rien = !aTraiter.length && !enRetard.length && !tache && !objectifsEnRetard.length;
   return (
     <Carte titre="À traiter" icone={<Pastille icone={IconCalendarDue} couleur={rien ? 'gray' : 'ambre'} />}
            droite={<Lien onClick={() => aller('echeances')}>Échéances</Lien>}>
@@ -111,6 +138,18 @@ function CarteATraiter({ aller }: { aller: (c: CibleAccueil) => void }) {
         <Group gap="xs"><IconCheck size={16} color="var(--c-ep)" /><Text fz="sm" c="dimmed">Rien d'urgent : aucune échéance proche, aucun remboursement en retard.</Text></Group>
       ) : (
         <Stack gap={8}>
+          {tache && (
+            <Group justify="space-between" wrap="nowrap" gap="xs" align="flex-start" style={{ cursor: 'pointer' }} onClick={() => aller('params')}>
+              <Group gap={6} wrap="nowrap" align="flex-start" style={{ minWidth: 0 }}>
+                <IconAlertTriangle size={16} color="var(--c-neg)" style={{ flexShrink: 0, marginTop: 2 }} />
+                <Box style={{ minWidth: 0 }}>
+                  <Text fz="sm" fw={600}>{tache.titre}</Text>
+                  <Text fz="xs" c="dimmed" lineClamp={2}>{tache.detail}</Text>
+                </Box>
+              </Group>
+              <Badge size="sm" variant="light" color="rouge" style={{ flexShrink: 0 }}>Paramètres</Badge>
+            </Group>
+          )}
           {aTraiter.slice(0, 5).map(e => (
             <Group key={e.id} justify="space-between" wrap="nowrap" gap="xs">
               <Text fz="sm" truncate>{e.titre}</Text>
@@ -122,6 +161,15 @@ function CarteATraiter({ aller }: { aller: (c: CibleAccueil) => void }) {
             <Group key={'d' + d.id} justify="space-between" wrap="nowrap" gap="xs" style={{ cursor: 'pointer' }} onClick={() => aller('dettes')}>
               <Text fz="sm" truncate>{d.sens === 'pret' ? `${d.personne} te doit` : `Tu dois à ${d.personne}`} {fmt(d.reste)}</Text>
               <Badge size="sm" variant="light" color="rouge" style={{ flexShrink: 0 }}>échéance dépassée</Badge>
+            </Group>
+          ))}
+          {objectifsEnRetard.map(o => (
+            <Group key={'o' + o.id} justify="space-between" wrap="nowrap" gap="xs" style={{ cursor: 'pointer' }} onClick={() => aller('objectifs')}>
+              <Group gap={6} wrap="nowrap" style={{ minWidth: 0 }}>
+                <IconTarget size={15} stroke={1.8} style={{ flexShrink: 0 }} />
+                <Text fz="sm" truncate>{o.nom} : il manque {fmt(o.reste)}</Text>
+              </Group>
+              <Badge size="sm" variant="light" color="ambre" style={{ flexShrink: 0 }}>date limite passée</Badge>
             </Group>
           ))}
         </Stack>
@@ -187,7 +235,11 @@ export function Accueil({ utilisateur, aller }: { utilisateur: string; aller: (c
                   {([['Titres, à leur valeur de marché', fmt(bourse!.valeur_marche), undefined],
                      ['Espèces disponibles', fmt(bourse!.especes_disponibles), undefined],
                      ['Performance globale', `${fmtSigne(bourse!.performance_globale)}${bourse!.apports_nets > 0 ? ` (${(bourse!.performance_globale_pct * 100).toFixed(1).replace('.', ',')} %)` : ''}`,
-                      signe(bourse!.performance_globale)]] as const).map(([nom, valeur, couleur]) => (
+                      signe(bourse!.performance_globale)],
+                     ...(bourse!.rendement_annualise !== null
+                       ? [['Rendement annuel', `${bourse!.rendement_annualise >= 0 ? '+' : '−'}${Math.abs(bourse!.rendement_annualise * 100).toFixed(1).replace('.', ',')} % par an`,
+                           signe(bourse!.rendement_annualise)] as const]
+                       : [])] as const).map(([nom, valeur, couleur]) => (
                     <Group key={nom} justify="space-between" gap="xs" wrap="nowrap">
                       <Text fz="sm" c="dimmed">{nom}</Text>
                       <Text fz="sm" fw={600} className="chiffre" c={couleur} style={{ whiteSpace: 'nowrap' }}>{valeur}</Text>

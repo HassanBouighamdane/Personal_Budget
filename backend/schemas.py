@@ -258,6 +258,8 @@ class DashboardBourse(BaseModel):
     patrimoine_total: float         # valeur de marché des titres + espèces disponibles
     performance_globale: float      # patrimoine − apports nets (en DH)
     performance_globale_pct: float  # ratio, affiché en % par le frontend
+    # Taux de rendement annuel (TRI) tenant compte de la date des apports ; None avant 3 mois d'historique
+    rendement_annualise: Optional[float] = None
 
 
 # ---------------------------------------------------------------- Dividendes
@@ -504,6 +506,62 @@ class EcheanceOut(BaseModel):
     note: str
     jours_restants: int      # négatif = en retard
     a_rappeler: bool         # dans la fenêtre de rappel (ou en retard)
+
+
+# ---------------------------------------------------------------- Objectifs d'épargne par projet
+class ProjetIn(BaseModel):
+    """Objectif d'épargne nommé (voyage, fonds d'urgence, voiture). `archive` : atteint ou abandonné."""
+    nom: str = Field(min_length=1, max_length=100)
+    cible: float = Field(gt=0, le=1e10)
+    date_limite: Optional[date] = None
+    note: str = Field(default="", max_length=1000)
+    archive: bool = False
+
+    @model_validator(mode="after")
+    def _nom_non_vide(self):
+        self.nom = self.nom.strip()
+        if not self.nom:
+            raise ValueError("Indique le nom de l'objectif")
+        self.note = self.note.strip()
+        return self
+
+
+class VersementIn(BaseModel):
+    """Argent mis de côté pour un objectif (positif) ou repris (négatif)."""
+    date_operation: date
+    montant: float = Field(ge=-1e10, le=1e10)
+    libelle: str = Field(default="", max_length=200)
+
+    @model_validator(mode="after")
+    def _non_nul(self):
+        if self.montant == 0:
+            raise ValueError("Le montant ne peut pas être nul")
+        self.libelle = self.libelle.strip()
+        return self
+
+
+class VersementOut(BaseModel):
+    id: int
+    date_operation: date
+    montant: float
+    libelle: str
+
+
+class ProjetOut(BaseModel):
+    id: int
+    nom: str
+    cible: float
+    date_limite: Optional[date]
+    note: str
+    archive: bool
+    verse: float                     # total mis de côté
+    reste: float                     # ce qui manque (0 une fois atteint)
+    progression: float               # verse ÷ cible (ratio, peut dépasser 1)
+    atteint: bool
+    mois_restants: Optional[int]     # mois jusqu'à la date limite, celui-ci compris (None sans date ou si dépassée)
+    par_mois: Optional[float]        # à mettre de côté chaque mois pour tenir la date limite
+    en_retard: bool                  # date limite dépassée sans avoir atteint la cible
+    versements: List[VersementOut]
 
 
 # ---------------------------------------------------------------- Patrimoine

@@ -82,10 +82,17 @@ export type ResumeMois = {
   depenses_mois_precedent_total: number;
   revenus_mois_precedent_total: number;
   jour_comparaison: number | null;
+  /** même mois l'an dernier, jusqu'au jour `jour_comparaison_annee` s'il est renseigné */
+  depenses_annee_precedente: number;
+  revenus_annee_precedente: number;
+  depenses_annee_precedente_total: number;
+  revenus_annee_precedente_total: number;
+  jour_comparaison_annee: number | null;
   depenses_variables: number;
   charges_fixes: boolean;
   projection_fin_mois: number | null;
-  budget_vs_reel: { cat: string; budget: number; reel: number; pct: number }[];
+  /** `an_dernier` : dépensé dans la catégorie le même mois l'an dernier, sur la même durée */
+  budget_vs_reel: { cat: string; budget: number; reel: number; pct: number; an_dernier: number }[];
   cumul_quotidien: number[];
   donut: PartCategorie[];
   evolution: { m: string; dep: number; rev: number }[];
@@ -241,6 +248,8 @@ export type DashboardBourse = {
   patrimoine_total: number;
   performance_globale: number;
   performance_globale_pct: number;
+  /** Rendement annuel (TRI) pondéré par la date des apports ; null avant 3 mois d'historique */
+  rendement_annualise: number | null;
 };
 
 /* ---------- Lectures ---------- */
@@ -321,11 +330,29 @@ export type Envoi = 'note' | 'semaine' | 'mois' | 'annee';
 /** Un appel de la tâche planifiée : `detail` = ce qui est parti (et sur quels canaux) ou l'erreur */
 export type PassageCron = { le: string; etat: 'ok' | 'deja_fait' | 'aucun_canal' | 'erreur'; detail: string };
 /** `passages` : derniers appels de la tâche planifiée, du plus récent au plus ancien */
-export type EtatRappels = { canaux: Canal[]; cron: boolean; envois: Record<Envoi, Canal[]>; passages: PassageCron[] };
+export type EtatRappels = {
+  canaux: Canal[]; cron: boolean; envois: Record<Envoi, Canal[]>; passages: PassageCron[];
+  /** dernier appel de la tâche planifiée qui n'a pas échoué (null : aucun dans le journal) */
+  dernier_succes: string | null;
+};
 /** `html` : l'e-mail tel qu'il sera envoyé ; `resume` : sa version texte brut */
 export type ApercuRappels = { rappels: string; sujet: string; resume: string; html: string };
 
+/* ---------- Objectifs d'épargne par projet ---------- */
+/** `montant` négatif : argent repris à l'objectif */
+export type Versement = { id: number; date_operation: string; montant: number; libelle: string };
+/** `par_mois` : à mettre de côté chaque mois pour tenir la date limite (null sans date, atteint ou dépassée) */
+export type Projet = {
+  id: number; nom: string; cible: number; date_limite: string | null; note: string; archive: boolean;
+  verse: number; reste: number; progression: number; atteint: boolean;
+  mois_restants: number | null; par_mois: number | null; en_retard: boolean; versements: Versement[];
+};
+
 /* ---------- Patrimoine ---------- */
+/** Patrimoine noté un jour donné (courbe) */
+export type PointPatrimoine = {
+  date: string; total: number; liquidites: number; bourse: number; autres_actifs: number; creances: number; dettes: number;
+};
 /** `verse` : argent sorti de l'épargne pour cet actif sans être saisi en dépense */
 export type Actif = { id: number; nom: string; type: string; valeur: number; verse: number; zakat: boolean; maj_le: string; note: string };
 export type Patrimoine = {

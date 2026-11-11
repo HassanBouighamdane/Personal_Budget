@@ -112,7 +112,7 @@ export default function App() {
   function aller(cible: CibleAccueil) {
     if (cible === 'lectures') { navLectures.setVue('a_lire'); setOnglet('lectures'); }
     else if (cible === 'bourse') { navBourse.setVue('dashboard'); setOnglet('bourse'); }
-    else if (cible === 'echeances' || cible === 'dettes' || cible === 'patrimoine') { navCarnet.setVue(cible); setOnglet('carnet'); }
+    else if (cible === 'echeances' || cible === 'dettes' || cible === 'patrimoine' || cible === 'objectifs') { navCarnet.setVue(cible); setOnglet('carnet'); }
     else setOnglet(cible);
   }
 

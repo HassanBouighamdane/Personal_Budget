@@ -2,17 +2,21 @@
  * Trois indicateurs en découlent : la réserve de sécurité, une estimation de la zakat et la liberté financière. */
 import { useEffect, useState, type ReactNode } from 'react';
 import {
-  ActionIcon, Alert, Badge, Box, Button, Checkbox, Divider, Grid, Group, NumberInput, Progress, Select, SimpleGrid, Stack, Text, TextInput, Tooltip,
+  ActionIcon, Alert, Badge, Box, Button, Checkbox, Divider, Grid, Group, NumberInput, Progress, SegmentedControl, Select, SimpleGrid, Stack, Text,
+  TextInput, Tooltip,
 } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { modals } from '@mantine/modals';
-import { IconBuildingBank, IconCoin, IconInfoCircle, IconMoonStars, IconPencil, IconShieldCheck, IconSunrise, IconWallet } from '@tabler/icons-react';
+import {
+  IconBuildingBank, IconChartLine, IconCoin, IconInfoCircle, IconMoonStars, IconPencil, IconShieldCheck, IconSunrise, IconWallet,
+} from '@tabler/icons-react';
 
 import { toast } from '../../lib/api';
-import { auj, dateFr, fmt, libelleMois, lireMontant } from '../../lib/format';
-import { T, signe } from '../../lib/palette';
+import { auj, dateFr, fmt, jjmm, jjmmaa, libelleMois, lireMontant } from '../../lib/format';
+import { C, T, signe } from '../../lib/palette';
 import type { Actif, Patrimoine } from '../../lib/types';
-import { useEcriture, usePatrimoine } from '../../lib/queries';
+import { useEcriture, useHistoriquePatrimoine, usePatrimoine } from '../../lib/queries';
+import { Graphique, optionsSeries } from '../../components/Graphique';
 import { ChampDate, ChampMontant } from '../../components/champs';
 import { BoutonSuppr, Carte, Chargement, confirmer, Info, Kpi, Pastille, Vide } from '../../components/ui';
 
@@ -330,6 +334,46 @@ function Liberte({ p }: { p: Patrimoine }) {
   );
 }
 
+/* ---------- Évolution (patrimoine noté chaque jour) ---------- */
+const PERIODES_COURBE = [{ value: '90', label: '3 mois' }, { value: '365', label: '1 an' }, { value: 'tout', label: 'Tout' }];
+
+function Evolution() {
+  const [periode, setPeriode] = useState('365');
+  const { data, isPending } = useHistoriquePatrimoine(periode === 'tout' ? null : Number(periode));
+  const choix = <SegmentedControl size="xs" value={periode} onChange={setPeriode} data={PERIODES_COURBE} />;
+  const points = data ?? [];
+  const premier = points[0], dernier = points.at(-1);
+  const ecart = premier && dernier ? dernier.total - premier.total : 0;
+  // Plus d'un an affiché : l'année devient utile sous chaque date
+  const format = premier && dernier && dernier.date.slice(0, 4) !== premier.date.slice(0, 4) ? jjmmaa : jjmm;
+
+  return (
+    <Carte titre="Évolution" icone={<Pastille icone={IconChartLine} couleur="emeraude" />} droite={choix}
+           description={points.length >= 2
+             ? <>Depuis le {dateFr(premier!.date)} : <Text span inherit fw={600} c={signe(ecart)}>{ecart >= 0 ? '+' : '−'}{fmt(Math.abs(ecart))}</Text></>
+             : 'Ton patrimoine, noté chaque jour'}>
+      {isPending ? <Chargement lignes={3} /> : points.length < 2 ? (
+        <Info>
+          {points.length
+            ? <>La courbe se construit jour après jour depuis le {dateFr(points[0].date)} : ton patrimoine est noté chaque matin et à chaque ouverture de cet écran. Reviens demain pour voir le premier trait.</>
+            : <>Ton patrimoine sera noté chaque jour à partir d'aujourd'hui (les cours passés ne sont pas conservés, les jours d'avant ne peuvent pas être recalculés).</>}
+        </Info>
+      ) : (
+        <Graphique type="line" hauteur={240} options={{ ...optionsSeries(), plugins: { legend: { position: 'top', align: 'end' },
+          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label} : ${fmt(ctx.parsed.y ?? 0)}` } } } }} data={{
+          labels: points.map(p => format(p.date)),
+          datasets: [
+            { label: 'Patrimoine net', data: points.map(p => p.total), borderColor: C.ep, backgroundColor: 'rgba(16,185,129,.12)',
+              fill: true, tension: .25, pointRadius: points.length > 60 ? 0 : 2 },
+            ...(points.some(p => p.bourse) ? [{ label: 'dont Bourse', data: points.map(p => p.bourse), borderColor: C.rev,
+              borderDash: [5, 4], tension: .25, pointRadius: 0 }] : []),
+          ],
+        }} />
+      )}
+    </Carte>
+  );
+}
+
 /* ---------- Page ---------- */
 export function VuePatrimoine() {
   const { data: p, isPending } = usePatrimoine();
@@ -355,6 +399,7 @@ export function VuePatrimoine() {
                : p.liberte.date_atteinte ? (p.liberte.annees_restantes === 0 ? 'objectif atteint' : `vers ${p.liberte.date_atteinte.slice(0, 4)}`)
                : "de l'objectif"} />
       </SimpleGrid>
+      <Evolution />
       <Grid gap="lg" align="flex-start">
         <Grid.Col span={{ base: 12, md: 5 }}>
           <Stack gap="lg">

@@ -274,6 +274,25 @@ def calculer_resume(mois: str, auj: dcls) -> dict:
         else:
             dep_prec, rev_prec = dep_prec_total, rev_prec_total
 
+        # Même mois l'an dernier : plus parlant que le mois précédent pour les dépenses saisonnières
+        # (été, rentrée, fêtes). Même règle de durée : le mois en cours est comparé jusqu'au même jour.
+        an_like = f"{annee - 1:04d}-{m:02d}-%"
+        dep_an_total = _somme(c, "depenses", "date LIKE %s", (an_like,))
+        rev_an_total = _somme(c, "revenus", "date LIKE %s", (an_like,))
+        jour_an = auj.day if est_courant and auj.day < _nb_jours_mois(annee - 1, m) else None
+        fin_an = f"{annee - 1:04d}-{m:02d}-{jour_an:02d}" if jour_an else f"{annee - 1:04d}-{m:02d}-31"
+        if jour_an:
+            dep_an = _somme(c, "depenses", "date LIKE %s AND date <= %s", (an_like, fin_an))
+            rev_an = _somme(c, "revenus", "date LIKE %s AND date <= %s", (an_like, fin_an))
+        else:
+            dep_an, rev_an = dep_an_total, rev_an_total
+        # Par catégorie, sur la même durée (info-bulle de « Budget vs Réel »)
+        reel_an = {r["categorie"]: r["t"] for r in c.execute(
+            "SELECT categorie, SUM(montant) t FROM depenses WHERE date LIKE %s AND date <= %s GROUP BY categorie",
+            (an_like, fin_an)).fetchall()}
+        for b in budget_vs:
+            b["an_dernier"] = round(reel_an.get(b["cat"], 0), 2)
+
         budget_total = sum(r["budget"] for r in cats)
 
     epargne = total_rev - total_dep
@@ -294,6 +313,12 @@ def calculer_resume(mois: str, auj: dcls) -> dict:
         "depenses_mois_precedent_total": round(dep_prec_total, 2),
         "revenus_mois_precedent_total": round(rev_prec_total, 2),
         "jour_comparaison": jour_cmp,
+        # Même mois l'an dernier, sur la même durée (jusqu'au jour `jour_comparaison_annee` s'il est renseigné)
+        "depenses_annee_precedente": round(dep_an, 2),
+        "revenus_annee_precedente": round(rev_an, 2),
+        "depenses_annee_precedente_total": round(dep_an_total, 2),
+        "revenus_annee_precedente_total": round(rev_an_total, 2),
+        "jour_comparaison_annee": jour_an,
         "depenses_variables": round(dep_var, 2),
         "charges_fixes": bool(fixes),
         "projection_fin_mois": projection,

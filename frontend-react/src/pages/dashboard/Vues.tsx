@@ -1,5 +1,5 @@
 /* Vues du dashboard budget — mêmes KPI, graphiques et tableaux que l'ancien app.js */
-import { Box, Group, Progress, Skeleton, Stack, Table, Text } from '@mantine/core';
+import { Box, Group, Progress, Skeleton, Stack, Table, Text, Tooltip } from '@mantine/core';
 import {
   IconAlertTriangle, IconArrowDownLeft, IconArrowUpRight, IconChartBar, IconChartLine, IconPigMoney, IconReceipt, IconScale, IconTarget, IconTrophy, IconWallet,
 } from '@tabler/icons-react';
@@ -97,17 +97,31 @@ export function VueMois({ nav }: { nav: NavDashboard }) {
   const vsMoisPrec = (precedent: number, total: number) => r.jour_comparaison
     ? `vs ${fmt(precedent)} du 1er au ${r.jour_comparaison} le mois dernier (mois entier : ${fmt(total)})`
     : `vs ${fmt(precedent)} le mois dernier`;
+  // Même mois l'an dernier (saisonnalité), sur la même durée pour le mois en cours
+  const [annee, numMois] = nav.mois.split('-').map(Number);
+  const moisAnPasse = `${MOIS_FR[numMois - 1].toLowerCase()} ${annee - 1}`;
+  const vsAnPrec = (precedent: number, total: number) => r.jour_comparaison_annee
+    ? `vs ${fmt(precedent)} du 1er au ${r.jour_comparaison_annee} ${moisAnPasse} (mois entier : ${fmt(total)})`
+    : `vs ${fmt(precedent)} en ${moisAnPasse}`;
 
   return (
     <>
       <EnTetePeriode nav={nav} titre={titre} />
       <GrilleKpi>
         <Kpi label="Revenus" icone={IconArrowDownLeft} teinte="bleu" valeur={fmt(r.total_revenus)} couleur={T.rev}
-             badge={<Variation actuel={r.total_revenus} precedent={r.revenus_mois_precedent} inverse
-                               libelle={vsMoisPrec(r.revenus_mois_precedent, r.revenus_mois_precedent_total)} />} />
+             badge={<>
+               <Variation actuel={r.total_revenus} precedent={r.revenus_mois_precedent} inverse
+                          libelle={vsMoisPrec(r.revenus_mois_precedent, r.revenus_mois_precedent_total)} />
+               <Variation actuel={r.total_revenus} precedent={r.revenus_annee_precedente} inverse prefixe="N−1"
+                          libelle={vsAnPrec(r.revenus_annee_precedente, r.revenus_annee_precedente_total)} />
+             </>} />
         <Kpi label="Dépenses" icone={IconArrowUpRight} teinte="rose" valeur={fmt(r.total_depenses)} couleur={T.dep}
-             badge={<Variation actuel={r.total_depenses} precedent={r.depenses_mois_precedent}
-                               libelle={vsMoisPrec(r.depenses_mois_precedent, r.depenses_mois_precedent_total)} />}
+             badge={<>
+               <Variation actuel={r.total_depenses} precedent={r.depenses_mois_precedent}
+                          libelle={vsMoisPrec(r.depenses_mois_precedent, r.depenses_mois_precedent_total)} />
+               <Variation actuel={r.total_depenses} precedent={r.depenses_annee_precedente} prefixe="N−1"
+                          libelle={vsAnPrec(r.depenses_annee_precedente, r.depenses_annee_precedente_total)} />
+             </>}
              aide={<>{fmt(r.depenses_variables / Math.max(jourRef, 1))} / jour{r.charges_fixes ? ' hors charges fixes' : ''}
                {r.projection_fin_mois ? <> · projection fin de mois : <b>{fmt(r.projection_fin_mois)}</b></> : null}</>} />
         <Kpi label="Reste à dépenser" icone={IconWallet} teinte="emeraude" valeur={fmt(r.reste_budget)} couleur={signe(r.reste_budget)}
@@ -118,7 +132,7 @@ export function VueMois({ nav }: { nav: NavDashboard }) {
       </GrilleKpi>
 
       <Grille2>
-        <Carte titre="Budget vs Réel" description="Dépensé par rapport au budget de chaque catégorie">
+        <Carte titre="Budget vs Réel" description="Dépensé par rapport au budget de chaque catégorie · survole un nom souligné pour l'an dernier">
           {r.budget_vs_reel.length ? (
             <Stack gap="md">
               {r.budget_vs_reel.map(b => {
@@ -126,7 +140,11 @@ export function VueMois({ nav }: { nav: NavDashboard }) {
                 return (
                   <Box key={b.cat}>
                     <Group justify="space-between" mb={6} wrap="nowrap" gap="xs">
-                      <Text fz="sm" fw={600} truncate>{b.cat}</Text>
+                      {b.an_dernier > 0 ? (
+                        <Tooltip label={`${moisAnPasse}${r.jour_comparaison_annee ? ` (au ${r.jour_comparaison_annee})` : ''} : ${fmt(b.an_dernier)}`}>
+                          <Text fz="sm" fw={600} truncate style={{ textDecoration: 'underline dotted', textUnderlineOffset: 3 }}>{b.cat}</Text>
+                        </Tooltip>
+                      ) : <Text fz="sm" fw={600} truncate>{b.cat}</Text>}
                       <Group gap={8} wrap="nowrap">
                         <Text fz="xs" c="dimmed" className="chiffre" style={{ whiteSpace: 'nowrap' }}>
                           {fmt(b.reel)} <Text span inherit opacity={0.6}>/ {fmt(b.budget)}</Text>

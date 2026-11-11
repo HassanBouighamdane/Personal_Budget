@@ -1,6 +1,5 @@
 fastapi
 uvicorn
-gunicorn
 python-multipart
 psycopg[binary]
 psycopg-pool>=3.2

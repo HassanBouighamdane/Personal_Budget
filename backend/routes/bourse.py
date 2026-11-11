@@ -418,6 +418,31 @@ def lister_dividendes(mois: Optional[str] = None, annee: Optional[int] = None):
     return _dividendes(mois, annee)
 
 
+def quantite_detenue_le(mouvements: list, titre: str, jour) -> Decimal:
+    """Quantité d'un titre détenue à la fin du jour `jour`, d'après les achats et ventes."""
+    return sum(((_d(m["quantite"]) if m["type_operation"] == "Achat" else -_d(m["quantite"]))
+                for m in mouvements if m["titre"] == titre and m["date_operation"] <= jour), Decimal(0))
+
+
+def dividendes_par_action(auj) -> list:
+    """Dividendes reçus sur les 12 derniers mois, avec le dividende PAR ACTION : montant reçu ÷
+    quantité détenue le jour du versement. `par_action` vaut None si la quantité de ce jour-là
+    est nulle (dividende saisi sans achat correspondant). Sert au rendement des positions et
+    aux dividendes attendus, qui doivent ramener chaque versement à la quantité détenue
+    AUJOURD'HUI : après une vente partielle, le dividende total reçu surestimerait la position."""
+    with db() as conn:
+        dividendes = conn.execute(
+            "SELECT titre, date_operation, montant FROM bourse_dividendes WHERE date_operation > %s AND date_operation <= %s",
+            (auj - timedelta(days=365), auj)).fetchall()
+        mouvements = conn.execute(
+            "SELECT titre, date_operation, type_operation, quantite FROM bourse_transactions").fetchall()
+    resultat = []
+    for d in dividendes:
+        qte = quantite_detenue_le(mouvements, d["titre"], d["date_operation"])
+        resultat.append({**d, "par_action": _d(d["montant"]) / qte if qte > 0 else None})
+    return resultat
+
+
 def calculer_calendrier_dividendes(auj) -> dict:
     """Dividendes attendus sur les 12 mois à venir : chaque dividende reçu depuis un an sur un
     titre encore détenu est supposé revenir un an plus tard, au même montant PAR ACTION, sur la
@@ -425,23 +450,13 @@ def calculer_calendrier_dividendes(auj) -> dict:
     positions, _, _ = _positions_et_gains()
     detenues = {p.titre: _d(p.quantite_detenue) for p in positions if p.quantite_detenue > 0}
     with db() as conn:
-        dividendes = conn.execute(
-            "SELECT titre, date_operation, montant FROM bourse_dividendes WHERE date_operation > %s AND date_operation <= %s",
-            (auj - timedelta(days=365), auj)).fetchall()
-        mouvements = conn.execute(
-            "SELECT titre, date_operation, type_operation, quantite FROM bourse_transactions").fetchall()
         noms = {r["code"]: r["nom"] for r in conn.execute("SELECT code, nom FROM bourse_titres").fetchall()}
 
     lignes = []
-    for d in dividendes:
-        if d["titre"] not in detenues:
+    for d in dividendes_par_action(auj):
+        if d["titre"] not in detenues or d["par_action"] is None:
             continue
-        # Quantité détenue le jour du versement, pour retrouver le dividende par action
-        qte = sum((_d(m["quantite"]) if m["type_operation"] == "Achat" else -_d(m["quantite"]))
-                  for m in mouvements if m["titre"] == d["titre"] and m["date_operation"] <= d["date_operation"])
-        if qte <= 0:
-            continue
-        par_action = _d(d["montant"]) / qte
+        par_action = d["par_action"]
         lignes.append({
             "titre": d["titre"], "nom": noms.get(d["titre"], ""),
             "date_prevue": ajouter_mois(d["date_operation"], 12),
@@ -719,14 +734,17 @@ def obtenir_positions():
 
 
 def calculer_positions(auj) -> List[PositionBourse]:
-    """Positions + rendement des dividendes : dividendes nets des 12 derniers mois rapportés
-    au coût (valeur comptable) et à la valeur de marché de la position actuelle."""
+    """Positions + rendement des dividendes. Les dividendes des 12 derniers mois sont ramenés à la
+    quantité détenue aujourd'hui (dividende par action × quantité actuelle), puis rapportés au coût
+    (valeur comptable) et à la valeur de marché de la position. Sans cela, une vente partielle
+    gonflerait le rendement : le dividende avait été versé sur plus d'actions."""
     positions, _, _ = _positions_et_gains()
-    with db() as conn:
-        div = {r["titre"]: _d(r["t"]) for r in conn.execute(
-            "SELECT titre, SUM(montant) t FROM bourse_dividendes WHERE date_operation > %s GROUP BY titre",
-            (auj - timedelta(days=365),),
-        ).fetchall()}
+    detenues = {p.titre: _d(p.quantite_detenue) for p in positions}
+    div = {}
+    for d in dividendes_par_action(auj):
+        # Quantité inconnue le jour du versement : le montant reçu, faute de mieux
+        montant = d["par_action"] * detenues.get(d["titre"], Decimal(0)) if d["par_action"] is not None else _d(d["montant"])
+        div[d["titre"]] = div.get(d["titre"], Decimal(0)) + montant
     for p in positions:
         d = div.get(p.titre, Decimal(0))
         p.dividendes_12m = _r(d)
@@ -820,6 +838,50 @@ def obtenir_gains(mois: Optional[str] = None, annee: Optional[int] = None):
     return sorted(gains, key=lambda g: g.date_operation, reverse=True)
 
 
+# ---------------------------------------------------------------- rendement annualisé (TRI / XIRR)
+# En dessous, un rendement « par an » extrapolé de quelques semaines n'aurait pas de sens
+# (+3 % en un mois afficherait +42 % par an)
+JOURS_MIN_RENDEMENT_ANNUALISE = 90
+
+
+def taux_rendement_annualise(flux: list, auj) -> Optional[float]:
+    """Taux annuel r tel que Σ montant / (1 + r)^(jours écoulés / 365) = 0 : le taux de rendement
+    interne (XIRR des tableurs), qui tient compte de la DATE de chaque apport. `flux` : liste de
+    (date, montant) vue de ta poche : apport négatif, retrait positif, et la valeur du compte
+    aujourd'hui comptée comme un retrait final. None sans apport, sans valeur positive, ou si le
+    premier flux date de moins de JOURS_MIN_RENDEMENT_ANNUALISE jours.
+
+    Résolu par dichotomie : la valeur actuelle nette décroît avec r tant que les apports précèdent
+    les retraits, ce qui est le cas d'un compte Bourse ; elle est plus lente que Newton mais ne
+    diverge jamais."""
+    flux = [(d, float(m)) for d, m in flux if m]
+    if not any(m < 0 for _, m in flux) or not any(m > 0 for _, m in flux):
+        return None
+    debut = min(d for d, _ in flux)
+    if (auj - debut).days < JOURS_MIN_RENDEMENT_ANNUALISE:
+        return None
+
+    def vna(r: float) -> float:
+        return sum(m / (1 + r) ** ((d - debut).days / 365) for d, m in flux)
+
+    bas, haut = -0.99, 1.0
+    while vna(haut) > 0 and haut < 1e6:
+        haut *= 2
+    v_bas = vna(bas)
+    if v_bas * vna(haut) > 0:
+        return None            # pas de changement de signe : aucun taux ne convient
+    for _ in range(200):
+        milieu = (bas + haut) / 2
+        v = vna(milieu)
+        if v_bas * v <= 0:
+            haut = milieu
+        else:
+            bas, v_bas = milieu, v
+        if haut - bas < 1e-9:
+            break
+    return (bas + haut) / 2
+
+
 # ---------------------------------------------------------------- dashboard
 @router.get("/dashboard", response_model=DashboardBourse)
 def obtenir_dashboard(mois: Optional[str] = None, annee: Optional[int] = None):
@@ -872,6 +934,10 @@ def obtenir_dashboard(mois: Optional[str] = None, annee: Optional[int] = None):
     patrimoine = valeur_marche + especes
     perf_globale = patrimoine - apports_nets
     perf_globale_pct = (perf_globale / apports_nets) if apports_nets > 0 else Decimal(0)
+    # Même performance, mais par an et pondérée par la date des apports et retraits
+    flux = [(m["date_operation"], -_d(m["montant"]) if m["type_mouvement"] == "Apport" else _d(m["montant"]))
+            for m in mouvements]
+    rendement_annualise = taux_rendement_annualise(flux + [(aujourdhui(), patrimoine)], aujourdhui())
 
     mvts_periode = [m for m in mouvements if _dans_periode(m["date_operation"], mois, annee)]
     apports_periode = sum(_d(m["montant"]) for m in mvts_periode if m["type_mouvement"] == "Apport")
@@ -888,4 +954,5 @@ def obtenir_dashboard(mois: Optional[str] = None, annee: Optional[int] = None):
         especes_disponibles=_r(especes), apports_nets=_r(apports_nets),
         patrimoine_total=_r(patrimoine), performance_globale=_r(perf_globale),
         performance_globale_pct=_r4(perf_globale_pct),
+        rendement_annualise=_r4(rendement_annualise) if rendement_annualise is not None else None,
     )

@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
-"""Cohérence des deux hébergements : Render installe backend/requirements.txt, Vercel lit
-pyproject.toml. Un paquet ajouté d'un côté seulement casserait l'autre au déploiement."""
+"""Cohérence des dépendances : backend/requirements.txt sert en local (et aux tests), Vercel lit
+pyproject.toml. Un paquet ajouté d'un côté seulement marcherait en local mais casserait le déploiement."""
 import re
 import sys
 import tomllib
 from pathlib import Path
 
 RACINE = Path(__file__).resolve().parents[2]
-# Utiles seulement sur Render (serveur) ou en développement (tests)
-HORS_VERCEL = {"gunicorn", "pytest"}
+# Utile seulement en développement (tests)
+HORS_VERCEL = {"pytest"}
 
 
 def _nom(dependance: str) -> str:
@@ -16,11 +16,11 @@ def _nom(dependance: str) -> str:
     return re.split(r"[\[<>=!~;\s]", dependance.strip(), maxsplit=1)[0].lower()
 
 
-def test_memes_dependances_sur_render_et_vercel():
+def test_memes_dependances_en_local_et_sur_vercel():
     lignes = (RACINE / "backend" / "requirements.txt").read_text().splitlines()
-    render = {_nom(l.split("#")[0]) for l in lignes if l.split("#")[0].strip()} - HORS_VERCEL
+    local = {_nom(l.split("#")[0]) for l in lignes if l.split("#")[0].strip()} - HORS_VERCEL
     vercel = {_nom(d) for d in tomllib.loads((RACINE / "pyproject.toml").read_text())["project"]["dependencies"]}
-    assert render == vercel
+    assert local == vercel
 
 
 def test_point_d_entree_vercel():

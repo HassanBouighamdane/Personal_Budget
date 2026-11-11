@@ -25,7 +25,7 @@ from routes.bourse import (_positions_et_gains, obtenir_dashboard, creer_transac
                            supprimer_transaction, creer_dividende, ajouter_titre, modifier_titre,
                            modifier_transaction, modifier_dividende, creer_frais, modifier_frais,
                            calculer_positions, recapitulatif_fiscal, lister_cibles, remplacer_cibles,
-                           calculer_calendrier_dividendes, lister_transactions)
+                           calculer_calendrier_dividendes, lister_transactions, taux_rendement_annualise)
 
 TITRE_TEST = "ZZTEST"
 
@@ -371,6 +371,48 @@ def test_note_d_une_transaction_enregistree_et_modifiable():
     assert next(x for x in lister_transactions() if x["id"] == t["id"])["note"] == "Révisé"
     # Sans note : chaîne vide, pas d'erreur
     assert _acheter("2026-01-11", 1, 100)["note"] == ""
+
+
+def test_rendement_des_dividendes_ramene_a_la_quantite_detenue_aujourd_hui():
+    """Dividende de 50 DH reçu sur 10 actions (5 DH par action), puis 6 vendues : il n'en reste
+    que 4, la position rapporte 20 DH par an et non 50."""
+    _acheter("1901-01-10", 10, 100)
+    creer_dividende(DividendeCreate(date_operation="1901-06-01", titre=TITRE_TEST, montant=50))
+    _vendre("1901-07-01", 6, 120)
+    with db() as c:
+        c.execute("INSERT INTO bourse_prix (titre, cours_actuel) VALUES (%s, 125)", (TITRE_TEST,))
+    pos = _position_test(calculer_positions(date(1901, 12, 31)))
+    assert pos.dividendes_12m == 20
+    assert (pos.rendement_cout, pos.rendement_marche) == (0.05, 0.04)    # 20 / (4 × 100) et 20 / (4 × 125)
+
+
+# ---------------------------------------------------------------------------
+# Rendement annualisé (TRI) : la date des apports compte
+# ---------------------------------------------------------------------------
+AUJ_TRI = date(2026, 11, 11)
+
+
+def test_tri_d_un_placement_unique():
+    assert round(taux_rendement_annualise([(date(2025, 11, 11), -10000), (AUJ_TRI, 11000)], AUJ_TRI), 4) == 0.1
+    assert round(taux_rendement_annualise([(date(2024, 11, 11), -10000), (AUJ_TRI, 12100)], AUJ_TRI), 4) == 0.1
+    assert round(taux_rendement_annualise([(date(2025, 11, 11), -10000), (AUJ_TRI, 5000)], AUJ_TRI), 4) == -0.5
+
+
+def test_tri_un_apport_recent_ne_dilue_pas_le_rendement():
+    """La performance simple tombe à 5 % (1000 sur 20 000 apportés), le TRI reste près de 10 % par an."""
+    flux = [(date(2025, 11, 11), -10000), (date(2026, 11, 10), -10000), (AUJ_TRI, 21000)]
+    assert 0.099 < taux_rendement_annualise(flux, AUJ_TRI) < 0.1
+
+
+def test_tri_avec_un_retrait():
+    flux = [(date(2024, 11, 11), -10000), (date(2025, 11, 11), 5500), (AUJ_TRI, 6050)]
+    assert round(taux_rendement_annualise(flux, AUJ_TRI), 4) == 0.1
+
+
+def test_tri_absent_sans_historique_suffisant():
+    assert taux_rendement_annualise([(date(2026, 10, 1), -10000), (AUJ_TRI, 10500)], AUJ_TRI) is None   # moins de 3 mois
+    assert taux_rendement_annualise([(AUJ_TRI, 1000)], AUJ_TRI) is None                                   # aucun apport
+    assert taux_rendement_annualise([(date(2025, 1, 1), -1000), (AUJ_TRI, 0)], AUJ_TRI) is None           # compte vide
 
 
 def _calendrier(auj):

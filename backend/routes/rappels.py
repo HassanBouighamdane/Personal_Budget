@@ -6,7 +6,8 @@ Une seule tâche planifiée, GET /api/cron/quotidien, appelée chaque matin (Ver
 vercel.json) : elle envoie le message du matin (échéances, remboursements attendus, et la note
 ou citation du jour tirée des Lectures, la même que dans l'application) et, le
 lundi, le résumé de la semaine écoulée (Budget, Bourse, Lectures, Carnet) ; le 1er du mois,
-le bilan du mois écoulé.
+le bilan du mois écoulé. Avant les envois, elle récupère les cours du jour et note le patrimoine
+du jour (courbe du patrimoine), même si aucun canal n'est configuré.
 
 Les textes sont construits par des fonctions qui reçoivent la date du jour en paramètre,
 pour que les tests la fixent.
@@ -343,12 +344,19 @@ def _derniers_passages(n: int = 5) -> list:
         return c.execute("SELECT le, etat, detail FROM cron_journal ORDER BY id DESC LIMIT %s", (n,)).fetchall()
 
 
+def _dernier_succes():
+    """Date du dernier appel de la tâche planifiée qui n'a pas échoué (None si aucun dans le journal)."""
+    with db() as c:
+        return c.execute("SELECT max(le) le FROM cron_journal WHERE etat <> 'erreur'").fetchone()["le"]
+
+
 # ---------------------------------------------------------------- routes (session requise)
 @router.get("/etat")
 def etat():
-    """Ce qui est configuré côté serveur (aucun secret n'est renvoyé), et les derniers appels de la tâche planifiée."""
+    """Ce qui est configuré côté serveur (aucun secret n'est renvoyé), les derniers appels de la tâche
+    planifiée et le dernier qui a réussi (l'accueil prévient quand il date)."""
     return {"canaux": canaux(), "cron": bool(CRON_SECRET), "envois": {e: canaux_envoi(e) for e in ENVOIS},
-            "passages": _derniers_passages()}
+            "passages": _derniers_passages(), "dernier_succes": _dernier_succes()}
 
 
 @router.put("/envois")
@@ -416,13 +424,18 @@ def _tache_quotidienne(force: bool, authorization: Optional[str]) -> dict:
     auj = aujourdhui()
     if not force and _param("cron_dernier_jour") == auj.toordinal():
         return {"etat": "deja_fait"}
-    if not canaux():
-        return {"etat": "aucun_canal"}
 
+    # Même sans canal d'envoi : cours du jour, puis patrimoine du jour pour sa courbe
     try:
-        bourse._actualiser_cours(force=False)   # cours du jour pour la valeur du portefeuille
+        bourse._actualiser_cours(force=False)
     except Exception as e:
         print(f"[rappels] cours non actualisés — {e!r}", flush=True)
+    try:
+        patrimoine.noter_patrimoine(auj)
+    except Exception as e:
+        print(f"[rappels] patrimoine du jour non noté — {e!r}", flush=True)
+    if not canaux():
+        return {"etat": "aucun_canal"}
 
     envoyes, atteints = [], set()   # atteints : canaux qui ont reçu au moins un message
     try:

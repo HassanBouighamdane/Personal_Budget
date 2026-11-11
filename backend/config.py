@@ -24,19 +24,18 @@ if not DATABASE_URL:
         "(ex : postgresql://user:motdepasse@hote:5432/nom_base)."
     )
 
-PORT = int(os.environ.get("PORT", 8500))                       # Render fournit PORT automatiquement
-# Version déployée (commit Git), fournie par l'hébergeur : les migrations du schéma ne tournent
+PORT = int(os.environ.get("PORT", 8500))                       # lancement local (python app.py)
+# Version déployée (commit Git), fournie par Vercel : les migrations du schéma ne tournent
 # qu'une fois par version, et non à chaque démarrage à froid (cf. database.migrations_a_faire).
 # Vide en local : elles tournent alors à chaque lancement, comme avant.
-VERSION_DEPLOYEE = (os.environ.get("VERCEL_GIT_COMMIT_SHA") or os.environ.get("RENDER_GIT_COMMIT")
-                    or os.environ.get("VERCEL_DEPLOYMENT_ID") or "").strip()
+VERSION_DEPLOYEE = (os.environ.get("VERCEL_GIT_COMMIT_SHA") or os.environ.get("VERCEL_DEPLOYMENT_ID") or "").strip()
 COOKIE_SECURE = os.environ.get("COOKIE_SECURE", "false").lower() == "true"   # true en production HTTPS
 ADMIN_UTILISATEUR = os.environ.get("ADMIN_UTILISATEUR")
 ADMIN_MOT_DE_PASSE = os.environ.get("ADMIN_MOT_DE_PASSE")
 DUREE_SESSION_JOURS = 1            # session ordinaire
 DUREE_SESSION_LONGUE_JOURS = 30    # « Rester connecté » ; les deux se prolongent pendant l'utilisation
 
-# Fuseau de l'utilisateur : le serveur (Render) tourne en UTC, ce qui décalerait « aujourd'hui »
+# Fuseau de l'utilisateur : le serveur (Vercel) tourne en UTC, ce qui décalerait « aujourd'hui »
 # (mois en cours, projection, objectifs de lecture) autour de minuit.
 FUSEAU = ZoneInfo(os.environ.get("FUSEAU", "Africa/Casablanca"))
 
