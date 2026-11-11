@@ -1,6 +1,6 @@
 # Ideas to improve the app
 
-From a review of the code on 2026-10-05, updated on 2026-10-10. Everything below is still open; what has been built is listed under [Done](#done). Within each section, items are ordered by expected payoff. Effort: **S** = an evening, **M** = a few evenings, **L** = needs design first.
+From a review of the code on 2026-10-05, updated on 2026-10-10 and 2026-11-11. Everything below is still open; what has been built is listed under [Done](#done). Within each section, items are ordered by expected payoff. Effort: **S** = an evening, **M** = a few evenings, **L** = needs design first.
 
 ## 1. Budget
 
@@ -11,18 +11,20 @@ From a review of the code on 2026-10-05, updated on 2026-10-10. Everything below
 
 ## 2. Bourse
 
-5. **Price history** (S to start, M for the chart): `bourse_prix` keeps one price per stock. Insert a row into `bourse_prix_historique(titre, date, cours)` in `maj_prix` and `_actualiser_cours` **now**, so there is history when the portfolio-value chart is built. Holdings at a past date can already be rebuilt from transactions.
+5. **Price history** (S to start, M for the chart): `bourse_prix` keeps one price per stock. Insert a row into `bourse_prix_historique(titre, date, cours)` in `maj_prix` and `_actualiser_cours` **now**, so there is history when the portfolio-value chart is built. The daily cron already calls `_actualiser_cours` every morning, so this fills itself with no extra request (one row per stock and day: `ON CONFLICT (titre, date) DO UPDATE`). Holdings at a past date can already be rebuilt from transactions.
 6. **Bulk price update** (S): one screen listing every held stock with its price field, saved in one request, instead of one update per stock.
-7. **Annualised return (XIRR)** (M): `performance_globale_pct` ignores *when* money was deposited. Deposits and withdrawals are dated, so a money-weighted annual return is computable and is the honest number to compare with a savings account or the MASI.
-8. **Dividend yield on shares actually held** (S): the yield divides the last 12 months of dividends by the cost of the position held *today*. After a partial sale it is inflated (dividends were paid on more shares). Rebuild the quantity held at each dividend date from the transactions and use dividend per share × current quantity.
+7. **Annualised return (XIRR)** (M): `performance_globale_pct` is (portfolio − net deposits) ÷ net deposits, so it ignores *when* money was deposited: a deposit made yesterday lowers the % although nothing moved. Deposits and withdrawals are dated, so a money-weighted annual return is computable and is the honest number to compare with a savings account or the MASI. Show it in the "Performance globale" card, next to the current %.
+8. **Dividend yield on shares actually held** (S): `calculer_positions` divides the last 12 months of dividends by the cost of the position held *today*. After a partial sale it is inflated (dividends were paid on more shares). The expected-dividends route already rebuilds the quantity held on each payment date to get a dividend per share; extract that into a helper and reuse it here (dividend per share × current quantity).
 
 ## 3. Across modules
 
-10. **Net worth curve** (M): net worth now includes other assets, debts and an opening balance (Suivi → Patrimoine), but only as today's figure. A curve over time needs the price history (idea 5) for the Bourse part, and a history of the manual asset values.
+10. **Net worth curve** (M): net worth now includes other assets, debts and an opening balance (Suivi → Patrimoine), but only as today's figure. A curve over time needs the price history (idea 5) for the Bourse part, and a history of the manual asset values. Cheaper start (S): have the daily cron write `calculer_patrimoine(auj)["total"]` and the Bourse total to a `patrimoine_historique(date, total, bourse)` table. The weekly summary already keeps last Monday's portfolio value, but only one value, in `params`. The curve then builds itself from that day on, and the exact rebuild of the past can come later.
+11. **Warn when the daily task stops** (S): `cron_journal` now records each run, but it is only visible in Paramètres. If the last successful run is more than two days old, show it under "what needs action" on the home page. The Vercel cron can fail silently (an expired secret, or a deploy that drops `vercel.json`), and the reminders, summaries and monthly backup all depend on it.
 
 ## 5. Backend best practices
 
-- **Real migrations** (M): `init_db()` runs all the DDL on every start (every cold start on Vercel), with no record of what ran. A `schema_version` table plus numbered SQL files in `backend/migrations/` (applied in order, once) is enough without an ORM, and makes data migrations (like the `TEXT` dates) safe.
+- **Numbered migrations** (M): since 2026-11-03, `init_db()` runs once per deployed version, under a lock (`migrations_appliquees`, see [Done](#done)). It still replays *all* the DDL each time, and data migrations are hidden `if` blocks in it. That is how one of them added and dropped a column on every start until the table nearly hit PostgreSQL's 1600-column limit. Numbered SQL files in `backend/migrations/`, each applied once and recorded, make data migrations like the `TEXT` dates safe. `migrations_appliquees` can become that record.
+- **Pick one host** (S): the app is set up for both Render and Vercel, which means two requirement lists to keep in sync, two version variables, and a cron that only exists on Vercel (Render's free plan has none). Once Vercel has proved itself, switch Render off and drop `requirements.txt`, or keep it only for local use.
 - **`DATE` and `NUMERIC` in the Budget tables** (M): Bourse already uses them. `DOUBLE PRECISION` amounts accumulate rounding errors. Do it as the first real migration; `rapports.py` now has its first tests, extend them to the day and global views before.
 - **Foreign keys instead of manual cascades** (M): `depenses.categorie`, `revenus.source` and Bourse `titre` reference names without constraints, and renames are cascaded by hand. `FOREIGN KEY ... ON UPDATE CASCADE` on the name would replace the `_verifier_categorie` and `_valider_titre` checks and the rename code. (`budgets_historique` already uses the category id.)
 - **Health check** (S): `GET /api/health` doing `SELECT 1`, for Render's health check and uptime monitoring.
@@ -47,10 +49,10 @@ From a review of the code on 2026-10-05, updated on 2026-10-10. Everything below
 ## Suggested order
 
 1. The separate test database: it protects the data.
-2. Start the price history (5): the history only exists from the day it is enabled.
-3. Daily friction: budget alert (2), recurring transactions (1).
-4. Foundations: more tests for `rapports.py`, migrations, then `DATE`/`NUMERIC`.
-5. Then the larger features: net worth curve (10), XIRR (7), savings goals (3).
+2. Start recording history now, from the daily cron: prices (5) and the net worth snapshot (10). History only exists from the day it is enabled, and nearly a month has passed since this was first suggested.
+3. Daily friction: budget alert (2), recurring transactions (1), warning when the daily task stops (11).
+4. Foundations: more tests for `rapports.py`, numbered migrations, then `DATE`/`NUMERIC`.
+5. Then the larger features: net worth chart (10), XIRR (7), savings goals (3).
 
 ## Done
 
@@ -88,6 +90,8 @@ Built on 2026-10-10 (the three Suivi and reminder items were added the same day)
 - **URL navigation**: tab, view and period in the address; refresh keeps the page, back/forward work, views can be bookmarked.
 - **Startup in `lifespan`**: `init_db()` and the pool close moved from import time / `@app.on_event` into FastAPI's lifespan, so importing `app` no longer touches the database (needed for Vercel's build).
 - **Vercel hosting**: `pyproject.toml`, `vercel.json` and DEPLOY_VERCEL.md, alongside Render.
+- **Migrations once per version** (2026-11-03): `migrations_a_faire()` runs `init_db()` only on the first start of a deployed version (`VERSION_DEPLOYEE`, the Git commit from Vercel or Render), under `pg_advisory_xact_lock`. This fixed the 500s when several Vercel instances started at once. A test checks that a start no longer uses up PostgreSQL column numbers.
+- **Daily task log** (2026-10-12): each call of `/api/cron/quotidien` is saved in `cron_journal` (last 30) with what was sent and on which channels, or the error, and the last runs are shown in Paramètres.
 - **Old frontend removed**: `frontend/` (HTML/JS, no longer maintained) is deleted; the server only serves `frontend-react/dist/` and prints a warning if it is missing.
 
 **Bugs**
