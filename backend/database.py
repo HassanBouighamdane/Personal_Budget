@@ -652,6 +652,10 @@ def init_db():
             cree_le        TIMESTAMP NOT NULL DEFAULT now()
         );
         CREATE INDEX IF NOT EXISTS idx_objectifs_versements ON objectifs_versements (objectif_id);
+        -- Objectif suivi par un tag (#turquie-2027) : les dépenses portant ce tag, datées de
+        -- tag_depuis ou après, sont prises sur l'argent mis de côté (cf. routes/objectifs.py)
+        ALTER TABLE objectifs ADD COLUMN IF NOT EXISTS tag VARCHAR(40);
+        ALTER TABLE objectifs ADD COLUMN IF NOT EXISTS tag_depuis DATE;
 
         -- Patrimoine net noté une fois par jour (tâche du matin, et à chaque ouverture de l'écran
         -- Patrimoine) : la courbe se construit jour après jour. Les cours passés n'étant pas

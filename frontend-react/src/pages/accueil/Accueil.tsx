@@ -130,7 +130,8 @@ function CarteATraiter({ aller }: { aller: (c: CibleAccueil) => void }) {
   const enRetard = (dettes ?? []).filter(d => d.reste > 0 && d.echeance && d.echeance < auj());
   const tache = alerteTache(etatRappels);
   const objectifsEnRetard = (objectifs ?? []).filter(o => o.en_retard);
-  const rien = !aTraiter.length && !enRetard.length && !tache && !objectifsEnRetard.length;
+  const enveloppesDepassees = (objectifs ?? []).filter(o => !o.archive && o.depassement > 0);
+  const rien = !aTraiter.length && !enRetard.length && !tache && !objectifsEnRetard.length && !enveloppesDepassees.length;
   return (
     <Carte titre="À traiter" icone={<Pastille icone={IconCalendarDue} couleur={rien ? 'gray' : 'ambre'} />}
            droite={<Lien onClick={() => aller('echeances')}>Échéances</Lien>}>
@@ -170,6 +171,15 @@ function CarteATraiter({ aller }: { aller: (c: CibleAccueil) => void }) {
                 <Text fz="sm" truncate>{o.nom} : il manque {fmt(o.reste)}</Text>
               </Group>
               <Badge size="sm" variant="light" color="ambre" style={{ flexShrink: 0 }}>date limite passée</Badge>
+            </Group>
+          ))}
+          {enveloppesDepassees.map(o => (
+            <Group key={'e' + o.id} justify="space-between" wrap="nowrap" gap="xs" style={{ cursor: 'pointer' }} onClick={() => aller('objectifs')}>
+              <Group gap={6} wrap="nowrap" style={{ minWidth: 0 }}>
+                <IconTarget size={15} stroke={1.8} style={{ flexShrink: 0 }} />
+                <Text fz="sm" truncate>{o.nom} : {fmt(o.depassement)} dépensés au-delà de l'enveloppe</Text>
+              </Group>
+              <Badge size="sm" variant="light" color="rouge" style={{ flexShrink: 0 }}>enveloppe dépassée</Badge>
             </Group>
           ))}
         </Stack>

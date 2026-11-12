@@ -5,7 +5,6 @@ From a review of the code on 2026-10-05, updated on 2026-10-10 and 2026-11-11. E
 ## 1. Budget
 
 1. **Recurring transactions** (M): rent, subscriptions and salary are retyped every month. Add a `recurrences` table (amount, category or source, day of month, active) and a "generate this month's entries" button on Saisie. Store the last generated month per recurrence so pressing twice does nothing, and clamp day 31 to the month's last day. Categories marked "Fixe" are the natural first candidates; "Dupliquer" already covers one-off copies.
-2. **Savings goals fed by a tag** (S): a goal is filled by hand today ("Mettre de côté" / "Reprendre"). Optionally link a goal to a tag (`#voyage-turquie`): expenses with that tag would show as "already spent" on the goal, so the trip budget is followed without retyping.
 
 ## 2. Bourse
 
@@ -34,9 +33,12 @@ From a review of the code on 2026-10-05, updated on 2026-10-10 and 2026-11-11. E
 2. Price history (5): like the net-worth curve, it only exists from the day it is enabled.
 3. Daily friction: recurring transactions (1).
 4. Foundations: numbered migrations, then `DATE`/`NUMERIC`, then pinned dependencies and CI.
-5. Then the smaller extras: goals fed by a tag (2), out-of-date prices (6).
+5. Then the smaller extras: out-of-date prices (6).
 
 ## Done
+
+**Built on 2026-11-12, fourth batch** (type-checked and built; the database tests were written but not run here)
+- **Savings goals fed by a tag**: a goal can follow a tag (`tag`, `tag_depuis` on `objectifs`). Tagged expenses from that date, minus tagged income, are taken from the money set aside: a second bar shows spent vs set aside, "Liquidités libres" subtracts only what is still reserved, and overspending shows in red and on the home page. The goal's "Versements" window lists the tagged operations.
 
 **Built on 2026-11-12, third batch** (the build script was run locally; the first Vercel deployment confirms it there)
 - **Build `dist/` on deploy**: `dist/` is no longer committed. Vercel runs `backend/construire_frontend.py` (`npm ci --include=dev`, `npm run build`) through `[tool.vercel.scripts] build` in `pyproject.toml`; `lancer_budget` runs it when `dist/` is missing.

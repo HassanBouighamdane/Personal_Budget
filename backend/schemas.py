@@ -532,12 +532,25 @@ class EcheanceOut(BaseModel):
 
 # ---------------------------------------------------------------- Objectifs d'épargne par projet
 class ProjetIn(BaseModel):
-    """Objectif d'épargne nommé (voyage, fonds d'urgence, voiture). `archive` : atteint ou abandonné."""
+    """Objectif d'épargne nommé (voyage, fonds d'urgence, voiture). `archive` : atteint ou abandonné.
+    `tag` : les dépenses portant ce tag, à partir de `tag_depuis`, sont prises sur l'argent mis de
+    côté (par défaut depuis aujourd'hui)."""
     nom: str = Field(min_length=1, max_length=100)
     cible: float = Field(gt=0, le=1e10)
     date_limite: Optional[date] = None
     note: str = Field(default="", max_length=1000)
     archive: bool = False
+    tag: Optional[str] = Field(default=None, max_length=60)
+    tag_depuis: Optional[date] = None
+
+    @model_validator(mode="after")
+    def _tag_normalise(self):
+        # Même forme que les tags des opérations (_valider_tags) : minuscules, sans #, 40 caractères
+        tag = " ".join((self.tag or "").split()).lower().lstrip("#")[:40]
+        self.tag = tag or None
+        if not self.tag:
+            self.tag_depuis = None
+        return self
 
     @model_validator(mode="after")
     def _nom_non_vide(self):
@@ -569,6 +582,16 @@ class VersementOut(BaseModel):
     libelle: str
 
 
+class OperationTaggee(BaseModel):
+    """Dépense (ou remboursement reçu, en revenu) portant le tag d'un objectif."""
+    type: Literal["depense", "revenu"]
+    id: int
+    date: str
+    nom: str               # catégorie ou source
+    description: str
+    montant: float
+
+
 class ProjetOut(BaseModel):
     id: int
     nom: str
@@ -584,6 +607,13 @@ class ProjetOut(BaseModel):
     par_mois: Optional[float]        # à mettre de côté chaque mois pour tenir la date limite
     en_retard: bool                  # date limite dépassée sans avoir atteint la cible
     versements: List[VersementOut]
+    # Suivi par un tag : dépenses du projet prises sur l'argent mis de côté
+    tag: Optional[str] = None
+    tag_depuis: Optional[date] = None
+    depense: float = 0               # dépenses taggées − remboursements taggés (jamais négatif)
+    reserve: float = 0               # encore réservé : mis de côté − dépensé (0 au plus bas) ; sans tag = verse
+    depassement: float = 0           # dépensé au-delà de ce qui était mis de côté
+    operations: List[OperationTaggee] = []   # les 50 plus récentes
 
 
 # ---------------------------------------------------------------- Patrimoine

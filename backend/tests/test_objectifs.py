@@ -19,6 +19,7 @@ import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
 
+from config import aujourdhui
 from database import db
 from schemas import ProjetIn, VersementIn
 from routes.objectifs import (
@@ -150,3 +151,66 @@ def test_modifie_le_mis_a_jour_par_le_declencheur():
     with db() as c:
         apres = c.execute("SELECT modifie_le FROM objectifs WHERE id=%s", (o["id"],)).fetchone()["modifie_le"]
     assert apres > avant
+
+
+# ---------------------------------------------------------------------------
+# Objectif suivi par un tag : les dépenses du projet sont prises sur l'argent mis de côté
+# ---------------------------------------------------------------------------
+TAG = "zztest-turquie"
+
+
+def test_depenses_prises_sur_l_enveloppe_sans_toucher_a_l_epargne():
+    o = {"id": 1, "nom": "x", "cible": Decimal(20000), "date_limite": None, "note": "", "archive": False,
+         "tag": TAG, "tag_depuis": date(2026, 1, 1)}
+    r = calculer(o, [{"montant": Decimal(18000)}], AUJ, Decimal(15000))
+    assert (r["verse"], r["progression"], r["depense"], r["reserve"], r["depassement"]) == (18000, 0.9, 15000, 3000, 0)
+    r = calculer(o, [{"montant": Decimal(18000)}], AUJ, Decimal(21000))          # plus que l'enveloppe
+    assert (r["reserve"], r["depassement"]) == (0, 3000)
+    assert calculer(o, [], AUJ, Decimal(-50))["depense"] == 0                     # remboursements > dépenses
+    # Sans tag, rien n'est dépensé : tout ce qui est mis de côté reste réservé
+    r = calculer({**o, "tag": None}, [{"montant": Decimal(500)}], AUJ, Decimal(400))
+    assert (r["depense"], r["reserve"]) == (0, 500)
+
+
+def test_tag_normalise_et_date_de_depart_par_defaut():
+    assert ProjetIn(nom="x", cible=1, tag="  #Turquie   2027 ").tag == "turquie 2027"
+    assert ProjetIn(nom="x", cible=1, tag="   ", tag_depuis="2026-01-01").tag_depuis is None
+    o = _projet()
+    o = modifier_objectif(o["id"], ProjetIn(nom=f"{PREFIXE} Voyage", cible=12000, tag="#" + TAG))
+    assert (o["tag"], o["tag_depuis"]) == (TAG, aujourdhui())      # anciennes dépenses du même tag : ignorées
+
+
+def test_un_objectif_taggue_suit_les_depenses_et_les_remboursements():
+    """Seules les opérations portant le tag ET datées de tag_depuis ou après comptent."""
+    from schemas import CategorieIn, DepenseIn, RevenuIn
+    from routes.configuration import ajouter_categorie
+    from routes.transactions import ajouter_depense, ajouter_revenu
+    cat = PREFIXE + "Voyage"
+    ajouter_categorie(CategorieIn(nom=cat, budget=0))
+    try:
+        o = ajouter_objectif(ProjetIn(nom=f"{PREFIXE} Turquie", cible=20000, tag=TAG, tag_depuis=date(1901, 3, 1)))
+        _verser(o, 18000)
+        ajouter_depense(DepenseIn(date="1901-02-15", categorie=cat, montant=999, tags=[TAG]))       # avant tag_depuis
+        ajouter_depense(DepenseIn(date="1901-03-10", categorie=cat, montant=9000, tags=[TAG]))
+        ajouter_depense(DepenseIn(date="1901-03-12", categorie=cat, montant=6500, tags=[TAG, "hotel"]))
+        ajouter_depense(DepenseIn(date="1901-03-12", categorie=cat, montant=100))                   # sans le tag
+        ajouter_revenu(RevenuIn(date="1901-03-20", source=PREFIXE + "Remb", montant=500, tags=[TAG]))
+        r = next(x for x in lister_objectifs() if x["id"] == o["id"])
+        assert (r["depense"], r["reserve"], r["depassement"]) == (15000, 3000, 0)
+        assert [x["montant"] for x in r["operations"]] == [500, 6500, 9000]      # les plus récentes d'abord
+    finally:
+        with db() as c:
+            c.execute("DELETE FROM depenses WHERE categorie=%s", (cat,))
+            c.execute("DELETE FROM revenus WHERE source=%s", (PREFIXE + "Remb",))
+            c.execute("DELETE FROM categories WHERE nom=%s", (cat,))
+            c.execute("DELETE FROM sources_revenus WHERE nom=%s", (PREFIXE + "Remb",))
+
+
+def test_reprendre_limite_a_l_enveloppe_d_un_objectif_taggue():
+    """Le tag ne correspond ici à aucune dépense : l'enveloppe vaut ce qui est mis de côté."""
+    o = ajouter_objectif(ProjetIn(nom=f"{PREFIXE} Turquie", cible=1000, tag=TAG))
+    _verser(o, 600)
+    assert _verser(o, -600)["reserve"] == 0
+    with pytest.raises(HTTPException) as exc:
+        _verser(o, -1)
+    assert exc.value.status_code == 400

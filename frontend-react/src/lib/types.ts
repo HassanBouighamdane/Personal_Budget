@@ -346,7 +346,13 @@ export type Projet = {
   id: number; nom: string; cible: number; date_limite: string | null; note: string; archive: boolean;
   verse: number; reste: number; progression: number; atteint: boolean;
   mois_restants: number | null; par_mois: number | null; en_retard: boolean; versements: Versement[];
+  /** Suivi par un tag : dépenses portant le tag depuis `tag_depuis`, prises sur l'argent mis de côté.
+   *  `reserve` = encore réservé (sans tag : `verse`), `depassement` = dépensé au-delà de l'enveloppe */
+  tag: string | null; tag_depuis: string | null; depense: number; reserve: number; depassement: number;
+  operations: OperationTaggee[];
 };
+/** Dépense (ou remboursement, en revenu) portant le tag d'un objectif */
+export type OperationTaggee = { type: 'depense' | 'revenu'; id: number; date: string; nom: string; description: string; montant: number };
 
 /* ---------- Patrimoine ---------- */
 /** Patrimoine noté un jour donné (courbe) */

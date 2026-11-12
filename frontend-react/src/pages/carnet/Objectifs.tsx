@@ -1,19 +1,19 @@
 /* Suivi — objectifs d'épargne par projet (voyage, fonds d'urgence, voiture) : un montant cible, une date limite
  * facultative, et l'argent mis de côté au fil des versements. L'argent reste dans les liquidités : il est réservé,
- * pas dépensé. */
+ * pas dépensé. Un objectif suivi par un tag prend sur cette réserve les dépenses du Budget qui portent le tag. */
 import { useState, type ReactNode } from 'react';
 import {
-  ActionIcon, Badge, Box, Button, Grid, Group, Progress, SegmentedControl, SimpleGrid, Stack, Text, TextInput, Tooltip,
+  ActionIcon, Autocomplete, Badge, Box, Button, Divider, Grid, Group, Progress, SegmentedControl, SimpleGrid, Stack, Text, TextInput, Tooltip,
 } from '@mantine/core';
 import { DatePickerInput } from '@mantine/dates';
 import { modals } from '@mantine/modals';
-import { IconArchive, IconArchiveOff, IconCheck, IconPencil, IconPigMoney, IconTarget, IconWallet } from '@tabler/icons-react';
+import { IconArchive, IconArchiveOff, IconCheck, IconHash, IconPencil, IconPigMoney, IconTarget, IconWallet } from '@tabler/icons-react';
 
 import { toast } from '../../lib/api';
 import { auj, dateFr, fmt, libelleMois, lireMontant } from '../../lib/format';
 import { T } from '../../lib/palette';
 import type { Projet } from '../../lib/types';
-import { useEcriture, useObjectifs, usePatrimoineSilencieux } from '../../lib/queries';
+import { useEcriture, useObjectifs, usePatrimoineSilencieux, useTags } from '../../lib/queries';
 import { ChampDate, ChampMontant } from '../../components/champs';
 import { Aide, BoutonSuppr, Carte, Chargement, confirmer, Kpi, Pastille, Vide } from '../../components/ui';
 
@@ -27,8 +27,11 @@ function ouvrir(titre: string, contenu: (fermer: () => void) => ReactNode) {
 /** Corps de PUT /api/objectifs/{id} : l'objectif tel quel, avec les changements donnés */
 const corps = (o: Projet, changements: Partial<Projet> = {}) => {
   const x = { ...o, ...changements };
-  return { nom: x.nom, cible: x.cible, date_limite: x.date_limite, note: x.note, archive: x.archive };
+  return { nom: x.nom, cible: x.cible, date_limite: x.date_limite, note: x.note, archive: x.archive, tag: x.tag, tag_depuis: x.tag_depuis };
 };
+
+/** « #Turquie 2027 » → « turquie 2027 » : même forme que les tags des opérations */
+const normaliserTag = (t: string) => t.trim().replace(/^#+/, '').split(/\s+/).join(' ').toLowerCase().slice(0, 40);
 
 function FormObjectif({ existant, onTermine }: { existant?: Projet; onTermine?: () => void }) {
   const ecrire = useEcriture('carnet');
@@ -36,18 +39,25 @@ function FormObjectif({ existant, onTermine }: { existant?: Projet; onTermine?: 
   const [cible, setCible] = useState(existant ? texte(existant.cible) : '');
   const [limite, setLimite] = useState<string | null>(existant?.date_limite ?? null);
   const [note, setNote] = useState(existant?.note ?? '');
+  const [tag, setTag] = useState(existant?.tag ?? '');
+  const [depuis, setDepuis] = useState(existant?.tag_depuis ?? auj());
+  const { data: tags } = useTags();
+  const tagNet = normaliserTag(tag);
 
   function enregistrer() {
     const c = lireMontant(cible);
     if (!nom.trim()) return toast("Indique le nom de l'objectif", false);
     if (isNaN(c) || c <= 0) return toast('Montant cible invalide', false);
-    const body = { nom: nom.trim(), cible: c, date_limite: limite, note: note.trim(), archive: existant?.archive ?? false };
+    const body = { nom: nom.trim(), cible: c, date_limite: limite, note: note.trim(), archive: existant?.archive ?? false,
+                   tag: tagNet || null, tag_depuis: tagNet ? depuis : null };
     ecrire.mutate(
       existant ? { path: `/api/objectifs/${existant.id}`, method: 'PUT', body, succes: 'Objectif modifié ✓' }
                : { path: '/api/objectifs', method: 'POST', body, succes: 'Objectif créé ✓' },
-      { onSuccess: () => { if (!existant) { setNom(''); setCible(''); setLimite(null); setNote(''); } onTermine?.(); } },
+      { onSuccess: () => { if (!existant) { setNom(''); setCible(''); setLimite(null); setNote(''); setTag(''); setDepuis(auj()); } onTermine?.(); } },
     );
   }
+  // Tag déjà utilisé avant la date de départ : ces dépenses-là ne compteront pas (ancien voyage du même nom)
+  const ancien = tags?.find(t => t.tag === tagNet && t.premier < depuis);
 
   return (
     <Stack gap="sm">
@@ -59,6 +69,15 @@ function FormObjectif({ existant, onTermine }: { existant?: Projet; onTermine?: 
                          valueFormat="DD/MM/YYYY" minDate={existant ? undefined : auj()} popoverProps={{ withinPortal: true }} />
       </SimpleGrid>
       <TextInput label="Note (optionnel)" value={note} onChange={e => setNote(e.currentTarget.value)} maxLength={1000} />
+      <Autocomplete label="Suivre les dépenses du tag (optionnel)" placeholder="ex : turquie-2027" value={tag} onChange={setTag}
+                    data={(tags ?? []).map(t => t.tag)} leftSection={<IconHash size={15} />} maxLength={41} limit={8}
+                    description="Les dépenses portant ce tag sont prises sur l'argent mis de côté. Un tag propre au projet évite de mélanger deux voyages." />
+      {tagNet && (
+        <Box>
+          <ChampDate label="Compter les dépenses à partir du" value={depuis} onChange={setDepuis} />
+          {ancien && <Text fz="xs" c="dimmed" mt={4}>#{tagNet} sert depuis le {dateFr(ancien.premier)} : les dépenses d'avant cette date ne comptent pas.</Text>}
+        </Box>
+      )}
       <Button mt="xs" onClick={enregistrer} loading={ecrire.isPending}>{existant ? 'Enregistrer' : "Créer l'objectif"}</Button>
     </Stack>
   );
@@ -79,6 +98,8 @@ function Versements({ id }: { id: number }) {
     const m = lireMontant(montant);
     if (isNaN(m) || m <= 0) return toast('Montant invalide', false);
     if (sens === 'reprendre' && m > o!.verse) return toast(`Il n'y a que ${fmt(o!.verse)} de côté`, false);
+    if (sens === 'reprendre' && o!.tag && m > o!.reserve)
+      return toast(`Il ne reste que ${fmt(o!.reserve)} dans l'enveloppe : les dépenses #${o!.tag} sont déjà prises dessus`, false);
     const signe = sens === 'mettre' ? 1 : -1;
     const atteint = sens === 'mettre' && !o!.atteint && o!.verse + m >= o!.cible;
     ecrire.mutate({ path: `/api/objectifs/${id}/versements`, method: 'POST',
@@ -97,6 +118,7 @@ function Versements({ id }: { id: number }) {
         <Text fz="xs" c="dimmed">{fmt(o.verse)} sur {fmt(o.cible)}</Text>
       </Group>
       <Progress value={Math.min(100, o.progression * 100)} color="emeraude" size={8} radius="xl" />
+      {o.tag && <Enveloppe o={o} />}
       {o.versements.length > 0 && (
         <Stack gap={2}>
           {o.versements.map(v => (
@@ -119,12 +141,51 @@ function Versements({ id }: { id: number }) {
           <ChampMontant label="Montant" placeholder={sens === 'mettre' && o.par_mois ? `${texte(o.par_mois)} (rythme conseillé)` : undefined}
                         value={montant} onChange={setMontant} />
         </SimpleGrid>
-        <TextInput label="Note (optionnel)" placeholder={sens === 'mettre' ? 'ex : prime de fin d’année' : 'ex : acompte de l’hôtel'}
+        <TextInput label="Note (optionnel)" placeholder={sens === 'mettre' ? 'ex : prime de fin d’année' : 'ex : changement de projet'}
                    value={libelle} onChange={e => setLibelle(e.currentTarget.value)} maxLength={200} />
         <Button onClick={enregistrer} loading={ecrire.isPending} color={sens === 'mettre' ? undefined : 'rose'}>
           {sens === 'mettre' ? 'Mettre de côté' : "Reprendre l'argent"}
         </Button>
       </Stack>
+      {o.tag && <OperationsTaggees o={o} />}
+    </Stack>
+  );
+}
+
+/** Dépensé sur l'argent mis de côté, pour un objectif suivi par un tag */
+function Enveloppe({ o }: { o: Projet }) {
+  const part = o.verse > 0 ? Math.min(100, o.depense / o.verse * 100) : o.depense > 0 ? 100 : 0;
+  return (
+    <Box>
+      <Group justify="space-between" gap="xs" mb={4}>
+        <Text fz="xs" c="dimmed">Dépensé (#{o.tag}) : {fmt(o.depense)} sur {fmt(o.verse)} mis de côté</Text>
+        <Text fz="xs" fw={600} c={o.depassement > 0 ? T.neg : undefined}>
+          {o.depassement > 0 ? `${fmt(o.depassement)} au-delà` : `reste ${fmt(o.reserve)}`}
+        </Text>
+      </Group>
+      <Progress value={part} color={o.depassement > 0 ? 'rouge' : 'ambre'} size={6} radius="xl" />
+    </Box>
+  );
+}
+
+/** Opérations portant le tag de l'objectif (les plus récentes) */
+function OperationsTaggees({ o }: { o: Projet }) {
+  return (
+    <Stack gap={4}>
+      <Divider label={`Opérations #${o.tag} depuis le ${dateFr(o.tag_depuis!)}`} labelPosition="left" />
+      {!o.operations.length ? <Text fz="sm" c="dimmed">Aucune pour l'instant : ajoute le tag #{o.tag} à tes dépenses du projet dans Saisie.</Text> : (
+        <Stack gap={2}>
+          {o.operations.map(x => (
+            <Group key={x.type + x.id} className="ligne-op" wrap="nowrap" gap="sm" px={6} py={5}>
+              <Text fz="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{dateFr(x.date, false)}</Text>
+              <Text fz="sm" truncate style={{ flex: 1, minWidth: 0 }}>{[x.nom, x.description].filter(Boolean).join(' · ')}</Text>
+              <Text fz="sm" fw={600} className="chiffre" c={x.type === 'revenu' ? T.ep : T.dep}>
+                {x.type === 'revenu' ? '+' : '−'}{fmt(x.montant)}
+              </Text>
+            </Group>
+          ))}
+        </Stack>
+      )}
     </Stack>
   );
 }
@@ -138,6 +199,7 @@ function LigneObjectif({ o }: { o: Projet }) {
   const details = [
     `${fmt(o.verse)} sur ${fmt(o.cible)}`,
     !o.atteint && !o.archive && o.date_limite && !o.en_retard ? `pour le ${dateFr(o.date_limite)}` : null,
+    o.tag ? (o.depassement > 0 ? `dépensé ${fmt(o.depense)}` : `dépensé ${fmt(o.depense)}, reste ${fmt(o.reserve)}`) : null,
     o.note || null,
   ].filter(Boolean).join(' · ');
 
@@ -150,7 +212,16 @@ function LigneObjectif({ o }: { o: Projet }) {
           <Text fz="sm" fw={700} className="chiffre" c={o.atteint ? T.ep : undefined} style={{ whiteSpace: 'nowrap' }}>{pct(o.progression)}</Text>
         </Group>
         <Progress value={Math.min(100, o.progression * 100)} color={o.atteint ? 'emeraude' : o.en_retard ? 'ambre' : 'marque'} size={6} radius="xl" mt={6} />
+        {o.tag && o.verse > 0 && (
+          <Progress value={Math.min(100, o.depense / o.verse * 100)} color={o.depassement > 0 ? 'rouge' : 'ambre'} size={3} radius="xl" mt={3} />
+        )}
         <Text fz="xs" c="dimmed" mt={4} lineClamp={2}>{details}</Text>
+        <Group gap={5}>
+          {o.tag && <Badge size="xs" variant="light" color="gray" mt={5} tt="none">#{o.tag}</Badge>}
+          {o.depassement > 0 && !o.archive && (
+            <Badge size="xs" variant="light" color="rouge" mt={5} tt="none">{fmt(o.depassement)} dépensés au-delà de l'enveloppe</Badge>
+          )}
+        </Group>
         {!termine && (rythme || o.en_retard) && (
           <Badge size="xs" variant="light" color={o.en_retard ? 'ambre' : 'gray'} mt={5} tt="none">
             {o.en_retard ? `date limite passée (${dateFr(o.date_limite!, false)}) · il manque ${fmt(o.reste)}` : rythme}
@@ -191,9 +262,12 @@ export function ObjectifsEpargne() {
   const enCours = (data ?? []).filter(o => !o.archive);
   const termines = (data ?? []).filter(o => o.archive);
   const deCote = enCours.reduce((s, o) => s + o.verse, 0);
+  // Encore réservé : ce qu'un objectif suivi par un tag a déjà dépensé est sorti des liquidités,
+  // le retirer une deuxième fois sous-estimerait l'argent libre
+  const reserve = enCours.reduce((s, o) => s + o.reserve, 0);
   const manque = enCours.reduce((s, o) => s + o.reste, 0);
   const parMois = enCours.reduce((s, o) => s + (o.par_mois ?? 0), 0);
-  const libre = patrimoine ? patrimoine.liquidites - deCote : null;
+  const libre = patrimoine ? patrimoine.liquidites - reserve : null;
 
   return (
     <Stack gap="lg">
@@ -205,7 +279,8 @@ export function ObjectifsEpargne() {
              aide={parMois ? 'par mois, pour tenir les dates limites' : 'aucune date limite à venir'} />
         <Kpi label="Liquidités libres" valeur={libre === null ? '…' : fmt(libre)} couleur={libre !== null && libre < 0 ? T.neg : undefined}
              icone={IconWallet} teinte="gray"
-             aide={libre !== null && libre < 0 ? 'tu as réservé plus que tes liquidités' : 'liquidités non réservées à un objectif'} />
+             aide={libre !== null && libre < 0 ? 'tu as réservé plus que tes liquidités'
+               : reserve < deCote ? `liquidités non réservées (${fmt(deCote - reserve)} déjà dépensés sur les objectifs)` : 'liquidités non réservées à un objectif'} />
       </SimpleGrid>
       <Grid gap="lg" align="flex-start">
         <Grid.Col span={{ base: 12, md: 5 }}>
@@ -229,8 +304,9 @@ export function ObjectifsEpargne() {
             )}
             <Aide titre="L'argent reste dans tes liquidités">
               Mettre de côté ne sort pas l'argent de ton compte : il est seulement réservé à l'objectif. Ce n'est ni une dépense
-              ni un transfert, ton patrimoine ne change pas. Quand tu dépenses pour le projet, saisis la dépense dans le Budget,
-              puis « Reprendre » l'argent ici (ou archive l'objectif).
+              ni un transfert, ton patrimoine ne change pas. Quand tu dépenses pour le projet, saisis la dépense dans le Budget
+              avec le tag de l'objectif (ex : #turquie-2027) : elle est prise sur l'argent mis de côté, sans rien faire d'autre.
+              Sans tag, « Reprendre » l'argent ici ou archive l'objectif.
             </Aide>
           </Stack>
         </Grid.Col>

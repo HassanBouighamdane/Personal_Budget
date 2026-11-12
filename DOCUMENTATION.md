@@ -380,7 +380,7 @@ Les objectifs de lecture sont dans `params` : `objectif_lecture_annuel` (24 par 
 
 Deux clés de `params` servent à la tâche planifiée : `cron_dernier_jour` (dernier jour traité, en numéro de jour) et `resume_hebdo_patrimoine` (valeur du compte Bourse au dernier résumé).
 
-| `objectifs` | `nom`, `cible`, `date_limite` (optionnelle), `note`, `archive` | objectifs d'épargne par projet (voir §11) |
+| `objectifs` | `nom`, `cible`, `date_limite` (optionnelle), `note`, `archive`, `tag`, `tag_depuis` | objectifs d'épargne par projet (voir §11) ; `tag` : objectif suivi par les dépenses portant ce tag, depuis `tag_depuis` |
 | `objectifs_versements` | `objectif_id`, `date_operation`, `montant` (négatif = argent repris), `libelle` | supprimés avec leur objectif (`ON DELETE CASCADE`) |
 | `patrimoine_historique` | `date` PK, `total`, `liquidites`, `bourse`, `autres_actifs`, `creances`, `dettes`, `estime`, `maj_le` | patrimoine noté une fois par jour, pour sa courbe (voir §11) ; `estime` = fin de mois reconstituée après coup |
 | `bourse_cours_historique` | (`titre`, `date`) PK, `cours`, `cree_le` | cours passés saisis à la main (relevés de fin de mois du courtier), pour la reconstitution de la courbe |
@@ -458,7 +458,7 @@ Toutes les routes sauf `/api/login`, `/api/logout` et `/api/cron/quotidien` (pro
 | POST | `/api/patrimoine/historique/reconstituer` | — | recalcule les fins de mois passées (`{points, debut, fin}`) |
 | GET | `/api/patrimoine/cours-passes` | `?jour=AAAA-MM-JJ` | titres détenus ce jour-là : `{titre, quantite, saisi, estime, source, source_date}` |
 | PUT | `/api/patrimoine/cours-passes` | `{jour, cours: [{titre, cours\|null}]}` | enregistre (ou retire, `null`) des cours passés, puis recalcule les fins de mois |
-| GET / POST / PUT / DELETE | `/api/objectifs[/{id}]` | `{nom, cible, date_limite, note, archive}` | `[ProjetOut]` / `ProjetOut` (avec `verse`, `reste`, `progression`, `mois_restants`, `par_mois`, `en_retard`, `versements`) / 204 |
+| GET / POST / PUT / DELETE | `/api/objectifs[/{id}]` | `{nom, cible, date_limite, note, archive, tag, tag_depuis}` (PUT : tous les champs, un tag absent est retiré) | `[ProjetOut]` / `ProjetOut` (avec `verse`, `reste`, `progression`, `mois_restants`, `par_mois`, `en_retard`, `versements`, `depense`, `reserve`, `depassement`, `operations`) / 204 |
 | POST | `/api/objectifs/{id}/versements` | `{date_operation, montant, libelle}` (montant négatif = argent repris) | `ProjetOut` ; 400 si l'on reprend plus que ce qui est de côté |
 | DELETE | `/api/objectifs/versements/{id}` | — | 204 ; 400 si le total mis de côté deviendrait négatif |
 | PUT | `/api/patrimoine/reglages` | `{solde_depart, prix_or_gramme, debut_hawl}` | `{ok}` |
@@ -824,6 +824,13 @@ Onglet **Suivi → Objectifs** (`routes/objectifs.py`). Un objectif (voyage, fon
 - **Rythme à tenir** : `par_mois` = reste ÷ `mois_restants`, où `mois_restants` compte le mois en cours et celui de la date limite (le 11 novembre pour le 31 décembre : 2). Rien sans date limite, une fois l'objectif atteint ou archivé.
 - `en_retard` : date limite dépassée sans avoir atteint la cible ; l'objectif apparaît alors dans « À traiter » sur l'accueil.
 - On ne peut pas reprendre plus que ce qui est de côté, ni supprimer un versement si le total devenait négatif.
+- **Suivi par un tag** (facultatif, champ « Suivre les dépenses du tag ») : les dépenses du Budget portant le tag de l'objectif (ex : `#turquie-2027`), datées de `tag_depuis` ou après, sont prises sur l'argent mis de côté, sans « Reprendre » à la main. Les revenus portant le même tag (un remboursement d'hôtel) les diminuent.
+  - `depense` = Σ dépenses taggées − Σ revenus taggés (0 au plus bas) ; `reserve` = max(verse − depense, 0) ; `depassement` = max(depense − verse, 0). Sans tag, `depense` = 0 et `reserve` = `verse`.
+  - L'avancement de l'épargne (`verse` sur `cible`) ne change pas : l'argent a bien été mis de côté. Une seconde barre montre le dépensé sur le mis de côté.
+  - « Liquidités libres » retire `reserve` (et non plus `verse`) : une dépense du projet a déjà fait baisser les liquidités, la retirer encore comme réservée la compterait deux fois.
+  - `tag_depuis` vaut par défaut le jour où le tag est ajouté : les dépenses d'un ancien projet du même tag ne comptent pas. Le formulaire prévient si le tag sert déjà avant cette date.
+  - Un dépassement (dépensé au-delà de l'enveloppe) apparaît en rouge sur l'objectif et dans « À traiter » sur l'accueil, tant que l'objectif n'est pas archivé.
+  - « Reprendre » est limité à ce qui reste dans l'enveloppe. La fenêtre « Versements » liste les 50 dernières opérations du tag (`operations`).
 - **Archiver** sort un objectif (atteint ou abandonné) de la liste en cours sans perdre ses versements. Supprimer efface ses versements, pas l'argent, qui n'a jamais quitté les liquidités.
 - À ne pas confondre avec l'**objectif d'épargne mensuel** du Budget (`params.objectif_epargne`), qui est un montant à épargner chaque mois.
 
