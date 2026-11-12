@@ -45,7 +45,7 @@ from fastapi.staticfiles import StaticFiles
 from config import FRONT_DIR, DATABASE_URL, PORT, CORS_ORIGINS
 from database import init_db, message_cle_etrangere, migrations_a_faire, _pool
 from routes import (alertes, auth, configuration, transactions, rapports, bourse, lectures, carnet, objectifs, patrimoine,
-                    rappels, sauvegarde, telegram)
+                    indices, previsions, rappels, recurrences, sauvegarde, telegram)
 
 @asynccontextmanager
 async def cycle_de_vie(_app: FastAPI):
@@ -133,10 +133,13 @@ app.include_router(configuration.router)
 app.include_router(transactions.router)
 app.include_router(rapports.router)
 app.include_router(bourse.router)
+app.include_router(indices.router)
 app.include_router(lectures.router)
 app.include_router(carnet.router)
 app.include_router(objectifs.router)
 app.include_router(patrimoine.router)
+app.include_router(recurrences.router)
+app.include_router(previsions.router)
 app.include_router(sauvegarde.router)
 app.include_router(rappels.router)
 app.include_router(rappels.cron)

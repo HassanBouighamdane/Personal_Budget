@@ -9,7 +9,7 @@ Almost everything is built on one number: **liquidités** = opening balance + cu
 - an expense can be sent to the Telegram bot in a few seconds, without opening the app;
 - deadlines with an amount are prepared month by month (provisions), and unusual spending shows on the home page.
 
-What is left: recurring entries are still typed by hand, the bank import still needs every line categorised, and the app still cannot say whether the coming months will be tight. The remaining ideas below are ordered for that.
+What is left: the bank import still needs every line categorised. Recurring entries, the cash-flow forecast and the daily price history were built on 2026-11-12 (sixth batch).
 
 ## 1. Trust in the numbers
 
@@ -17,7 +17,6 @@ What is left: recurring entries are still typed by hand, the bank import still n
 
 ## 2. Budget: capture with less effort
 
-4. ★ **Recurring transactions** (M): rent, subscriptions and salary are retyped every month. Add a `recurrences` table (amount, category or source, day of month, tags, active). Generate the entries with a button on Saisie, or by themselves on the due day from the morning task, as an option per recurrence. Store the last generated month per recurrence so a second run does nothing, and clamp day 31 to the month's last day. Suggest candidates from the history: same category and description, amount within 10 %, in each of the last 3 months. Categories marked "Fixe" are the natural first ones; "Dupliquer" already covers one-off copies. **Payoff:** the biggest part of the monthly entries disappears, and idea 6 needs this data.
 5. **Categorisation rules for the CSV import** (S): bank statements have no category column, so each imported line is categorised by hand. Suggest a category in the import preview:
    - first from user rules, stored in `regles_import(motif, categorie, tags)`, for example "contient MARJANE → Courses";
    - otherwise from the category most often used for the same normalised description (digits, dates and card references removed).
@@ -27,18 +26,11 @@ What is left: recurring entries are still typed by hand, the bank import still n
 
 ## 3. Looking ahead
 
-7. ★ **Cash-flow forecast** (M, after idea 4): the app shows the past only. Add a "Prévisions" card (Dashboard or Suivi) for the next 3 to 6 months:
-   - starting point: today's liquidités;
-   - money in: recurring income (idea 4);
-   - money out: recurring expenses, the average variable spending over the last 6 months, deadlines with an amount (`echeances.montant`, fifth batch), debt repayments due, and each goal's monthly amount (`par_mois`, provisions included).
-
-   Show the month-by-month balance and its lowest point. Warn in "À traiter" when a month goes below the emergency floor, or when the goals ask for more each month than the average savings. **Payoff:** it answers "can I afford this in March?" and "are my goals realistic?" before the problem arrives.
+Nothing left here: the cash-flow forecast is built (see [Done](#done)).
 
 ## 4. Bourse
 
-10. ★ **Price history** (S to start, M for the chart): `bourse_prix` keeps one price per stock. Insert a row into `bourse_prix_historique(titre, date, cours)` in `maj_prix` and `_actualiser_cours`, so a portfolio-value chart per stock becomes possible. The daily task already calls `_actualiser_cours` every morning, so this fills itself with no extra request (one row per stock and day: `ON CONFLICT (titre, date) DO UPDATE`). Holdings at a past date can already be rebuilt from transactions. **It only exists from the day it is enabled, so each day of waiting is lost history.** These rows can also feed the month-end rebuild of the net-worth curve: today it uses `bourse_cours_historique`, typed by hand, then the last transaction price.
-11. **Compare with the MASI** (M, after idea 10): the annualised return (XIRR) has no reference point. Record the MASI index every morning next to the prices. Then compute what the same deposits, on the same dates, would be worth if invested in the index (a "virtual index portfolio"). Show both returns under "Performance globale". **Payoff:** it tells whether picking stocks beats a simple index fund, which is the most important investment decision.
-12. **Out-of-date prices** (S, low value): prices are fetched every morning and when the app opens. List held stocks whose price is more than 3 days old (manual stocks, or when the sources fail).
+Nothing left here: price history, out-of-date prices and the MASI comparison are built (see [Done](#done)).
 
 ## 5. Backend best practices
 
@@ -58,13 +50,18 @@ What is left: recurring entries are still typed by hand, the bank import still n
 ## Suggested order
 
 1. **Protect the data first** (two evenings): the separate test database (it lets the unrun tests from the last batches run, the fifth batch included), then the weekly backup (2).
-2. **Start the history that cannot be rebuilt** (one evening): price history (10). Every day without it is lost.
-3. **Capture**: recurring transactions (4), then import rules (5). With Telegram entry, they remove most of the typing.
-4. **Looking ahead**: the cash-flow forecast (7), now that deadlines have amounts and provisions a monthly figure.
-5. **Foundations**: numbered migrations, then `DATE`/`NUMERIC`, then pinned dependencies and CI.
-6. Then the smaller extras: MASI comparison (11), offline entries (6), out-of-date prices (12).
+2. **Capture**: import rules (5). With Telegram entry and recurring transactions, they remove most of the typing.
+3. **Foundations**: numbered migrations, then `DATE`/`NUMERIC`, then pinned dependencies and CI.
+4. Then the smaller extra: offline entries (6).
 
 ## Done
+
+**Built on 2026-11-12, sixth batch** (type-checked and built; the backend suite, new tests included, passed against a throwaway local PostgreSQL, except two older failures in `test_patrimoine` and `test_telegram`)
+- **Price history**: `bourse_prix_historique(titre, date, cours, manuel)` gets the closing price of each held stock once per trading day, from a second cron at 20:00 Morocco time (`/api/cron/cours-du-soir`); no row on weekends and public holidays (fixed ones in `FERIES_FIXES`, religious ones entered in Bourse → Paramètres). "Valeur du portefeuille" chart in Bourse → Positions (market value vs cost, or one stock's price). The month-end rebuild of the net-worth curve uses these prices before falling back to the last transaction price.
+- **Recurring transactions**: table `recurrences`, `routes/recurrences.py`. "Récurrences" button in Saisie (create, edit, pause, delete, suggestions from the last 3 months). "Récurrences à ajouter" card in Saisie (amount editable for the month, skip a month); `auto` ones are added by the morning task on their day and mentioned in the morning message. `dernier_mois` plus a row lock make a second run do nothing; day 31 is clamped; missed months are caught up in order.
+- **Compare with the MASI**: the evening task also records MASRN, MS20RN (dividends reinvested, net), MASI, MSI20 and MASIMS (`indices_historique`). "Comparaison avec l'indice" card on the Bourse dashboard: the same deposits and withdrawals placed in the chosen index (MASRN by default), value, gap in DH and annual return side by side, with both curves. Past index values are imported from a CSV file (Bourse → Paramètres), checked against the recorded ones to refuse another index's file.
+- **Out-of-date prices**: held stocks with no closing price recorded for 2+ trading days (automatic), or a manual price older than 5 trading days, counted in trading days (no false alerts on Mondays or after holidays). Shown in "À traiter", as an amber badge in Positions and in the Monday message. It is the only visible sign that the evening task or the price source has stopped.
+- **Cash-flow forecast**: `routes/previsions.py`, "Prévisions" card in Suivi → Patrimoine (3, 6 or 12 months): month-end cash from recurrences, the median income and average spending of the last 6 months, deadlines with an amount, debts due and goals' monthly amounts (as reserved money, "libres"), with an uncertainty band and an adjustable floor. Warnings in the card and in "À traiter".
 
 **Built on 2026-11-12, fifth batch** (type-checked and built; the parser tests of the Telegram bot pass, the database tests were written but not run here)
 - **Balance check** ("Pointer le solde", Suivi → Patrimoine): the real balance, account by account, compared with the computed liquidités of the day; the gap can be booked as an expense or income of the day (tag `pointage`). Days without any expense since the last check are listed. Table `rapprochements`; "À traiter" and the Monday message invite to check after 30 days (or if never done).

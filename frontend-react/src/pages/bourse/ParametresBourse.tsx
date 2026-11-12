@@ -1,12 +1,58 @@
 import { useState } from 'react';
-import { Group, ScrollArea, Stack, TextInput, Tooltip, ActionIcon } from '@mantine/core';
-import { IconDeviceFloppy, IconPlus } from '@tabler/icons-react';
+import { Button, Group, ScrollArea, Stack, Text, TextInput, Tooltip, ActionIcon } from '@mantine/core';
+import { IconCalendarOff, IconDeviceFloppy, IconPlus } from '@tabler/icons-react';
 
 import { toast } from '../../lib/api';
+import { auj, dateFr, MOIS_FR } from '../../lib/format';
 import type { Titre } from '../../lib/types';
-import { useEcriture, useTitres } from '../../lib/queries';
+import { useEcriture, useJoursFeries, useTitres } from '../../lib/queries';
 import { IconBuildingSkyscraper, IconReceiptTax } from '@tabler/icons-react';
+import { ChampDate } from '../../components/champs';
+import { IndicesSuivis } from './Comparaison';
 import { BoutonSuppr, Carte, Chargement, confirmer, Info, Pastille, Vide } from '../../components/ui';
+
+/** Jours où la Bourse est fermée : aucun cours de clôture n'est noté (les week-ends non plus) */
+function JoursFeries() {
+  const { data, isPending } = useJoursFeries();
+  const ecrire = useEcriture('bourse');
+  const [jour, setJour] = useState(auj());
+  const [libelle, setLibelle] = useState('');
+  const aVenir = (data?.variables ?? []).filter(f => f.date >= auj().slice(0, 4) + '-01-01');
+
+  function ajouter() {
+    ecrire.mutate({ path: '/api/bourse/jours-feries', method: 'POST', body: { date: jour, libelle: libelle.trim() }, succes: 'Jour férié ajouté ✓' },
+                  { onSuccess: () => setLibelle('') });
+  }
+
+  return (
+    <Carte titre="Jours fériés de la Bourse" icone={<Pastille icone={IconCalendarOff} couleur="ambre" />}
+           description="Ces jours-là, comme les week-ends, aucun cours de clôture n'est noté">
+      <Stack gap="sm">
+        <Info>
+          Déjà connus chaque année : {data?.fixes.map(f => `${f.jour} ${MOIS_FR[f.mois - 1].toLowerCase()} (${f.libelle})`).join(', ') ?? '…'}.
+          Les fêtes religieuses (Aïd al-Fitr, Aïd al-Adha, 1er Moharram, Aïd al-Mawlid) changent de date chaque année :
+          ajoute-les dès que leur date est annoncée.
+        </Info>
+        {isPending ? <Chargement lignes={2} /> : aVenir.length > 0 && (
+          <Stack gap={2}>
+            {aVenir.map(f => (
+              <Group key={f.date} className="ligne-op" justify="space-between" wrap="nowrap" gap="sm" px={6} py={4}>
+                <Text fz="sm">{dateFr(f.date)}{f.libelle ? <Text span inherit c="dimmed"> · {f.libelle}</Text> : null}</Text>
+                <BoutonSuppr onClick={() => ecrire.mutate({ path: `/api/bourse/jours-feries/${f.date}`, method: 'DELETE', succes: 'Jour férié retiré' })} />
+              </Group>
+            ))}
+          </Stack>
+        )}
+        <Group gap="xs" align="flex-end" wrap="wrap">
+          <ChampDate label="Jour" value={jour} onChange={setJour} />
+          <TextInput label="Fête (optionnel)" placeholder="ex : Aïd al-Fitr" value={libelle} onChange={e => setLibelle(e.currentTarget.value)}
+                     maxLength={100} style={{ flex: 1, minWidth: 160 }} />
+          <Button onClick={ajouter} loading={ecrire.isPending} leftSection={<IconPlus size={15} />}>Ajouter</Button>
+        </Group>
+      </Stack>
+    </Carte>
+  );
+}
 
 function LigneTitre({ t }: { t: Titre }) {
   const ecrire = useEcriture('bourse');
@@ -82,6 +128,10 @@ export function ParametresBourse() {
           </Info>
         </Stack>
       </Carte>
+
+      <IndicesSuivis />
+
+      <JoursFeries />
 
       <Carte titre="Fiscalité" icone={<Pastille icone={IconReceiptTax} couleur="marque" />}>
         <Info>

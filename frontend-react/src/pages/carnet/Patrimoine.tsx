@@ -21,6 +21,7 @@ import { useConfig, useCoursPasses, useEcriture, useHistoriquePatrimoine, usePat
 import { Graphique, optionsSeries } from '../../components/Graphique';
 import { ChampDate, ChampMontant } from '../../components/champs';
 import { BoutonSuppr, Carte, Chargement, confirmer, Info, Kpi, Pastille, Vide } from '../../components/ui';
+import { CartePrevisions } from './Previsions';
 
 const texte = (n: number) => String(n).replace('.', ',');
 const nombre = (n: number) => String(n).replace('.', ',');
@@ -492,9 +493,9 @@ function TableCoursPasses({ jour, fermer }: { jour: string; fermer: () => void }
                       value={valeurs[c.titre] ?? ''} onChange={v => setValeurs(s => ({ ...s, [c.titre]: v }))}
                       placeholder={c.estime === null ? '' : texte(c.estime)}
                       description={c.estime === null ? 'Aucun cours connu à cette date'
-                        : `Sans saisie : ${fmt(c.estime)} (${c.source === 'actuel' ? 'cours relevé' : 'dernière transaction'} du ${dateFr(c.source_date!)})`} />
+                        : `Sans saisie : ${fmt(c.estime)} (${c.source === 'actuel' || c.source === 'historique' ? 'cours relevé' : 'dernière transaction'} du ${dateFr(c.source_date!)})`} />
       ))}
-      <Text size="xs" c="dimmed">Laisse vide pour garder le cours de la dernière transaction.</Text>
+      <Text size="xs" c="dimmed">Laisse vide pour garder le cours estimé ci-dessus.</Text>
       <Button mt="xs" onClick={enregistrer} loading={ecrire.isPending}>Enregistrer et recalculer</Button>
     </Stack>
   );
@@ -505,7 +506,7 @@ function CoursFinDeMois({ jours, fermer }: { jours: string[]; fermer: () => void
   return (
     <Stack gap="md">
       <Text size="sm" c="dimmed">
-        Sans saisie, chaque titre est compté au prix de ta dernière transaction. Le relevé de portefeuille de fin de mois
+        Sans saisie, chaque titre est compté au dernier cours relevé par l'application, ou à défaut au prix de ta dernière transaction. Le relevé de portefeuille de fin de mois
         de ton courtier donne le vrai cours : il remplace l'estimation pour ce mois.
       </Text>
       <Select label="Fin de mois" data={jours.map(j => ({ value: j, label: `${libelleMois(j)} (${dateFr(j)})` }))}
@@ -627,6 +628,7 @@ export function VuePatrimoine() {
                : "de l'objectif"} />
       </SimpleGrid>
       <Evolution />
+      <CartePrevisions />
       <Grid gap="lg" align="flex-start">
         <Grid.Col span={{ base: 12, md: 5 }}>
           <Stack gap="lg">

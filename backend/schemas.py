@@ -702,3 +702,60 @@ class RapprochementIn(BaseModel):
 # ---------------------------------------------------------------- Alertes de dépenses
 class IgnorerAlerteIn(BaseModel):
     cle: Texte(300, min_length=1)
+
+
+# ---------------------------------------------------------------- Opérations récurrentes
+MoisRequis = Annotated[str, AfterValidator(_valider_mois)]
+
+
+class RecurrenceIn(BaseModel):
+    """Dépense ou revenu ajouté chaque mois au jour `jour` (31 : dernier jour du mois), à partir du
+    mois `debut`. `nom` : catégorie (dépense) ou source (revenu, vide : sans source). `auto` : ajouté
+    tout seul par la tâche du matin, sinon proposé dans Saisie."""
+    type: Literal["depense", "revenu"]
+    nom: Texte(100) = ""
+    description: Description = ""
+    montant: Montant
+    jour: int = Field(ge=1, le=31)
+    tags: Tags = []
+    auto: bool = False
+    actif: bool = True
+    debut: MoisRequis
+
+
+class ElementGeneration(BaseModel):
+    id: int
+    mois: MoisRequis
+    montant: Optional[Montant] = None      # ce mois seulement (facture qui varie)
+
+
+class GenerationIn(BaseModel):
+    elements: List[ElementGeneration] = Field(min_length=1, max_length=200)
+
+
+class PasserIn(BaseModel):
+    mois: MoisRequis
+
+
+# ---------------------------------------------------------------- Jours fériés de la Bourse
+class JourFerieIn(BaseModel):
+    """Jour férié à date variable (Aïd, Mawlid...) : Bourse fermée, aucun cours noté."""
+    date: date
+    libelle: Texte(100) = ""
+
+
+# ---------------------------------------------------------------- Indices de référence
+class ValeurIndice(BaseModel):
+    date: date
+    valeur: float = Field(gt=0, le=1e9)
+
+
+class ImportIndiceIn(BaseModel):
+    """Valeurs passées d'un indice (fichier téléchargé), pour comparer les apports d'avant l'historique."""
+    valeurs: List[ValeurIndice] = Field(min_length=1, max_length=20000)
+
+
+# ---------------------------------------------------------------- Prévisions
+class ReglagesPrevisionIn(BaseModel):
+    """Plancher des prévisions : un mois qui finit en dessous est signalé (0 : seulement sous zéro)."""
+    plancher: float = Field(ge=0, le=MONTANT_MAX)

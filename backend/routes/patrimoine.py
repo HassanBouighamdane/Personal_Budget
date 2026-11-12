@@ -18,8 +18,8 @@ taper le solde réel (banque, espèces) pour voir l'écart : une dépense oubli�
 
 La courbe d'évolution (patrimoine_historique) reçoit un point par jour depuis sa mise en place. Les
 mois d'avant peuvent être reconstitués (un point par fin de mois, marqué `estime`) à partir des
-opérations datées ; seuls les cours passés manquent : chaque titre prend son dernier cours connu
-(cours saisi à la main pour cette date, sinon prix de la dernière transaction).
+opérations datées ; chaque titre y prend son dernier cours connu (cours saisi à la main pour cette
+date, sinon cours noté ce jour-là dans bourse_prix_historique, sinon prix de la dernière transaction).
 """
 import json
 from datetime import date, timedelta
@@ -324,10 +324,11 @@ def historique_patrimoine(jours: Optional[int] = None):
 
 
 # ---------------------------------------------------------------- courbe : mois passés reconstitués
-# Priorité d'un cours à date égale : le cours saisi à la main l'emporte sur le cours actuel,
-# qui l'emporte sur le prix d'une transaction
-COURS_TRANSACTION, COURS_ACTUEL, COURS_SAISI = 0, 1, 2
-SOURCES_COURS = {COURS_TRANSACTION: "transaction", COURS_ACTUEL: "actuel", COURS_SAISI: "saisi"}
+# Priorité d'un cours à date égale : le cours saisi à la main l'emporte sur le cours actuel, qui
+# l'emporte sur le cours noté ce jour-là (bourse_prix_historique), qui l'emporte sur le prix d'une transaction
+COURS_TRANSACTION, COURS_HISTORIQUE, COURS_ACTUEL, COURS_SAISI = 0, 1, 2, 3
+SOURCES_COURS = {COURS_TRANSACTION: "transaction", COURS_HISTORIQUE: "historique", COURS_ACTUEL: "actuel",
+                 COURS_SAISI: "saisi"}
 
 
 def fins_de_mois(debut: date, avant: date) -> list:
@@ -417,8 +418,11 @@ def charger_operations() -> dict:
                   for x in lire_dettes(c)]
         prix = c.execute("SELECT titre, cours_actuel, maj_le FROM bourse_prix WHERE cours_actuel > 0").fetchall()
         saisis = c.execute("SELECT titre, date, cours FROM bourse_cours_historique").fetchall()
+        notes = c.execute("SELECT titre, date, cours FROM bourse_prix_historique").fetchall()
 
     cours = {}
+    for r in notes:
+        cours.setdefault(r["titre"], []).append((r["date"], COURS_HISTORIQUE, float(r["cours"])))
     for t in calc:
         cours.setdefault(t["titre"], []).append((t["date_operation"], COURS_TRANSACTION, float(t["cours_unitaire"])))
     for r in prix:

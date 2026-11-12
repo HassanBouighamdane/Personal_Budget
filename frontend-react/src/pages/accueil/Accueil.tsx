@@ -4,19 +4,21 @@ import type { ReactNode } from 'react';
 import { ActionIcon, Badge, Box, Button, Grid, Group, Progress, SimpleGrid, Stack, Text, Tooltip } from '@mantine/core';
 import {
   IconAlertTriangle, IconArrowRight, IconBook2, IconBuildingBank, IconCalendarDue, IconCheck, IconChartBar, IconCopy, IconFlame,
-  IconPencilPlus, IconScale, IconShieldCheck, IconTarget, IconTrendingUp, IconWallet, IconX,
+  IconPencilPlus, IconRepeat, IconScale, IconShieldCheck, IconTarget, IconTelescope, IconTrendingUp, IconWallet, IconX,
 } from '@tabler/icons-react';
 
 import { auj, dateFr, fmt, libelleMois } from '../../lib/format';
 import { T, signe } from '../../lib/palette';
 import type { Alerte, EtatRappels, Patrimoine } from '../../lib/types';
 import {
-  useALire, useAlertes, useDettes, useEcheances, useEcriture, useEtatRappels, useObjectifs, usePatrimoineSilencieux,
+  useALire, useAlertes, useDettes, useEcheances, useEcriture, useEtatRappels, useObjectifs, usePatrimoineSilencieux, usePrevisionsSilencieux,
+  useRecurrencesAGenerer, useCoursEnRetard,
   useResumeBourseSilencieux, useResumeJour, useResumeMois, useSerieLecture,
 } from '../../lib/queries';
 import { Carte, Chargement, EnTetePage, Kpi, Pastille } from '../../components/ui';
 import { FenetreNoteDuJour, NoteDuJour } from '../lectures/communs';
 import { couleurReserve, Reserve } from '../carnet/Patrimoine';
+import { texteRetard } from '../bourse/Portefeuille';
 
 /** Écran ouvert depuis l'accueil */
 export type CibleAccueil = 'saisie' | 'dash' | 'bourse' | 'lectures' | 'echeances' | 'dettes' | 'patrimoine' | 'objectifs' | 'params';
@@ -166,8 +168,14 @@ function CarteATraiter({ aller }: { aller: (c: CibleAccueil) => void }) {
   const enveloppesDepassees = (objectifs ?? []).filter(o => !o.archive && o.depassement > 0);
   const pointage = pointageARefaire(patrimoine);
   const inhabituelles = alertes ?? [];
+  const { data: previsions } = usePrevisionsSilencieux();
+  const alertesPrevision = previsions?.alertes ?? [];
+  const { data: aGenerer } = useRecurrencesAGenerer();
+  const recurrencesEchues = (aGenerer ?? []).filter(e => !e.a_venir);
+  const { data: coursEnRetard } = useCoursEnRetard();
+  const retards = coursEnRetard ?? [];
   const rien = !aTraiter.length && !enRetard.length && !tache && !objectifsEnRetard.length && !enveloppesDepassees.length
-    && !pointage && !inhabituelles.length;
+    && !pointage && !inhabituelles.length && !alertesPrevision.length && !recurrencesEchues.length && !retards.length;
   return (
     <Carte titre="À traiter" icone={<Pastille icone={IconCalendarDue} couleur={rien ? 'gray' : 'ambre'} />}
            droite={<Lien onClick={() => aller('echeances')}>Échéances</Lien>}>
@@ -216,6 +224,38 @@ function CarteATraiter({ aller }: { aller: (c: CibleAccueil) => void }) {
                 <Text fz="sm" truncate>{o.nom} : {fmt(o.depassement)} dépensés au-delà de l'enveloppe</Text>
               </Group>
               <Badge size="sm" variant="light" color="rouge" style={{ flexShrink: 0 }}>enveloppe dépassée</Badge>
+            </Group>
+          ))}
+          {recurrencesEchues.length > 0 && (
+            <Group justify="space-between" wrap="nowrap" gap="xs" style={{ cursor: 'pointer' }} onClick={() => aller('saisie')}>
+              <Group gap={6} wrap="nowrap" style={{ minWidth: 0 }}>
+                <IconRepeat size={15} stroke={1.8} style={{ flexShrink: 0 }} />
+                <Text fz="sm" truncate>
+                  {recurrencesEchues.length} opération{recurrencesEchues.length > 1 ? 's' : ''} récurrente{recurrencesEchues.length > 1 ? 's' : ''} à ajouter
+                </Text>
+              </Group>
+              <Badge size="sm" variant="light" color="ambre" style={{ flexShrink: 0 }}>Saisie</Badge>
+            </Group>
+          )}
+          {retards.map(r => (
+            <Group key={'c' + r.titre} justify="space-between" wrap="nowrap" gap="xs" style={{ cursor: 'pointer' }} onClick={() => aller('bourse')}>
+              <Group gap={6} wrap="nowrap" style={{ minWidth: 0 }}>
+                <IconTrendingUp size={15} stroke={1.8} style={{ flexShrink: 0 }} />
+                <Text fz="sm" truncate>Cours de {r.titre} {texteRetard(r)}</Text>
+              </Group>
+              <Badge size="sm" variant="light" color="ambre" style={{ flexShrink: 0 }}>{r.manuel ? 'à mettre à jour' : 'cours périmé'}</Badge>
+            </Group>
+          ))}
+          {alertesPrevision.map(a => (
+            <Group key={'p' + a.type} justify="space-between" wrap="nowrap" gap="xs" style={{ cursor: 'pointer' }} onClick={() => aller('patrimoine')}>
+              <Group gap={6} wrap="nowrap" align="flex-start" style={{ minWidth: 0 }}>
+                <IconTelescope size={15} stroke={1.8} color={a.type === 'plancher' ? 'var(--c-neg)' : undefined} style={{ flexShrink: 0, marginTop: 3 }} />
+                <Box style={{ minWidth: 0 }}>
+                  <Text fz="sm" fw={600} truncate>{a.titre}</Text>
+                  <Text fz="xs" c="dimmed" lineClamp={2}>{a.detail}</Text>
+                </Box>
+              </Group>
+              <Badge size="sm" variant="light" color={a.type === 'plancher' ? 'rouge' : 'ambre'} style={{ flexShrink: 0 }}>Prévisions</Badge>
             </Group>
           ))}
           {pointage && (

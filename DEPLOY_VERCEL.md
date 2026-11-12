@@ -11,7 +11,7 @@ You don't need to write any code. These files are already there:
 | File | Role |
 |---|---|
 | `pyproject.toml` | Tells Vercel where the app is (`backend.app:app`), which Python packages to install, and how to build the frontend (`[tool.vercel.scripts]`). |
-| `vercel.json` | Schedules the morning task (`/api/cron/quotidien`) and keeps tests, the React sources and the docs out of the deployed bundle. |
+| `vercel.json` | Schedules the morning task (`/api/cron/quotidien`) and the evening task that records each stock's closing price (`/api/cron/cours-du-soir`), and keeps tests, the React sources and the docs out of the deployed bundle. |
 | `backend/app.py` | Database setup runs when the server starts, once per deployed version, not when the file is imported. |
 | `backend/tests/test_deploiement.py` | Fails if `pyproject.toml` and `backend/requirements.txt` stop listing the same packages, or if a Build Command would bypass the frontend build. |
 | `backend/construire_frontend.py` | Builds the React frontend (`npm ci`, then `npm run build`) into `frontend-react/dist/`. Vercel runs it on every deployment, after installing the Python packages. |
@@ -107,7 +107,7 @@ The app can send deadline reminders every morning, a summary of your week every 
 2. In **Settings → Environment Variables**, add `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` (or the `SMTP_…` variables), plus `CRON_SECRET` with a long random value. Vercel sends this secret with each scheduled call by itself.
 3. **Redeploy**, then open **Paramètres → Rappels et résumés**: the three badges should be green. "Aperçu et envoi" shows the weekly or monthly message, and "Envoyer maintenant" sends it to you.
 
-Even without Telegram or e-mail, keep `CRON_SECRET`: the morning task also refreshes the stock prices and records the day's net worth for its chart. If it stops running, the home page says so under "À traiter".
+Even without Telegram or e-mail, keep `CRON_SECRET`: the morning task also refreshes the stock prices, adds the automatic recurring transactions and records the day's net worth for its chart. If it stops running, the home page says so under "À traiter". A second scheduled call, `/api/cron/cours-du-soir` at 19:00 UTC (20:00 in Morocco), records each held stock's closing price on trading days; it needs the same `CRON_SECRET`.
 
 ## Step 7 — Deploying changes
 

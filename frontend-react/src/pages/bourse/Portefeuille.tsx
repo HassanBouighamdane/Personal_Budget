@@ -1,18 +1,23 @@
 /* Bourse — positions, gains réalisés et tableau de bord */
 import { useEffect, useState } from 'react';
-import { ActionIcon, Box, Button, Group, NumberInput, SegmentedControl, Stack, Table, Text, TextInput, Title, Tooltip } from '@mantine/core';
+import { ActionIcon, Badge, Box, Button, Group, NumberInput, SegmentedControl, Select, Stack, Table, Text, TextInput, Title, Tooltip } from '@mantine/core';
+import type { ChartData } from 'chart.js';
 import {
   IconChevronLeft, IconChevronRight, IconArrowsExchange, IconBuildingBank, IconCash, IconChartDonut, IconChartLine, IconCoins, IconReceipt, IconReceiptTax, IconRefresh, IconReportMoney, IconScale, IconTrendingUp,
 } from '@tabler/icons-react';
 
 import { toast } from '../../lib/api';
-import { decalerMois, fmt, jjmm, libelleMois } from '../../lib/format';
-import { regrouperAutres, signe, T } from '../../lib/palette';
-import type { Position } from '../../lib/types';
-import { useActualiserCours, useCibles, useDashboardBourse, useEcriture, useGains, usePositions } from '../../lib/queries';
-import { Donut } from '../../components/Graphique';
-import { Carte, Chargement, Grille2, GrilleKpi, Kpi, Tableau, ThTri, TitreSection, useTri, Vide } from '../../components/ui';
+import { dateFr, decalerMois, fmt, jjmm, jjmmaa, libelleMois } from '../../lib/format';
+import { C, regrouperAutres, signe, T } from '../../lib/palette';
+import type { CoursEnRetard, Position } from '../../lib/types';
+import {
+  useActualiserCours, useCibles, useCoursEnRetard, useDashboardBourse, useEcriture, useGains, useHistoriquePortefeuille, useHistoriqueTitre,
+  usePositions,
+} from '../../lib/queries';
+import { Donut, Graphique, optionsSeries } from '../../components/Graphique';
+import { Carte, Chargement, Grille2, GrilleKpi, Info, Kpi, Tableau, ThTri, TitreSection, useTri, Vide } from '../../components/ui';
 import type { NavBourse, PeriodeBourse } from './Bourse';
+import { CarteComparaison } from './Comparaison';
 
 const pctFr = (v: number) => (v * 100).toFixed(2) + ' %';
 
@@ -41,12 +46,23 @@ function CoursEditable({ titre, cours }: { titre: string; cours: number }) {
 const dateHeure = (iso: string) =>
   new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
-/** Sous le cours : sa provenance (automatique avec date de mise à jour, ou manuel verrouillé) */
-function SourceCours({ p }: { p: Position }) {
+/** Texte d'un cours périmé : « saisi il y a 8 jours de bourse », « non relevé depuis 3 jours de bourse » */
+export const texteRetard = (r: CoursEnRetard) => r.manuel
+  ? `saisi à la main il y a ${r.jours} jours de bourse`
+  : `non relevé depuis ${r.jours} jours de bourse${r.depuis ? ` (dernière clôture le ${jjmm(r.depuis)})` : ''}`;
+
+/** Sous le cours : sa provenance (automatique avec date de mise à jour, ou manuel verrouillé), en ambre s'il est périmé */
+function SourceCours({ p, retard }: { p: Position; retard?: CoursEnRetard }) {
   const actualiser = useActualiserCours();
+  const alerte = retard && (
+    <Tooltip label={`Cours ${texteRetard(retard)}`} withArrow multiline w={240}>
+      <Badge size="xs" variant="light" color="ambre" tt="none">{retard.jours} j</Badge>
+    </Tooltip>
+  );
   if (p.cours_manuel) {
     return (
       <Group gap={2} wrap="nowrap">
+        {alerte}
         <Text fz={10} c={T.warn}>manuel</Text>
         <Tooltip label="Remettre en automatique" withArrow>
           <ActionIcon variant="subtle" color="gray" size="xs" loading={actualiser.isPending}
@@ -57,7 +73,12 @@ function SourceCours({ p }: { p: Position }) {
       </Group>
     );
   }
-  return <Text fz={10} c="dimmed">auto{p.cours_maj_le ? ' · ' + dateHeure(p.cours_maj_le) : ''}</Text>;
+  return (
+    <Group gap={4} wrap="nowrap">
+      {alerte}
+      <Text fz={10} c="dimmed">auto{p.cours_maj_le ? ' · ' + dateHeure(p.cours_maj_le) : ''}</Text>
+    </Group>
+  );
 }
 
 function Repartitions({ liste }: { liste: Position[] }) {
@@ -156,6 +177,8 @@ export function Positions() {
     { cle: 'valeur', desc: true });
   const th = { tri, basculer };
   const actualiser = useActualiserCours();
+  const { data: retards } = useCoursEnRetard();
+  const retardDe = (titre: string) => (retards ?? []).find(r => r.titre === titre);
 
   return (
     <>
@@ -189,7 +212,7 @@ export function Positions() {
                   <Table.Td>
                     <Stack gap={2} align="flex-end">
                       <CoursEditable key={p.cours_actuel} titre={p.titre} cours={p.cours_actuel} />
-                      <SourceCours p={p} />
+                      <SourceCours p={p} retard={retardDe(p.titre)} />
                     </Stack>
                   </Table.Td>
                   <Table.Td className="num chiffre">{fmt(p.valeur_marche)}</Table.Td>
@@ -211,8 +234,68 @@ export function Positions() {
           </Tableau>
         )}
       </Carte>
+      {liste.length > 0 && <HistoriqueCours titres={liste.map(p => p.titre).sort()} />}
       <Allocation liste={liste} />
     </>
+  );
+}
+
+/* ================= Historique des cours ================= */
+const PERIODES_HISTORIQUE = [{ value: '90', label: '3 mois' }, { value: '365', label: '1 an' }, { value: 'tout', label: 'Tout' }];
+
+/** Courbe : valeur des titres et leur coût, ou cours d'un titre. Notée chaque jour depuis la mise en place de l'historique. */
+function HistoriqueCours({ titres }: { titres: string[] }) {
+  const [periode, setPeriode] = useState('365');
+  const [titre, setTitre] = useState<string | null>(null);
+  const jours = periode === 'tout' ? null : Number(periode);
+  const portefeuille = useHistoriquePortefeuille(jours);
+  const unTitre = useHistoriqueTitre(titre ?? '', jours);
+  const enCours = titre ? unTitre : portefeuille;
+  const points: { date: string; y: number; y2?: number }[] = titre
+    ? (unTitre.data?.points ?? []).map(p => ({ date: p.date, y: p.cours }))
+    : (portefeuille.data?.points ?? []).map(p => ({ date: p.date, y: p.valeur, y2: p.cout }));
+  const format = points.length && points[0].date.slice(0, 4) !== points.at(-1)!.date.slice(0, 4) ? jjmmaa : jjmm;
+  const premier = points[0], dernier = points.at(-1);
+  const ecart = premier && dernier ? dernier.y - premier.y : 0;
+  const base = optionsSeries();
+
+  return (
+    <Carte titre={titre ? `Cours de ${titre}` : 'Valeur du portefeuille'}
+           description={points.length >= 2
+             ? <>Depuis le {dateFr(premier!.date)} : <Text span inherit fw={600} c={signe(ecart)}>{ecart >= 0 ? '+' : '−'}{fmt(Math.abs(ecart))}</Text>
+                 {titre ? '' : ' de valeur (achats et ventes compris)'}</>
+             : 'Le cours de clôture de chaque titre, noté chaque soir de bourse'}
+           droite={
+             <Group gap="xs" wrap="wrap">
+               <Select size="xs" w={150} placeholder="Tout le portefeuille" data={titres} value={titre} onChange={setTitre} clearable
+                       aria-label="Titre affiché" comboboxProps={{ withinPortal: true }} />
+               <SegmentedControl size="xs" value={periode} onChange={setPeriode} data={PERIODES_HISTORIQUE} />
+             </Group>
+           }>
+      {enCours.isPending ? <Chargement lignes={3} /> : points.length < 2 ? (
+        <Info>
+          {points.length
+            ? <>L'historique se construit depuis le {dateFr(points[0].date)} : la clôture de chaque titre détenu est notée vers 20 h, chaque jour de bourse (ni week-end ni jour férié).</>
+            : <>La clôture de chaque titre détenu sera notée vers 20 h, chaque jour de bourse (ni week-end ni jour férié).</>}
+        </Info>
+      ) : (
+        <Graphique type="line" hauteur={240} options={{
+          ...base,
+          plugins: { legend: { position: 'top', align: 'end' }, tooltip: { callbacks: {
+            title: items => items.length ? dateFr(points[items[0].dataIndex].date) : '',
+            label: ctx => `${ctx.dataset.label} : ${fmt(ctx.parsed.y ?? 0)}`,
+          } } },
+        }} data={{
+          labels: points.map(p => format(p.date)),
+          datasets: [
+            { label: titre ? 'Cours' : 'Valeur de marché', data: points.map(p => p.y), borderColor: C.ep,
+              backgroundColor: 'rgba(16,185,129,.12)', fill: !titre, tension: .2, pointRadius: points.length > 60 ? 0 : 2 },
+            ...(titre ? [] : [{ label: 'Coût (PRU × quantité)', data: points.map(p => p.y2 ?? 0), borderColor: C.budget,
+                                borderDash: [5, 4], borderWidth: 1.5, tension: 0, pointRadius: 0 }]),
+          ],
+        } as ChartData} />
+      )}
+    </Carte>
   );
 }
 
@@ -314,6 +397,7 @@ export function DashboardBourse({ nav }: { nav: NavBourse }) {
                    </>
                  )} />
           </GrilleKpi>
+          {d.apports_nets > 0 && <CarteComparaison />}
 
           <TitreSection>Portefeuille actuel</TitreSection>
           <GrilleKpi>

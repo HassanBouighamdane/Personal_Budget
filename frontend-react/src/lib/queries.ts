@@ -7,7 +7,8 @@ import { api, apiSilencieux, toast } from './api';
 import type {
   Alerte, ALire, ApercuRappels, EtatTelegram, Rapprochements, BilanLecture, CalendrierDividendes, NoteDuJour, Patrimoine, PointPatrimoine, CoursPasse, PretLivre, Projet, SerieLecture, BudgetHistorique, CibleSecteur, Config, CoursActualisation, DashboardBourse, Dette, Dividende, Echeance, EtatRappels, Fiscalite, FraisBourse, Gain, Genre,
   Livre, Mouvement, NoteLecture, ObjectifsLecture, Position, Recherche, ResumeAnnee, ResumeGlobal, ResumeJour, ResumeMois, ResumeSemaine, ResumeTag,
-  Suggestion, Titre, TransactionBourse, TransactionsMois,
+  Suggestion, Titre, TransactionBourse, TransactionsMois, Recurrence, RecurrenceAGenerer, SuggestionRecurrence, Previsions,
+  HistoriquePortefeuille, HistoriqueTitre, JoursFeries, CoursEnRetard, Indices, Comparaison,
 } from './types';
 
 type Module = 'budget' | 'bourse' | 'lectures' | 'carnet' | 'patrimoine';
@@ -40,6 +41,15 @@ export const useSuggestions = (type: 'depenses' | 'revenus', nom: string | null)
 export const useTags = () => lire<ResumeTag[]>(['budget', 'tags'], '/api/tags');
 /** Dépenses inhabituelles (accueil) : jamais d'erreur affichée */
 export const useAlertes = () => useQuery({ queryKey: ['budget', 'alertes'], queryFn: () => apiSilencieux<Alerte[]>('/api/alertes') });
+/** Opérations récurrentes (rangées avec le Budget : useEcriture('budget') les recharge) */
+export const useRecurrences = () => lire<Recurrence[]>(['budget', 'recurrences'], '/api/recurrences');
+export const useRecurrencesAGenerer = () => lire<RecurrenceAGenerer[]>(['budget', 'recurrences', 'a-generer'], '/api/recurrences/a-generer');
+/** Suggestions tirées de l'historique : demandées seulement à l'ouverture de la fenêtre des récurrences */
+export const useSuggestionsRecurrences = (actif: boolean) => useQuery({
+  queryKey: ['budget', 'recurrences', 'suggestions'],
+  queryFn: () => apiSilencieux<SuggestionRecurrence[]>('/api/recurrences/suggestions'),
+  enabled: actif,
+});
 export const useHistoriqueBudget = (cid: number) => lire<BudgetHistorique[]>(['budget', 'historique', cid], `/api/categories/${cid}/historique`);
 
 /* ---------- Bourse ---------- */
@@ -53,6 +63,20 @@ export const useTitres = () => lire<Titre[]>(['bourse', 'titres'], '/api/bourse/
 export const useCalendrierDividendes = () => lire<CalendrierDividendes>(['bourse', 'calendrier'], '/api/bourse/dividendes/calendrier');
 export const useCibles = () => lire<CibleSecteur[]>(['bourse', 'cibles'], '/api/bourse/cibles');
 export const useFiscalite = (annee: number) => lire<Fiscalite>(['bourse', 'fiscalite', annee], '/api/bourse/fiscalite?annee=' + annee);
+/** Valeur du portefeuille jour après jour (titre null), ou cours noté d'un titre ; `jours` null = tout */
+export const useHistoriquePortefeuille = (jours: number | null) =>
+  lire<HistoriquePortefeuille>(['bourse', 'historique', jours], '/api/bourse/historique' + (jours ? '?jours=' + jours : ''));
+export const useHistoriqueTitre = (titre: string, jours: number | null) =>
+  lire<HistoriqueTitre>(['bourse', 'historique', titre, jours], `/api/bourse/historique?titre=${encodeURIComponent(titre)}` + (jours ? '&jours=' + jours : ''));
+/** Titres au cours périmé (accueil, Positions) : jamais d'erreur affichée */
+export const useCoursEnRetard = () => useQuery({
+  queryKey: ['bourse', 'retard'], queryFn: () => apiSilencieux<CoursEnRetard[]>('/api/bourse/cours-en-retard'),
+});
+/** Indices de référence suivis (MASI...) et comparaison du compte Bourse avec l'un d'eux */
+export const useIndices = () => lire<Indices>(['bourse', 'indices'], '/api/bourse/indices');
+export const useComparaison = (indice: string) =>
+  lire<Comparaison>(['bourse', 'comparaison', indice], '/api/bourse/indices/comparaison?indice=' + encodeURIComponent(indice));
+export const useJoursFeries = () => lire<JoursFeries>(['bourse', 'jours-feries'], '/api/bourse/jours-feries');
 export const useDashboardBourse = (requete: string) =>
   lire<DashboardBourse>(['bourse', 'dashboard', requete], '/api/bourse/dashboard' + (requete ? '?' + requete : ''));
 
@@ -123,6 +147,12 @@ export const usePatrimoineSilencieux = () => useQuery({
 /** Courbe du patrimoine ; `jours` null = tout l'historique */
 export const useHistoriquePatrimoine = (jours: number | null) =>
   lire<PointPatrimoine[]>(['patrimoine', 'historique', jours], '/api/patrimoine/historique' + (jours ? '?jours=' + jours : ''));
+/** Prévisions de trésorerie : rangées avec le Patrimoine, rechargées après chaque écriture */
+export const usePrevisions = (mois: number) => lire<Previsions>(['patrimoine', 'previsions', mois], '/api/previsions?mois=' + mois);
+/** Pour l'accueil : n'affiche jamais d'erreur */
+export const usePrevisionsSilencieux = () => useQuery({
+  queryKey: ['patrimoine', 'previsions', 'silencieux'], queryFn: () => apiSilencieux<Previsions>('/api/previsions?mois=6'),
+});
 export const useRapprochements = () => lire<Rapprochements>(['patrimoine', 'rapprochements'], '/api/patrimoine/rapprochements');
 export const useCoursPasses = (jour: string) =>
   lire<CoursPasse[]>(['patrimoine', 'cours-passes', jour], '/api/patrimoine/cours-passes?jour=' + jour);

@@ -129,3 +129,28 @@ def telecharger_cours() -> Cours:
         except Exception as e:
             echecs.append(f"{source} : {decrire_echec(e)}")
     raise RuntimeError(" | ".join(echecs))
+
+
+# ---------------------------------------------------------------- indices
+# Page « Indices » du site officiel : comme la page des actions, elle embarque les valeurs en JSON
+# ({"code":"MASI","value":17428.8994,...}). Pas une API documentée non plus.
+URL_INDICES = "https://www.casablanca-bourse.com/live-market/indices"
+_INDICE = re.compile(r'\{"code":"([^"]+)","value":(-?\d+(?:\.\d+)?)')
+
+
+def lire_indices(page: str) -> Dict[str, Decimal]:
+    """Valeur de chaque indice de la page (code → valeur) ; un indice affiché deux fois garde sa première valeur."""
+    valeurs = {}
+    for code, valeur in _INDICE.findall(page):
+        v = _nombre(valeur)
+        if v and v > 0:
+            valeurs.setdefault(code, v)
+    return valeurs
+
+
+def telecharger_indices() -> Dict[str, Decimal]:
+    """Lève une exception si la page ne répond pas ou ne contient aucun indice."""
+    valeurs = lire_indices(_telecharger(URL_INDICES))
+    if not valeurs:
+        raise RuntimeError("Page des indices sans valeur (format inattendu)")
+    return valeurs

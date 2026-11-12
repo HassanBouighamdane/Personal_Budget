@@ -31,7 +31,7 @@ export function dateParDefaut(mois?: string): string {
 }
 
 /* ---------- Champs communs ---------- */
-function ChampTags({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
+export function ChampTags({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
   const { data: tags } = useTags();
   return (
     <TagsInput label="Tags (optionnel)" placeholder="ex : voyage été 2026, puis Entrée" value={value} maxTags={10}

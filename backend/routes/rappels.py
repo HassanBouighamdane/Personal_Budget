@@ -6,8 +6,13 @@ Une seule tâche planifiée, GET /api/cron/quotidien, appelée chaque matin (Ver
 vercel.json) : elle envoie le message du matin (échéances, remboursements attendus, et la note
 ou citation du jour tirée des Lectures, la même que dans l'application) et, le
 lundi, le résumé de la semaine écoulée (Budget, Bourse, Lectures, Carnet) ; le 1er du mois,
-le bilan du mois écoulé. Avant les envois, elle récupère les cours du jour et note le patrimoine
-du jour (courbe du patrimoine), même si aucun canal n'est configuré.
+le bilan du mois écoulé. Avant les envois, elle ajoute les opérations récurrentes automatiques du
+jour, récupère les cours et note le patrimoine du jour (courbe du patrimoine), même si aucun canal
+n'est configuré.
+
+Une seconde tâche, GET /api/cron/cours-du-soir, appelée vers 20 h (après la clôture de 15 h 30),
+note la clôture du jour de chaque titre détenu dans l'historique des cours, et celle des indices de
+référence (MASI...) ; rien le week-end et les jours fériés.
 
 Les textes sont construits par des fonctions qui reçoivent la date du jour en paramètre,
 pour que les tests la fixent.
@@ -24,7 +29,7 @@ import sauvegarde
 from messagerie import EnvoiImpossible, canaux, envoyer, envoyer_fichier
 from schemas import EnvoiIn
 from securite import utilisateur_courant
-from routes import alertes, bourse, lectures, patrimoine
+from routes import alertes, bourse, indices, lectures, patrimoine, recurrences
 from routes.carnet import lire_dettes, lire_echeances
 from routes.rapports import calculer_resume, calculer_resume_annuel, calculer_resume_semaine
 from resume_rendu import (delai, dh, jour, rendre_email, rendre_matin, rendre_email_annee, rendre_email_mois, rendre_telegram,
@@ -52,12 +57,21 @@ def jours_de_rappel(rappel_jours: int) -> set:
     return {rappel_jours, 0} | {j for j in (7, 1) if j < rappel_jours}
 
 
-def rappels_du_jour(auj: date) -> list:
-    """Lignes du message de rappel du jour (liste vide : rien à envoyer)."""
+def _libelle_recurrence(r: dict) -> str:
+    nom = " · ".join(x for x in (r["nom"], r["description"]) if x) or ("Revenu" if r["type"] == "revenu" else "Dépense")
+    return f"{nom} ({'+' if r['type'] == 'revenu' else ''}{dh(r['montant'])})"
+
+
+def rappels_du_jour(auj: date, generees: Optional[list] = None) -> list:
+    """Lignes du message de rappel du jour (liste vide : rien à envoyer). `generees` : opérations
+    récurrentes ajoutées ce matin par la tâche planifiée."""
     with db() as c:
         echeances = lire_echeances(c, auj)
         dettes = lire_dettes(c)
-    lignes = [f"• {e['titre']} : {delai(e['jours_restants'])} ({jour(e['date_echeance'])})"
+    lignes = [f"• Ajouté au Budget : {_libelle_recurrence(r)}" for r in generees or []]
+    lignes += _section("recurrences", lambda: [f"• À ajouter aujourd'hui : {_libelle_recurrence(r)} (Saisie)"
+                                                for r in recurrences.a_ajouter_aujourdhui(auj)], [])
+    lignes += [f"• {e['titre']} : {delai(e['jours_restants'])} ({jour(e['date_echeance'])})"
               for e in echeances if e["jours_restants"] in jours_de_rappel(e["rappel_jours"])]
     for d in dettes:
         if d["reste"] > 0 and d["echeance"] and (d["echeance"] - auj).days in RAPPEL_DETTE_JOURS:
@@ -68,11 +82,17 @@ def rappels_du_jour(auj: date) -> list:
 
 
 def rappels_du_lundi(auj: date) -> list:
-    """Le lundi : dépenses inhabituelles, et le solde à pointer s'il ne l'a pas été depuis un mois."""
+    """Le lundi : dépenses inhabituelles, cours de Bourse périmés, et le solde à pointer s'il ne l'a
+    pas été depuis un mois."""
     lignes = [f"• {a['titre']} — {a['detail']}" for a in alertes.calculer_alertes(auj)]
     with db() as c:
         p = patrimoine.dernier_pointage(c, auj)
         a_des_operations = c.execute("SELECT EXISTS (SELECT 1 FROM depenses) e").fetchone()["e"]
+    for r in _section("cours en retard", lambda: bourse.cours_en_retard(auj), []):
+        lignes.append(f"• Cours de {r['titre']} saisi à la main il y a {r['jours']} jours de bourse (Bourse → Positions)"
+                      if r["manuel"] else
+                      f"• Cours de {r['titre']} non relevé depuis {r['jours']} jours de bourse : la tâche du soir ou la source "
+                      "des cours ne répond plus (Bourse → Positions)")
     if p is None and a_des_operations:
         lignes.append("• Pointe ton solde : compare tes liquidités à ce que dit ta banque (Suivi → Patrimoine)")
     elif p and p["a_refaire"]:
@@ -91,11 +111,29 @@ def canaux_envoi(envoi: str) -> list:
     return [c for c in CANAUX if _param(f"envoi_{envoi}_{c}") != 0]
 
 
-def messages_du_matin(auj: date) -> list:
+@cron.get("/cours-du-soir")
+def tache_cours_du_soir(authorization: Optional[str] = Header(default=None)):
+    """Tâche du soir : clôture du jour dans l'historique des cours (cf. bourse.cours_du_soir). Pas
+    notée dans cron_journal, qui sert à surveiller la tâche du matin ; le dernier passage est gardé
+    dans params (`cours_soir_dernier`), le résultat dans les logs du serveur."""
+    _verifier_cron(authorization)
+    auj = aujourdhui()
+    r = bourse.cours_du_soir(auj)
+    try:
+        r["indices"] = indices.noter_indices(auj)
+    except Exception as e:      # les indices ne doivent pas faire échouer les cours
+        r["indices"] = {"etat": "erreur"}
+        print(f"[cours du soir] indices non notés — {e!r}", flush=True)
+    _ecrire_param("cours_soir_dernier", aujourdhui().toordinal())
+    print(f"[cours du soir] {r}", flush=True)
+    return r
+
+
+def messages_du_matin(auj: date, generees: Optional[list] = None) -> list:
     """[(message, canaux)] : les rappels partent sur tous les canaux, la note du jour seulement sur
     ceux où elle est activée. Un canal sans note ne reçoit rien les jours sans rappel.
     `rappels` / `note` : ce que contient chaque message."""
-    lignes = rappels_du_jour(auj)
+    lignes = rappels_du_jour(auj, generees)
     avec = canaux_envoi("note")
     note = lectures.note_du_jour(auj) if avec else None
     groupes = [(note, avec), (None, [c for c in CANAUX if c not in avec])] if note else [(None, list(CANAUX))]
@@ -409,6 +447,14 @@ def envoyer_maintenant(periode: Literal["semaine", "mois", "annee"] = "semaine")
 
 
 # ---------------------------------------------------------------- tâche planifiée
+def _verifier_cron(authorization: Optional[str]):
+    """Les tâches planifiées sont appelées sans session : protégées par CRON_SECRET."""
+    if not CRON_SECRET:
+        raise HTTPException(503, "CRON_SECRET non configuré")
+    if not secrets.compare_digest((authorization or "").encode(), f"Bearer {CRON_SECRET}".encode()):
+        raise HTTPException(401, "Non autorisé")
+
+
 @cron.get("/quotidien")
 def tache_quotidienne(force: bool = False, authorization: Optional[str] = Header(default=None)):
     """Tâche du matin (cf. _tache_quotidienne), dont chaque appel est noté dans cron_journal :
@@ -432,15 +478,18 @@ def _tache_quotidienne(force: bool, authorization: Optional[str]) -> dict:
     """Message du matin (rappels et note du jour), plus le résumé de la semaine le lundi, le bilan du mois le 1er (avec une copie
     de sauvegarde en pièce jointe) et le bilan de l'année le 1er janvier. Au plus un envoi par jour :
     un second appel le même jour ne renvoie rien (`force=true` pour passer outre)."""
-    if not CRON_SECRET:
-        raise HTTPException(503, "CRON_SECRET non configuré")
-    if not secrets.compare_digest((authorization or "").encode(), f"Bearer {CRON_SECRET}".encode()):
-        raise HTTPException(401, "Non autorisé")
+    _verifier_cron(authorization)
     auj = aujourdhui()
     if not force and _param("cron_dernier_jour") == auj.toordinal():
         return {"etat": "deja_fait"}
 
-    # Même sans canal d'envoi : cours du jour, puis patrimoine du jour pour sa courbe
+    # Même sans canal d'envoi : opérations récurrentes du jour, cours du jour, puis patrimoine du
+    # jour pour sa courbe (la clôture du jour est notée le soir, cf. cours_du_soir)
+    generees = []
+    try:
+        generees = recurrences.generer_automatiques(auj)
+    except Exception as e:
+        print(f"[rappels] récurrences non générées — {e!r}", flush=True)
     try:
         bourse._actualiser_cours(force=False)
     except Exception as e:
@@ -453,11 +502,11 @@ def _tache_quotidienne(force: bool, authorization: Optional[str]) -> dict:
     except Exception as e:
         print(f"[rappels] patrimoine du jour non noté — {e!r}", flush=True)
     if not canaux():
-        return {"etat": "aucun_canal"}
+        return {"etat": "aucun_canal", **({"envoyes": ["recurrences"]} if generees else {})}
 
     envoyes, atteints = [], set()   # atteints : canaux qui ont reçu au moins un message
     try:
-        for matin, groupe in messages_du_matin(auj):
+        for matin, groupe in messages_du_matin(auj, generees):
             if not set(groupe) & set(canaux()):
                 continue
             atteints |= set(envoyer(matin["sujet"], matin["texte"], html=matin["html"], telegram=matin["telegram"],
@@ -479,6 +528,8 @@ def _tache_quotidienne(force: bool, authorization: Optional[str]) -> dict:
         raise HTTPException(502, f"Envoi impossible — {e}")
     if auj.day == 1 and envoyer_sauvegarde():
         envoyes.append("sauvegarde")
+    if generees:
+        envoyes.insert(0, "recurrences")
     _ecrire_param("cron_dernier_jour", auj.toordinal())
     # `canaux` : ceux qui ont reçu au moins un message (un canal en échec n'y figure pas)
     return {"etat": "ok", "envoyes": envoyes, "canaux": [c for c in CANAUX if c in atteints]}

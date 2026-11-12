@@ -1,7 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
-    { "path": "/api/cron/quotidien", "schedule": "0 7 * * *" }
+    { "path": "/api/cron/quotidien", "schedule": "0 7 * * *" },
+    { "path": "/api/cron/cours-du-soir", "schedule": "0 19 * * *" }
   ],
   "functions": {
     "backend/app.py": {

@@ -369,7 +369,7 @@ export type PointPatrimoine = {
  *  transaction ou cours actuel, à `source_date`), `saisi` celui relevé à la main pour cette date */
 export type CoursPasse = {
   titre: string; quantite: number; saisi: number | null; estime: number | null;
-  source: 'transaction' | 'actuel' | 'saisi' | null; source_date: string | null;
+  source: 'transaction' | 'historique' | 'actuel' | 'saisi' | null; source_date: string | null;
 };
 export type Reconstitution = { points: number; debut: string | null; fin: string | null };
 /** `verse` : argent sorti de l'épargne pour cet actif sans être saisi en dépense */
@@ -414,3 +414,58 @@ export type Liberte = {
   depense_annuelle?: number; epargne_annuelle?: number; cible?: number; progression?: number; annees_couvertes?: number;
   annees_restantes?: number | null; date_atteinte?: string | null; economie_simulee?: number; annees_gagnees?: number | null;
 };
+
+/* ---------- Opérations récurrentes ---------- */
+export type TypeOperation = 'depense' | 'revenu';
+/** `nom` : catégorie (dépense) ou source (revenu, vide : sans source) ; `debut` et `dernier_mois` : AAAA-MM */
+export type Recurrence = {
+  id: number; type: TypeOperation; nom: string; categorie: string | null; source: string | null; description: string;
+  montant: number; jour: number; tags: string[]; auto: boolean; actif: boolean; debut: string; dernier_mois: string | null;
+  prochain_mois: string; prochaine_date: string; en_attente: number;
+};
+/** Opération d'une récurrence encore à ajouter (jusqu'au mois en cours) ; `a_venir` : sa date n'est pas encore arrivée */
+export type RecurrenceAGenerer = {
+  id: number; type: TypeOperation; nom: string; description: string; montant: number; auto: boolean; mois: string; date: string; a_venir: boolean;
+};
+export type SuggestionRecurrence = { type: TypeOperation; nom: string; description: string; montant: number; jour: number; tags: string[]; moyenne: number };
+export type Generation = { generees: { id: number; montant: number; date: string }[]; ignorees: number };
+
+/* ---------- Prévisions de trésorerie ---------- */
+/** `base` : d'où vient le montant attendu (récurrence, budget d'une catégorie fixe, moyenne ou médiane du passé, déjà saisi) */
+export type LignePrevision = { nom: string; montant: number; base: 'recurrence' | 'budget' | 'moyenne' | 'saisi' };
+export type MoisPrevision = {
+  mois: string; revenus: number; depenses: number; echeances: number; dettes: number;
+  solde: number; bas: number; haut: number; reserve: number; libre: number;
+  detail: {
+    revenus: LignePrevision[]; depenses: LignePrevision[];
+    echeances: { titre: string; date: string; montant: number }[];
+    dettes: { personne: string; date: string; montant: number; en_retard: boolean }[];
+  };
+};
+export type AlertePrevision = { type: 'plancher' | 'objectifs' | 'rythme'; mois: string; titre: string; detail: string };
+export type Previsions = {
+  date: string; depart: number; plancher: number; nb_mois_historique: number; mois: MoisPrevision[];
+  point_bas: { mois: string; solde: number }; epargne_prevue: number; rythme_objectifs: number; alertes: AlertePrevision[];
+};
+
+/* ---------- Historique des cours ---------- */
+export type HistoriquePortefeuille = { titres: string[]; points: { date: string; valeur: number; cout: number }[] };
+export type HistoriqueTitre = { titre: string; points: { date: string; cours: number; manuel: boolean }[] };
+/** Jours où la Bourse est fermée : `variables` saisis (fêtes religieuses), `fixes` connus d'avance */
+export type JoursFeries = { variables: { date: string; libelle: string }[]; fixes: { mois: number; jour: number; libelle: string }[] };
+/** Titre détenu au cours périmé : `jours` de bourse sans clôture notée (automatique) ou depuis la saisie (manuel) */
+export type CoursEnRetard = { titre: string; manuel: boolean; depuis: string | null; jours: number };
+
+/* ---------- Indices de référence ---------- */
+export type IndiceSuivi = {
+  code: string; nom: string; dividendes: boolean; nb: number; nb_import: number; debut: string | null; fin: string | null; derniere: number | null;
+};
+export type Indices = { defaut: string; premier_mouvement: string | null; indices: IndiceSuivi[] };
+/** `etat` : ok, vide (aucune valeur), incomplet (un apport précède l'historique : `manque_avant`), sans_apport */
+export type Comparaison = {
+  indice: string; nom: string; dividendes: boolean; etat: 'ok' | 'vide' | 'incomplet' | 'sans_apport';
+  manque_avant: string | null; date_valeur: string | null; apports_nets: number; debut_cours: string | null;
+  toi: { valeur: number; rendement: number | null }; reference: { valeur: number; rendement: number | null } | null;
+  ecart: number | null; points: { date: string; indice: number; toi: number }[];
+};
+export type ResultatImportIndice = { importees: number; deja_notees: number; debut: string; fin: string };

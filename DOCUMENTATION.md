@@ -22,6 +22,7 @@ Application web personnelle pour suivre son budget (dépenses, revenus, épargne
 10. [Suivi, rappels et résumés](#10-suivi-rappels-et-résumés)
 11. [Patrimoine, objectifs, réserve de sécurité et zakat](#11-patrimoine-objectifs-réserve-de-sécurité-et-zakat)
 12. [Accueil, sauvegarde, sessions et installation](#12-accueil-sauvegarde-sessions-et-installation)
+13. [Opérations récurrentes et prévisions](#13-opérations-récurrentes-et-prévisions)
 
 ---
 
@@ -333,7 +334,8 @@ Script manuel et **destructif** : supprime toutes les tables du module Bourse et
 | `echecs_login` | `id`, `cle`, `le` | échecs de mot de passe de la fenêtre en cours (anti force brute, §3.3) |
 | `sources_revenus` | `id`, `nom` UNIQUE, `actif` | |
 | `paiements` | `id`, `nom` UNIQUE, `actif` | n'est plus utilisée (conservée pour l'historique) |
-| `params` | `cle` PK, `valeur` | contient `objectif_epargne` |
+| `params` | `cle` PK, `valeur` | contient `objectif_epargne`, `prevision_plancher` |
+| `recurrences` | `id`, `type` (`depense`/`revenu`), `categorie`, `source`, `description`, `montant`, `jour` (1–31), `tags`, `auto`, `actif`, `debut`, `dernier_mois` | opérations récurrentes (§13) ; `categorie` et `source` : clés étrangères vers les noms, `debut` et `dernier_mois` en AAAA-MM |
 | `utilisateurs` | `id`, `nom` UNIQUE, `mdp_hash` | |
 | `sessions` | `token` PK, `utilisateur_id` FK, `expire` | |
 
@@ -433,6 +435,12 @@ Toutes les routes sauf `/api/login`, `/api/logout` et `/api/cron/quotidien` (pro
 | PUT | `/api/bourse/prix/{titre}` | `{cours_actuel}` | `{titre, cours_actuel}` ; passe le titre en cours manuel (verrouillé) |
 | PUT | `/api/bourse/prix/{titre}/auto` | — | `CoursActualisation` ; déverrouille le titre puis récupère les cours |
 | POST | `/api/bourse/cours/actualiser` | `?force=` | `CoursActualisation` |
+| GET | `/api/bourse/indices` | — | `{defaut, premier_mouvement, indices: [{code, nom, dividendes, nb, nb_import, debut, fin, derniere}]}` |
+| GET | `/api/bourse/indices/comparaison` | `?indice=` (MASRN par défaut) | `{etat, manque_avant, toi: {valeur, rendement}, reference: {valeur, rendement}, ecart, points: [{date, indice, toi}], …}` |
+| POST / DELETE | `/api/bourse/indices/{code}/import` | `{valeurs: [{date, valeur}]}` | `{importees, deja_notees, debut, fin}` ; 400 si le fichier ne correspond pas à l'indice / 204 |
+| GET | `/api/bourse/cours-en-retard` | — | `[{titre, manuel, depuis, jours}]` (jours de bourse) |
+| GET / POST / DELETE | `/api/bourse/jours-feries[/{date}]` | `{date, libelle}` | `{variables: [{date, libelle}], fixes: [{mois, jour, libelle}]}` / 201 / 204 |
+| GET | `/api/bourse/historique` | `?jours=`, `?titre=` (facultatifs) | sans titre : `{titres, points: [{date, valeur, cout}]}` ; avec titre : `{titre, points: [{date, cours, manuel}]}` |
 | GET / POST / PUT / DELETE | `/api/bourse/dividendes[/{id}]` | `?mois=&annee=` / `{date_operation, titre, montant}` | `[DividendeOut]` |
 | GET / POST / PUT / DELETE | `/api/bourse/frais[/{id}]` | `?mois=&annee=` / `{date_operation, libelle, montant}` | `[FraisBourseOut]` |
 | GET / POST / PUT / DELETE | `/api/bourse/mouvements[/{id}]` | `?mois=&annee=` / `{date_operation, type_mouvement, montant, libelle}` | `[MouvementBourseOut]` |
@@ -472,6 +480,13 @@ Toutes les routes sauf `/api/login`, `/api/logout` et `/api/cron/quotidien` (pro
 | GET / POST / PUT / DELETE | `/api/objectifs[/{id}]` | `{nom, cible, date_limite, note, archive, tag, tag_depuis}` (PUT : tous les champs, un tag absent est retiré) | `[ProjetOut]` / `ProjetOut` (avec `verse`, `reste`, `progression`, `mois_restants`, `par_mois`, `en_retard`, `versements`, `depense`, `reserve`, `depassement`, `operations`) / 204 |
 | POST | `/api/objectifs/{id}/versements` | `{date_operation, montant, libelle}` (montant négatif = argent repris) | `ProjetOut` ; 400 si l'on reprend plus que ce qui est de côté |
 | DELETE | `/api/objectifs/versements/{id}` | — | 204 ; 400 si le total mis de côté deviendrait négatif |
+| GET / POST / PUT / DELETE | `/api/recurrences[/{id}]` | `{type, nom, description, montant, jour, tags, auto, actif, debut}` (`nom` : catégorie ou source) | récurrences avec `prochain_mois`, `prochaine_date`, `en_attente` / 204 |
+| GET | `/api/recurrences/a-generer` | — | `[{id, type, nom, description, montant, auto, mois, date, a_venir}]` jusqu'au mois en cours |
+| POST | `/api/recurrences/generer` | `{elements: [{id, mois, montant?}]}` | `{generees, ignorees}` (un mois déjà fait ou sauté est ignoré) |
+| POST | `/api/recurrences/{id}/passer` | `{mois}` | `{ok}` ; 409 si ce n'est pas le prochain mois attendu |
+| GET | `/api/recurrences/suggestions` | — | `[{type, nom, description, montant, jour, tags, moyenne}]` |
+| GET | `/api/previsions` | `?mois=` (1–12, 6 par défaut) | `{depart, plancher, mois: [{mois, revenus, depenses, echeances, dettes, solde, bas, haut, reserve, libre, detail}], point_bas, epargne_prevue, rythme_objectifs, alertes}` |
+| PUT | `/api/previsions/reglages` | `{plancher}` | `{ok}` |
 | PUT | `/api/patrimoine/reglages` | `{solde_depart, prix_or_gramme, debut_hawl}` | `{ok}` |
 | POST / PUT / DELETE | `/api/patrimoine/actifs[/{id}]` | `ActifIn` | l'actif / 204 |
 | GET | `/api/sauvegarde` | — | fichier JSON de toutes les tables (sans comptes ni sessions) |
@@ -543,6 +558,13 @@ Toutes les routes sauf `/api/login`, `/api/logout` et `/api/cron/quotidien` (pro
 - **Titres concernés** : ceux détenus qui ne sont pas en cours manuel.
 - **Cours manuel** : saisir un cours dans Positions le verrouille ; il n'est plus écrasé jusqu'à sa remise en automatique (icône à côté de « manuel »).
 - **Échec** : si aucune source ne répond, rien n'est modifié, les derniers cours connus restent affichés et la cause est écrite dans les logs du serveur (ligne `[cours]`).
+- **Historique** : la clôture du jour, notée **une fois par jour de bourse** dans `bourse_prix_historique(titre, date, cours, manuel)` par la tâche du soir `GET /api/cron/cours-du-soir` (Vercel Cron à 19 h UTC, soit 20 h au Maroc, 19 h pendant le Ramadan : toujours après la clôture de 15 h 30). `cours_du_soir()` récupère les cours (`force=True`) puis `noter_cours_du_jour()` écrit une ligne par titre détenu : le cours tout juste récupéré, ou le cours saisi à la main pour un titre en manuel. Un titre automatique dont le cours n'a pas pu être récupéré n'a pas de ligne ce jour-là (un ancien cours ne passe pas pour une clôture). Rien n'est noté ailleurs : ni le matin, ni à l'actualisation, ni à la saisie manuelle. Les sources ne donnent que le cours du jour : l'historique commence le jour de sa mise en place.
+- **Jours de bourse** (`raison_fermeture()`) : ni samedi, ni dimanche, ni jour férié. Les fêtes à date fixe sont dans `FERIES_FIXES` (`routes/bourse.py`) ; les fêtes religieuses, à date variable, se saisissent dans **Bourse → Paramètres → Jours fériés de la Bourse** (table `bourse_jours_feries`, `GET / POST /api/bourse/jours-feries`, `DELETE /api/bourse/jours-feries/{date}`). Ajouter un jour férié retire le cours éventuellement noté ce jour-là.
+- **Indices de référence** (`routes/indices.py`) : la tâche du soir note aussi la clôture de `MASRN` (MASI Rentabilité Net), `MS20RN` (MASI 20 Rentabilité Net), `MASI`, `MSI20` et `MASIMS` (Mid and Small Cap), lus sur la page « Indices » du site officiel (`cours_bvc.telecharger_indices`), dans `indices_historique(indice, date, valeur, source)`. Les versions « Rentabilité Net » réinvestissent les dividendes après retenue : ce sont elles qui se comparent honnêtement au compte ; les autres sont signalées « hors dividendes ».
+- **Comparaison** (carte du tableau de bord Bourse, `GET /api/bourse/indices/comparaison?indice=`) : chaque apport au compte Bourse achète des parts d'indice à sa valeur du jour (la dernière connue un week-end ou un jour férié), chaque retrait en revend (`portefeuille_virtuel()`, fonction pure). Le compte (`patrimoine_total`) est comparé à ce portefeuille virtuel : valeur, écart en DH et rendement annuel (même `taux_rendement_annualise()` que « Performance globale », mêmes flux, seule la valeur finale change). Courbes : le portefeuille virtuel et le compte (titres + espèces, reconstitué comme la courbe du patrimoine) aux dates connues de l'indice, 260 points au plus. Si un apport précède la première valeur connue, la carte propose d'importer l'historique.
+- **Import des valeurs passées** (Bourse → Paramètres → Indices de référence, ou depuis la carte ; `POST /api/bourse/indices/{code}/import`) : fichier CSV lu dans le navigateur (colonnes date et valeur devinées et modifiables, dates jour/mois ou mois/jour). Une valeur notée le soir n'est jamais remplacée ; si le fichier s'en écarte de plus de 5 % un même jour, tout est refusé (fichier d'un autre indice, par exemple le MASI au lieu du MASI Rentabilité Net). `DELETE …/import` retire les valeurs importées.
+- **Cours en retard** (`cours_en_retard()`, `GET /api/bourse/cours-en-retard`, règle pure `detecter_retards()`), comptés en jours de bourse : un titre automatique sans clôture notée depuis au moins 2 jours de bourse jusqu'à hier (la clôture du jour n'arrive que le soir ; on ne compte qu'à partir du début de l'historique et de l'achat du titre), ou un cours saisi à la main depuis plus de 5 jours de bourse. Signalés dans « À traiter » sur l'accueil, par un badge ambre sous le cours dans Positions et dans le message du lundi matin. C'est le seul signe visible d'une tâche du soir arrêtée ou d'une source qui ne répond plus : ses résultats ne sont que dans les logs.
+- **Courbe** (Bourse → Positions, « Valeur du portefeuille ») : `GET /api/bourse/historique` donne, pour chaque jour noté, la valeur de marché des titres détenus ce jour-là et leur coût (PRU × quantité, `valeur_aux_dates()`, fonction pure) ; un titre sans cours noté ce jour-là prend le prix de sa dernière transaction. `?titre=ATW` donne les cours notés d'un seul titre.
 
 ### 6.4 Règle de gestion des transferts
 
@@ -860,7 +882,7 @@ Le patrimoine n'est connu qu'au jour le jour : les cours passés ne sont pas con
 **Mois passés reconstitués.** « Reconstituer les mois passés » (`reconstituer_historique()`) ajoute un point par fin de mois, de la plus ancienne opération jusqu'au premier vrai point noté, marqué `estime` et tracé en pointillé. Chaque point rejoue les opérations datées jusqu'à ce jour avec les formules de `calculer_patrimoine` (`patrimoine_aux_dates()`, fonction pure) :
 
 - exacts : épargne du Budget, apports et retraits Bourse, espèces du compte Bourse (achats, ventes moins TPCVM, dividendes, frais), quantités détenues, prêts et emprunts avec leurs remboursements ;
-- estimés : la valeur des titres, au dernier cours connu ce jour-là. Par ordre de priorité à date égale : cours saisi à la main pour cette date (`bourse_cours_historique`, bouton « Cours de fin de mois »), cours actuel (`bourse_prix`, à sa date de relevé), prix de la dernière transaction ;
+- estimés : la valeur des titres, au dernier cours connu ce jour-là. Par ordre de priorité à date égale : cours saisi à la main pour cette date (`bourse_cours_historique`, bouton « Cours de fin de mois »), cours actuel (`bourse_prix`, à sa date de relevé), cours noté ce jour-là (`bourse_prix_historique`, §6.3), prix de la dernière transaction ;
 - approximatifs : un autre actif compte à sa valeur actuelle à partir de la plus ancienne de sa date de création et de sa date de relevé.
 
 Un vrai point du jour remplace toujours un point estimé, jamais l'inverse. Une fois des points estimés présents, la tâche du matin les recalcule chaque jour : corriger une ancienne saisie met la courbe à jour.
@@ -951,3 +973,33 @@ La session est **glissante** : `utilisateur_courant` la fait repartir pour sa du
 - **iPhone (Safari)** : bouton Partager → « Sur l'écran d'accueil ».
 
 Elle s'ouvre alors en plein écran, sans barre d'adresse. Il n'y a pas de service worker : l'application ne fonctionne pas hors connexion, et chaque ouverture charge la dernière version.
+
+
+## 13. Opérations récurrentes et prévisions
+
+### Opérations récurrentes
+
+`routes/recurrences.py`, bouton **Saisie → Récurrences**. Une récurrence (loyer, abonnement, facture, salaire) donne une dépense ou un revenu par mois, au jour choisi ; un jour 29, 30 ou 31 tombe au dernier jour des mois plus courts. `debut` est le premier mois concerné : par défaut le mois en cours si le jour n'est pas encore passé, sinon le suivant (un loyer du 1er créé le 12 a sans doute déjà été saisi à la main).
+
+- **Ajout manuel** : la carte « Récurrences à ajouter » de Saisie liste tout ce qui n'est pas encore ajouté jusqu'au mois en cours (`GET /api/recurrences/a-generer`), cochée si sa date est arrivée. Le montant se corrige pour ce mois seulement (facture qui varie) ; ⏭ passe le mois sans rien ajouter (`POST /api/recurrences/{id}/passer`). Une récurrence manuelle qui tombe aujourd'hui est rappelée dans le message du matin.
+- **Ajout automatique** (`auto`) : la tâche du matin ajoute l'opération le jour venu (`generer_automatiques()`), avant de noter le patrimoine du jour, et le message du matin le signale (« Ajouté au Budget : … »). Une récurrence dont la catégorie a été désactivée est laissée de côté.
+- **Une seule fois par mois** : `dernier_mois` garde le dernier mois généré ou passé. `POST /api/recurrences/generer` n'ajoute un mois que s'il est le prochain attendu, sous verrou de ligne (`SELECT … FOR UPDATE`) : un second passage, ou deux passages simultanés, ne font rien. Des mois manqués (tâche arrêtée) sont rattrapés dans l'ordre.
+- Une opération générée est une opération ordinaire : elle se modifie ou se supprime dans Saisie. Modifier ou supprimer une récurrence ne touche pas les opérations déjà ajoutées ; la mettre en pause (`actif`) arrête les suivantes.
+- **Suggestions** (`GET /api/recurrences/suggestions`, fonction pure `suggerer()`) : une opération présente une seule fois dans chacun des 3 derniers mois terminés, avec la même catégorie (ou source) et la même description (casse et espaces ignorés), à des montants à ±10 % de leur moyenne, et pas déjà couverte par une récurrence.
+
+### Prévisions de trésorerie
+
+`routes/previsions.py`, carte **Prévisions** de Suivi → Patrimoine (3 mois, 6 mois ou 1 an). Les liquidités fin de mois, du mois en cours (son reste) aux suivants :
+
+    solde(M) = solde(M−1) + revenus attendus − dépenses attendues − échéances − emprunts à rembourser
+
+- **Départ** : `liquidites_du_jour()` (sans les opérations datées d'après aujourd'hui, ajoutées à leur mois).
+- **Revenus** par source : ses récurrences pas encore générées ni passées ce mois-là ; sans récurrence, la **médiane** de ses montants mensuels sur les 6 derniers mois terminés (une prime isolée ne gonfle pas chaque mois), moins ce qui est déjà saisi ce mois-là.
+- **Dépenses** par catégorie : le plus grand de ses récurrences pas encore générées et de ce qui manque pour atteindre sa moyenne sur 6 mois (ou son budget, pour une catégorie « Fixe » dont le budget est plus haut). Le plus grand et non la somme : un loyer récurrent, aussi présent dans la moyenne, n'est compté qu'une fois. Une catégorie désactivée sans récurrence n'attend plus rien.
+- **Échéances** avec un montant, au mois où elles tombent (reports des échéances récurrentes compris). **Emprunts** : le reste dû au mois de l'échéance, ou dans le mois en cours s'il est en retard. L'argent qu'on me doit n'est pas compté.
+- **Objectifs** : ils ne sortent pas d'argent. Leur réserve grandit de `par_mois` chaque mois jusqu'à la date limite ; une échéance provisionnée par un objectif vide sa réserve le mois où elle est payée. « Libres » = solde − réservé (pointillé bleu).
+- **Fourchette** : écart-type des dépenses mensuelles des 6 derniers mois × √(numéro du mois).
+- **Hors calcul** : opérations de pointage (tag `pointage`), apports en Bourse et argent versé dans les autres actifs (des choix, pas des dépenses prévues).
+- **Alertes** (carte et « À traiter » de l'accueil) : un mois finit sous le **plancher** (`PUT /api/previsions/reglages`, 0 = sous zéro) ; les objectifs réservent plus que les liquidités ; leur rythme mensuel dépasse l'épargne prévue d'un mois entier.
+
+Le calcul (`projeter()`) ne lit pas la base : `tests/test_previsions.py` le vérifie sans base de données.

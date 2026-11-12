@@ -168,6 +168,8 @@ MESSAGES_CLES = {
     "fk_bourse_cours_historique_titre": "Titre inconnu. Ajoute-le d'abord dans Bourse > Paramètres > Titres.",
     "fk_lectures_livres_genre": "Genre inconnu : ajoute-le d'abord dans Lectures > Paramètres.",
     "fk_lectures_a_lire_genre": "Genre inconnu : ajoute-le d'abord dans Lectures > Paramètres.",
+    "fk_recurrences_categorie": "Catégorie inconnue : choisis-la dans la liste (Paramètres → Catégories).",
+    "fk_recurrences_source": "Source de revenu inconnue.",
 }
 
 
@@ -231,7 +233,7 @@ TABLES_MODIFIE_LE = (
     "bourse_mouvements", "bourse_cibles_secteur",
     "lectures_livres", "lectures_genres", "lectures_a_lire", "lectures_notes", "lectures_prets",
     "dettes", "dettes_remboursements", "echeances", "actifs", "objectifs", "objectifs_versements",
-    "bourse_cours_historique", "rapprochements",
+    "bourse_cours_historique", "rapprochements", "recurrences",
 )
 
 
@@ -739,6 +741,55 @@ def init_db():
         CREATE TABLE IF NOT EXISTS alertes_ignorees (
             cle VARCHAR(300) PRIMARY KEY,
             le  TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+
+        -- Cours de clôture de chaque titre détenu, un par jour de bourse : noté une fois, le soir, par
+        -- la tâche /api/cron/cours-du-soir (cf. bourse.noter_cours_du_jour). Ni week-end ni jour férié.
+        -- Les sources ne donnent que le cours du jour : cet historique commence le jour de sa mise en place.
+        CREATE TABLE IF NOT EXISTS bourse_prix_historique (
+            titre   VARCHAR(60) NOT NULL REFERENCES bourse_titres(code) ON UPDATE CASCADE,
+            date    DATE NOT NULL,
+            cours   NUMERIC(14,4) NOT NULL CHECK (cours > 0),
+            manuel  BOOLEAN NOT NULL DEFAULT false,
+            PRIMARY KEY (titre, date)
+        );
+        -- Jours fériés à date variable (fêtes religieuses, fixées à l'observation de la lune) : la
+        -- Bourse est fermée, aucun cours n'est noté. Les fêtes à date fixe sont dans bourse.FERIES_FIXES.
+        CREATE TABLE IF NOT EXISTS bourse_jours_feries (
+            date    DATE PRIMARY KEY,
+            libelle VARCHAR(100) NOT NULL DEFAULT ''
+        );
+        -- Valeur de clôture des indices de référence (MASI, MASI Rentabilité Net...), une par jour de
+        -- bourse : notée le soir (`source` = 'auto') ou importée d'un fichier pour les jours d'avant
+        -- ('import' ; une valeur notée automatiquement n'est jamais remplacée par une importée).
+        CREATE TABLE IF NOT EXISTS indices_historique (
+            indice  VARCHAR(20) NOT NULL,
+            date    DATE NOT NULL,
+            valeur  NUMERIC(16,6) NOT NULL CHECK (valeur > 0),
+            source  VARCHAR(10) NOT NULL DEFAULT 'auto' CHECK (source IN ('auto', 'import')),
+            PRIMARY KEY (indice, date)
+        );
+
+        -- Opérations récurrentes (loyer, abonnements, salaire) : générées chaque mois au jour dit,
+        -- par un bouton dans Saisie ou toutes seules par la tâche du matin (`auto`). `dernier_mois` :
+        -- dernier mois généré (ou passé), AAAA-MM : un second passage le même mois ne fait rien.
+        CREATE TABLE IF NOT EXISTS recurrences (
+            id            SERIAL PRIMARY KEY,
+            type          VARCHAR(10) NOT NULL CHECK (type IN ('depense', 'revenu')),
+            categorie     TEXT,
+            source        TEXT,
+            description   VARCHAR(500) NOT NULL DEFAULT '',
+            montant       NUMERIC(14,2) NOT NULL CHECK (montant > 0),
+            jour          INTEGER NOT NULL CHECK (jour BETWEEN 1 AND 31),
+            tags          TEXT[] NOT NULL DEFAULT '{}',
+            auto          BOOLEAN NOT NULL DEFAULT false,
+            actif         BOOLEAN NOT NULL DEFAULT true,
+            debut         VARCHAR(7) NOT NULL,
+            dernier_mois  VARCHAR(7),
+            cree_le       TIMESTAMP NOT NULL DEFAULT now(),
+            CONSTRAINT fk_recurrences_categorie FOREIGN KEY (categorie) REFERENCES categories(nom) ON UPDATE CASCADE,
+            CONSTRAINT fk_recurrences_source FOREIGN KEY (source) REFERENCES sources_revenus(nom) ON UPDATE CASCADE,
+            CONSTRAINT recurrences_categorie_requise CHECK (type = 'revenu' OR categorie IS NOT NULL)
         );
 
         """)

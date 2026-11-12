@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { ActionIcon, Box, Button, CloseButton, Grid, Group, SegmentedControl, Stack, TextInput, Tooltip } from '@mantine/core';
 import { useDebouncedValue } from '@mantine/hooks';
-import { IconChevronLeft, IconChevronRight, IconMinus, IconPlus, IconSearch } from '@tabler/icons-react';
+import { IconChevronLeft, IconChevronRight, IconMinus, IconPlus, IconRepeat, IconSearch } from '@tabler/icons-react';
 
 import { auj, decalerMois, libelleMois } from '../lib/format';
 import { estMois } from '../lib/routes';
 import { FormDepense, FormRevenu, ResultatsRecherche, TransactionsDuMois } from '../components/Transactions';
+import { ouvrirRecurrences, RecurrencesAAjouter } from '../components/Recurrences';
 import { Carte, EnTetePage } from '../components/ui';
 
 /** Mois listé et recherche en cours, gardés par App (et dans l'URL : #/saisie/2026-09 ou #/saisie/recherche/…) */
@@ -40,6 +41,7 @@ export function Saisie({ nav }: { nav: NavSaisie }) {
     <Stack gap="lg">
       <EnTetePage titre="Saisie" description="Enregistre tes opérations, ou modifie celles déjà saisies" actions={
         <Group gap="xs" wrap="wrap">
+          <Button variant="default" h={36} px="sm" leftSection={<IconRepeat size={16} />} onClick={ouvrirRecurrences}>Récurrences</Button>
           <TextInput w={{ base: '100%', xs: 240 }} placeholder="Rechercher (texte, 250, #tag)" value={texte}
                      onChange={e => setTexte(e.currentTarget.value)} leftSection={<IconSearch size={16} />}
                      rightSection={texte ? <CloseButton size="sm" aria-label="Effacer la recherche" onClick={() => setTexte('')} /> : null}
@@ -78,8 +80,11 @@ export function Saisie({ nav }: { nav: NavSaisie }) {
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 7 }}>
           {q ? <ResultatsRecherche q={q} onTag={t => setTexte('#' + t)} /> : (
-            <TransactionsDuMois mois={mois} titre={'Transactions — ' + libelleMois(mois)} onTag={t => setTexte('#' + t)}
-                                vide={mois === moisCourant ? 'Aucune transaction ce mois — commence ta saisie !' : 'Aucune transaction ce mois'} />
+            <Stack gap="lg">
+              <RecurrencesAAjouter />
+              <TransactionsDuMois mois={mois} titre={'Transactions — ' + libelleMois(mois)} onTag={t => setTexte('#' + t)}
+                                  vide={mois === moisCourant ? 'Aucune transaction ce mois — commence ta saisie !' : 'Aucune transaction ce mois'} />
+            </Stack>
           )}
         </Grid.Col>
       </Grid>

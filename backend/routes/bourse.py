@@ -24,10 +24,10 @@ l'intermédiaire), comme n'importe quel autre frais.
 Le dashboard accepte des filtres optionnels `mois` (AAAA-MM) ou `annee` pour
 les flux réalisés sur la période (gains, dividendes, frais). La valeur du
 portefeuille (coût d'acquisition, valeur de marché, plus-value latente) reste
-toujours celle d'aujourd'hui : l'application ne conserve pas d'historique de
-cours, donc une valorisation « à une date passée » n'est pas calculable.
+toujours celle d'aujourd'hui. Les cours sont notés chaque jour depuis la mise en
+place de bourse_prix_historique : la courbe de valeur (GET /historique) commence là.
 """
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from typing import List, Optional
 
@@ -43,7 +43,7 @@ from schemas import (
     ParametresBourse, TransactionBourseCreate, TransactionBourseOut,
     PrixMaj, PositionBourse, GainRealise, DashboardBourse, TitreBourse, TitreBourseIn, CoursActualisation,
     DividendeCreate, DividendeOut, FraisBourseCreate, FraisBourseOut,
-    MouvementBourseCreate, MouvementBourseOut, CiblesIn,
+    MouvementBourseCreate, MouvementBourseOut, CiblesIn, JourFerieIn,
 )
 
 router = APIRouter(prefix="/api/bourse", tags=["bourse"],
@@ -321,15 +321,21 @@ DELAI_COURS_MIN = 15   # pas plus d'une récupération automatique par quart d'h
 
 def _actualiser_cours(force: bool) -> CoursActualisation:
     """Écrit le dernier cours des titres détenus qui ne sont pas en saisie manuelle (rapprochés
-    par leur code BVC sur la source officielle, par leur ISIN sur la source de secours). Déclenché à l'ouverture de l'application (force=False) ou par le bouton
-    « Actualiser » (force=True) : pas de tâche planifiée, l'instance peut dormir entre deux visites.
+    par leur code BVC sur la source officielle, par leur ISIN sur la source de secours). Déclenché
+    par la tâche du matin et à l'ouverture de l'application (force=False), ou par le bouton
+    « Actualiser » et la tâche du soir (force=True).
     Si les sources sont injoignables, rien n'est modifié et les derniers cours connus restent affichés."""
+    return _recuperer_cours(force)[0]
+
+
+def _recuperer_cours(force: bool) -> tuple:
+    """(résultat, titres dont le cours vient d'être récupéré) : cf. _actualiser_cours."""
     with db() as conn:
         if not force and conn.execute(
             "SELECT 1 FROM bourse_parametres WHERE cours_auto_le > now() - make_interval(mins => %s)",
             (DELAI_COURS_MIN,),
         ).fetchone():
-            return CoursActualisation(etat="recent")
+            return CoursActualisation(etat="recent"), []
         cibles = conn.execute(
             """SELECT d.titre, t.isin
                FROM (SELECT titre FROM bourse_transactions GROUP BY titre
@@ -339,14 +345,14 @@ def _actualiser_cours(force: bool) -> CoursActualisation:
                WHERE NOT COALESCE(p.manuel, false)"""
         ).fetchall()
     if not cibles:
-        return CoursActualisation(etat="rien", message="Aucun titre détenu en cours automatique")
+        return CoursActualisation(etat="rien", message="Aucun titre détenu en cours automatique"), []
 
     # Appel réseau fait hors de la connexion à la base, pour ne pas la retenir pendant l'attente
     try:
         cours = telecharger_cours()
     except Exception as e:
         print(f"[cours] récupération échouée — {e}", flush=True)   # détail visible dans les logs du serveur
-        return CoursActualisation(etat="erreur", message="Sources des cours injoignables : derniers cours conservés")
+        return CoursActualisation(etat="erreur", message="Sources des cours injoignables : derniers cours conservés"), []
 
     valeurs = {c["titre"]: cours.de(c["titre"], c["isin"]) for c in cibles}
     trouves = [(titre, valeur) for titre, valeur in valeurs.items() if valeur]
@@ -365,7 +371,7 @@ def _actualiser_cours(force: bool) -> CoursActualisation:
         etat="maj", nb_maj=len(trouves),
         introuvables=[titre for titre, valeur in valeurs.items() if not valeur],
         message=f"{len(trouves)} cours mis à jour ({cours.source})",
-    )
+    ), [titre for titre, _ in trouves]
 
 
 @router.post("/cours/actualiser", response_model=CoursActualisation)
@@ -379,6 +385,206 @@ def remettre_cours_auto(titre: str):
     with db() as conn:
         conn.execute("UPDATE bourse_prix SET manuel = false WHERE titre = %s", (titre.strip().upper(),))
     return _actualiser_cours(force=True)
+
+
+# ---------------------------------------------------------------- historique des cours (clôture du jour)
+# Titres détenus aujourd'hui (achats − ventes > 0) : seuls leurs cours sont notés
+TITRES_DETENUS = """SELECT titre FROM bourse_transactions GROUP BY titre
+                    HAVING SUM(CASE WHEN type_operation = 'Achat' THEN quantite ELSE -quantite END) > 0"""
+
+# Jours fériés à date fixe (mois, jour) : Bourse de Casablanca fermée. Les fêtes religieuses, à date
+# variable, se saisissent dans Bourse → Paramètres (table bourse_jours_feries).
+FERIES_FIXES = {
+    (1, 1): "Nouvel an", (1, 11): "Manifeste de l'indépendance", (1, 14): "Nouvel an amazigh",
+    (5, 1): "Fête du travail", (7, 30): "Fête du Trône", (8, 14): "Allégeance Oued Eddahab",
+    (8, 20): "Révolution du Roi et du Peuple", (8, 21): "Fête de la jeunesse", (10, 31): "Fête de l'unité",
+    (11, 6): "Marche verte", (11, 18): "Fête de l'indépendance",
+}
+
+
+def raison_fermeture(jour: date, feries: dict) -> Optional[str]:
+    """Pourquoi la Bourse est fermée ce jour-là (week-end, jour férié), None si c'est un jour de
+    bourse. `feries` : {date: libellé} des jours fériés à date variable."""
+    if jour.weekday() >= 5:
+        return "week-end"
+    return FERIES_FIXES.get((jour.month, jour.day)) or feries.get(jour)
+
+
+def _feries_variables(conn) -> dict:
+    return {r["date"]: r["libelle"] or "jour férié"
+            for r in conn.execute("SELECT date, libelle FROM bourse_jours_feries").fetchall()}
+
+
+def noter_cours_du_jour(auj: date, recuperes: list) -> int:
+    """Note la clôture du jour dans bourse_prix_historique, une ligne par titre détenu : son cours
+    s'il vient d'être récupéré (`recuperes`), ou le cours saisi à la main s'il est en manuel. Un
+    titre en automatique dont le cours n'a pas pu être récupéré n'est pas noté (pas d'ancien cours
+    déguisé en clôture du jour). Rien un week-end ou un jour férié. Renvoie le nombre de cours notés."""
+    with db() as conn:
+        if raison_fermeture(auj, _feries_variables(conn)):
+            return 0
+        return conn.execute(
+            f"""INSERT INTO bourse_prix_historique (titre, date, cours, manuel)
+                SELECT p.titre, %s, p.cours_actuel, p.manuel FROM bourse_prix p
+                WHERE p.cours_actuel > 0 AND p.titre IN ({TITRES_DETENUS}) AND (p.manuel OR p.titre = ANY(%s))
+                ON CONFLICT (titre, date) DO UPDATE SET cours = EXCLUDED.cours, manuel = EXCLUDED.manuel""",
+            (auj, list(recuperes)),
+        ).rowcount
+
+
+def cours_du_soir(auj: date) -> dict:
+    """Tâche du soir (après la clôture) : récupère les cours, puis note la clôture du jour. Un
+    week-end ou un jour férié, rien n'est fait."""
+    with db() as conn:
+        ferme = raison_fermeture(auj, _feries_variables(conn))
+    if ferme:
+        return {"etat": "ferme", "raison": ferme}
+    resultat, recuperes = _recuperer_cours(force=True)
+    notes = noter_cours_du_jour(auj, recuperes)
+    return {"etat": resultat.etat, "notes": notes, "introuvables": resultat.introuvables, "message": resultat.message}
+
+
+# ---------------------------------------------------------------- cours en retard
+JOURS_RETARD_AUTO = 2      # clôtures manquées (jours de bourse) avant de prévenir, titre automatique
+JOURS_RETARD_MANUEL = 5    # jours de bourse depuis un cours saisi à la main avant de prévenir
+
+
+def jours_de_bourse_entre(debut: date, fin: date, feries: dict) -> int:
+    """Nombre de jours de bourse de `debut` à `fin` inclus (0 si fin < debut)."""
+    n, jour = 0, debut
+    while jour <= fin:
+        if not raison_fermeture(jour, feries):
+            n += 1
+        jour += timedelta(days=1)
+    return n
+
+
+def detecter_retards(titres: list, auj: date, feries: dict, debut_historique: Optional[date]) -> list:
+    """Titres détenus dont le cours n'est plus à jour (fonction pure). `titres` : [{titre, manuel,
+    maj_le (date), derniere_cloture (date|None), achete_le (date)}] ; `debut_historique` : premier jour
+    noté dans l'historique (None : la tâche du soir n'a encore jamais tourné).
+
+    - en manuel : saisi depuis plus de JOURS_RETARD_MANUEL jours de bourse ;
+    - en automatique : au moins JOURS_RETARD_AUTO jours de bourse sans clôture notée, jusqu'à hier
+      (la clôture d'aujourd'hui n'est notée que le soir). On ne compte qu'à partir du début de
+      l'historique et de l'achat du titre : un titre acheté hier, ou l'historique tout juste lancé,
+      ne sont pas en retard."""
+    hier = auj - timedelta(days=1)
+    retards = []
+    for t in titres:
+        if t["manuel"]:
+            jours = jours_de_bourse_entre(t["maj_le"] + timedelta(days=1), auj, feries)
+            if jours > JOURS_RETARD_MANUEL:
+                retards.append({"titre": t["titre"], "manuel": True, "depuis": t["maj_le"], "jours": jours})
+            continue
+        if debut_historique is None:
+            continue
+        depuis = t["derniere_cloture"] or max(debut_historique, t["achete_le"]) - timedelta(days=1)
+        jours = jours_de_bourse_entre(depuis + timedelta(days=1), hier, feries)
+        if jours >= JOURS_RETARD_AUTO:
+            retards.append({"titre": t["titre"], "manuel": False, "depuis": t["derniere_cloture"], "jours": jours})
+    return sorted(retards, key=lambda r: (-r["jours"], r["titre"]))
+
+
+def cours_en_retard(auj: date) -> list:
+    """Titres détenus au cours périmé : [{titre, manuel, depuis, jours}] (cf. detecter_retards)."""
+    with db() as conn:
+        feries = _feries_variables(conn)
+        debut = conn.execute("SELECT min(date) d FROM bourse_prix_historique").fetchone()["d"]
+        rows = conn.execute(f"""
+            SELECT d.titre, COALESCE(p.manuel, false) manuel, p.maj_le,
+                   (SELECT max(h.date) FROM bourse_prix_historique h WHERE h.titre = d.titre) derniere_cloture,
+                   (SELECT min(t.date_operation) FROM bourse_transactions t
+                    WHERE t.titre = d.titre AND t.type_operation = 'Achat') achete_le
+            FROM ({TITRES_DETENUS}) d LEFT JOIN bourse_prix p ON p.titre = d.titre""").fetchall()
+    titres = [{**r, "maj_le": r["maj_le"].date() if r["maj_le"] else auj} for r in rows]
+    return detecter_retards(titres, auj, feries, debut)
+
+
+@router.get("/cours-en-retard")
+def lire_cours_en_retard():
+    return cours_en_retard(aujourdhui())
+
+
+@router.get("/jours-feries")
+def lister_jours_feries():
+    """Jours fériés à date variable saisis (du plus récent au plus ancien) et ceux à date fixe."""
+    with db() as conn:
+        variables = conn.execute("SELECT date, libelle FROM bourse_jours_feries ORDER BY date DESC").fetchall()
+    return {"variables": variables,
+            "fixes": [{"mois": m, "jour": j, "libelle": l} for (m, j), l in sorted(FERIES_FIXES.items())]}
+
+
+@router.post("/jours-feries", status_code=201)
+def ajouter_jour_ferie(f: JourFerieIn):
+    with db() as conn:
+        conn.execute("""INSERT INTO bourse_jours_feries (date, libelle) VALUES (%s, %s)
+                        ON CONFLICT (date) DO UPDATE SET libelle = EXCLUDED.libelle""", (f.date, f.libelle))
+        # Un cours noté ce jour-là par erreur (jour férié saisi après coup) est retiré
+        conn.execute("DELETE FROM bourse_prix_historique WHERE date = %s", (f.date,))
+    return {"date": f.date, "libelle": f.libelle}
+
+
+@router.delete("/jours-feries/{jour}", status_code=204)
+def supprimer_jour_ferie(jour: date):
+    with db() as conn:
+        if conn.execute("DELETE FROM bourse_jours_feries WHERE date = %s", (jour,)).rowcount == 0:
+            raise HTTPException(404, "Jour férié introuvable")
+
+
+def valeur_aux_dates(transactions: list, cours: dict, jours: list) -> list:
+    """Valeur de marché et coût (PRU × quantité) des titres détenus à la fin de chaque jour de
+    `jours` (triés). `transactions` : [{date, titre, achat, quantite, net}] triées par date ;
+    `cours` : {titre: [(date, cours)] triée}. Un titre sans cours relevé à cette date prend le
+    prix de sa dernière transaction. Ne lit pas la base."""
+    qte, cout, dernier_prix = {}, {}, {}
+    points, i = [], 0
+    for jour in jours:
+        while i < len(transactions) and transactions[i]["date"] <= jour:
+            t = transactions[i]
+            q, n = qte.get(t["titre"], 0.0), t["quantite"]
+            if t["achat"]:
+                qte[t["titre"]], cout[t["titre"]] = q + n, cout.get(t["titre"], 0.0) + t["net"]
+            else:
+                pru = cout.get(t["titre"], 0.0) / q if q > 0 else 0.0
+                qte[t["titre"]], cout[t["titre"]] = q - n, cout.get(t["titre"], 0.0) - pru * n
+            dernier_prix[t["titre"]] = t["cours"]
+            i += 1
+        valeur = total_cout = 0.0
+        for titre, q in qte.items():
+            if q <= 1e-9:
+                continue
+            releves = [c for d, c in cours.get(titre, []) if d <= jour]
+            valeur += q * (releves[-1] if releves else dernier_prix.get(titre, 0.0))
+            total_cout += cout.get(titre, 0.0)
+        points.append({"date": jour, "valeur": round(valeur, 2), "cout": round(total_cout, 2)})
+    return points
+
+
+@router.get("/historique")
+def historique_cours(titre: Optional[str] = None, jours: Optional[int] = None):
+    """Sans `titre` : valeur des titres détenus (et leur coût) chaque jour noté. Avec `titre` :
+    les cours notés de ce titre. `jours` : seulement les N derniers jours."""
+    depuis = aujourdhui() - timedelta(days=jours) if jours else date.min
+    with db() as conn:
+        if titre:
+            rows = conn.execute("""SELECT date, cours, manuel FROM bourse_prix_historique
+                                   WHERE titre = %s AND date > %s ORDER BY date""",
+                                (titre.strip().upper(), depuis)).fetchall()
+            return {"titre": titre.strip().upper(),
+                    "points": [{"date": r["date"], "cours": float(r["cours"]), "manuel": r["manuel"]} for r in rows]}
+        releves = conn.execute("SELECT titre, date, cours FROM bourse_prix_historique ORDER BY date").fetchall()
+    cours, dates = {}, set()
+    for r in releves:
+        cours.setdefault(r["titre"], []).append((r["date"], float(r["cours"])))
+        if r["date"] > depuis:
+            dates.add(r["date"])
+    _, _, calc = _positions_et_gains()
+    transactions = [{"date": t["date_operation"], "titre": t["titre"], "achat": t["type_operation"] == "Achat",
+                     "quantite": float(t["quantite"]), "net": float(t["_net_decimal"]), "cours": float(t["cours_unitaire"])}
+                    for t in calc]
+    titres = sorted({r["titre"] for r in releves})
+    return {"titres": titres, "points": valeur_aux_dates(transactions, cours, sorted(dates))}
 
 
 # ---------------------------------------------------------------- dividendes
