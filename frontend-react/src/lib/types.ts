@@ -320,7 +320,10 @@ export type Dette = {
 export type Echeance = {
   id: number; titre: string; categorie: string; date_echeance: string; rappel_jours: number; recurrence_mois: number | null;
   note: string; jours_restants: number; a_rappeler: boolean;
+  /** Ce que coûtera l'échéance ; `provision` : l'objectif qui la prépare mois après mois */
+  montant: number | null; objectif_id: number | null; provision: Provision | null;
 };
+export type Provision = { objectif_id: number; verse: number; cible: number; reste: number; par_mois: number | null; archive: boolean };
 
 /* ---------- Rappels et résumé hebdomadaire ---------- */
 export type Canal = 'telegram' | 'email';
@@ -350,6 +353,8 @@ export type Projet = {
    *  `reserve` = encore réservé (sans tag : `verse`), `depassement` = dépensé au-delà de l'enveloppe */
   tag: string | null; tag_depuis: string | null; depense: number; reserve: number; depassement: number;
   operations: OperationTaggee[];
+  /** Objectif qui provisionne une échéance (Suivi → Échéances) */
+  echeance_id: number | null;
 };
 /** Dépense (ou remboursement, en revenu) portant le tag d'un objectif */
 export type OperationTaggee = { type: 'depense' | 'revenu'; id: number; date: string; nom: string; description: string; montant: number };
@@ -382,7 +387,26 @@ export type Patrimoine = {
     atteint: boolean; montant: number; debut_hawl: string | null; echeance: string | null; jours_restants: number | null;
   };
   liberte: Liberte;
+  /** Dernier pointage du solde (null : jamais) ; `ecart` = réel − calculé */
+  pointage: { date: string; jours: number; ecart: number; regle: 'depense' | 'revenu' | null; a_refaire: boolean } | null;
 };
+
+/** Pointage du solde : `solde_calcule` = liquidités calculées du jour ; `ecart` = réel − calculé (négatif : il manque de l'argent) */
+export type Rapprochement = {
+  id: number; date: string; solde_reel: number; solde_calcule: number; ecart: number;
+  comptes: { nom: string; montant: number }[]; regle: 'depense' | 'revenu' | null; note: string;
+};
+export type Rapprochements = {
+  solde_calcule: number; historique: Rapprochement[]; jours_sans_depense: string[]; depuis: string; a_refaire_jours: number;
+};
+
+/** Dépense inhabituelle (accueil) ; `cle` sert à l'ignorer */
+export type Alerte = {
+  cle: string; type: 'categorie' | 'hausse' | 'doublon'; categorie: string; titre: string; detail: string; montant: number; date?: string;
+};
+
+/** Saisie par Telegram : `actif` = webhook déclaré à l'adresse de l'application */
+export type EtatTelegram = { configure: boolean; actif: boolean; adresse: string | null; erreur: string | null };
 /** Liberté financière. Les champs calculés manquent tant qu'aucun mois terminé n'a de dépenses ;
  *  `annees_restantes` / `date_atteinte` null si l'objectif n'est pas atteint en 100 ans. */
 export type Liberte = {

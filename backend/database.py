@@ -166,6 +166,8 @@ MESSAGES_CLES = {
     "fk_bourse_dividendes_titre": "Titre inconnu. Ajoute-le d'abord dans Bourse > Paramètres > Titres.",
     "fk_bourse_prix_titre": "Titre inconnu. Ajoute-le d'abord dans Bourse > Paramètres > Titres.",
     "fk_bourse_cours_historique_titre": "Titre inconnu. Ajoute-le d'abord dans Bourse > Paramètres > Titres.",
+    "fk_lectures_livres_genre": "Genre inconnu : ajoute-le d'abord dans Lectures > Paramètres.",
+    "fk_lectures_a_lire_genre": "Genre inconnu : ajoute-le d'abord dans Lectures > Paramètres.",
 }
 
 
@@ -229,7 +231,7 @@ TABLES_MODIFIE_LE = (
     "bourse_mouvements", "bourse_cibles_secteur",
     "lectures_livres", "lectures_genres", "lectures_a_lire", "lectures_notes", "lectures_prets",
     "dettes", "dettes_remboursements", "echeances", "actifs", "objectifs", "objectifs_versements",
-    "bourse_cours_historique",
+    "bourse_cours_historique", "rapprochements",
 )
 
 
@@ -269,6 +271,8 @@ CLES_ETRANGERES = (
     ("bourse_dividendes", "titre", "bourse_titres", "code", "fk_bourse_dividendes_titre"),
     ("bourse_prix", "titre", "bourse_titres", "code", "fk_bourse_prix_titre"),
     ("bourse_cours_historique", "titre", "bourse_titres", "code", "fk_bourse_cours_historique_titre"),
+    ("lectures_livres", "genre", "lectures_genres", "nom", "fk_lectures_livres_genre"),
+    ("lectures_a_lire", "genre", "lectures_genres", "nom", "fk_lectures_a_lire_genre"),
 )
 
 
@@ -289,6 +293,14 @@ def _cles_etrangeres(c):
     # travail = false : une source libre ne comptait pas dans le taux horaire, elle n'y compte toujours pas
     c.execute("""INSERT INTO sources_revenus(nom, actif, travail)
                  SELECT DISTINCT source, 0, false FROM revenus WHERE source IS NOT NULL ON CONFLICT (nom) DO NOTHING""")
+    # Livre sans genre : NULL (comme un revenu sans source) ; un genre inconnu devient un genre retiré
+    for table in ("lectures_livres", "lectures_a_lire"):
+        c.execute(sql.SQL("ALTER TABLE {} ALTER COLUMN genre DROP NOT NULL, ALTER COLUMN genre DROP DEFAULT").format(
+            sql.Identifier(table)))
+        c.execute(sql.SQL("UPDATE {} SET genre = NULL WHERE trim(genre) = ''").format(sql.Identifier(table)))
+    c.execute("""INSERT INTO lectures_genres(nom, actif)
+                 SELECT DISTINCT genre, 0 FROM (SELECT genre FROM lectures_livres UNION SELECT genre FROM lectures_a_lire) g
+                 WHERE genre IS NOT NULL ON CONFLICT (nom) DO NOTHING""")
     c.execute("""INSERT INTO bourse_titres(code, nom, actif)
                  SELECT titre, titre, 0 FROM (SELECT titre FROM bourse_transactions UNION SELECT titre FROM bourse_dividendes
                                               UNION SELECT titre FROM bourse_prix UNION SELECT titre FROM bourse_cours_historique) t
@@ -301,6 +313,8 @@ def _cles_etrangeres(c):
     c.execute("CREATE INDEX IF NOT EXISTS idx_depenses_categorie ON depenses (categorie)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_revenus_source ON revenus (source)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_bourse_tx_titre ON bourse_transactions (titre)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_lectures_livres_genre ON lectures_livres (genre)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_lectures_a_lire_genre ON lectures_a_lire (genre)")
 
 
 def init_db():
@@ -691,6 +705,40 @@ def init_db():
             cours    NUMERIC(14,4) NOT NULL CHECK (cours > 0),
             cree_le  TIMESTAMP NOT NULL DEFAULT now(),
             PRIMARY KEY (titre, date)
+        );
+
+        -- Pointages du solde : le solde réel (banque, espèces) comparé aux liquidités calculées.
+        -- `comptes` : détail saisi [{nom, montant}] ; `regle` : l'écart a été enregistré en dépense ou en revenu.
+        CREATE TABLE IF NOT EXISTS rapprochements (
+            id            SERIAL PRIMARY KEY,
+            date          DATE NOT NULL,
+            solde_reel    NUMERIC(14,2) NOT NULL,
+            solde_calcule NUMERIC(14,2) NOT NULL,
+            comptes       JSONB NOT NULL DEFAULT '[]',
+            regle         VARCHAR(10) CHECK (regle IN ('depense', 'revenu')),
+            note          TEXT NOT NULL DEFAULT '',
+            cree_le       TIMESTAMP NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_rapprochements_date ON rapprochements (date);
+
+        -- Échéance avec un montant (assurance, Aïd, rentrée...) : `objectif_id` = l'objectif qui la
+        -- provisionne mois après mois (cf. routes/carnet.py)
+        ALTER TABLE echeances ADD COLUMN IF NOT EXISTS montant NUMERIC(14,2) CHECK (montant > 0);
+        ALTER TABLE echeances ADD COLUMN IF NOT EXISTS objectif_id INTEGER REFERENCES objectifs(id) ON DELETE SET NULL;
+
+        -- Messages reçus du bot Telegram (saisie rapide) : un message déjà traité est ignoré (Telegram
+        -- renvoie un message tant qu'il n'a pas reçu de réponse). `attente` : opération qui attend
+        -- le choix de sa catégorie (boutons).
+        CREATE TABLE IF NOT EXISTS telegram_messages (
+            update_id BIGINT PRIMARY KEY,
+            le        TIMESTAMPTZ NOT NULL DEFAULT now(),
+            attente   JSONB
+        );
+
+        -- Alertes de dépenses écartées à la main (« ce n'est pas un doublon ») : clé de l'alerte
+        CREATE TABLE IF NOT EXISTS alertes_ignorees (
+            cle VARCHAR(300) PRIMARY KEY,
+            le  TIMESTAMPTZ NOT NULL DEFAULT now()
         );
 
         """)

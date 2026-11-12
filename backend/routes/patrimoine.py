@@ -12,11 +12,16 @@ indicateurs en découlent : la réserve de sécurité (mois de dépenses couvert
 disponible), une estimation de la zakat (assiette comparée au nisab, échéance du hawl) et la
 liberté financière (patrimoine comparé à 25 × les dépenses annuelles, date estimée pour l'atteindre).
 
+Pointage du solde (rapprochements) : les liquidités sont calculées, jamais saisies. Pointer, c'est
+taper le solde réel (banque, espèces) pour voir l'écart : une dépense oubliée s'y voit. L'écart peut
+être enregistré en dépense (ou en revenu) datée du jour, pour que la suite reparte juste.
+
 La courbe d'évolution (patrimoine_historique) reçoit un point par jour depuis sa mise en place. Les
 mois d'avant peuvent être reconstitués (un point par fin de mois, marqué `estime`) à partir des
 opérations datées ; seuls les cours passés manquent : chaque titre prend son dernier cours connu
 (cours saisi à la main pour cette date, sinon prix de la dernière transaction).
 """
+import json
 from datetime import date, timedelta
 from decimal import Decimal
 from typing import Optional
@@ -26,7 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from config import aujourdhui
 from database import db, references_valides
 from securite import utilisateur_courant
-from schemas import ActifIn, CoursPassesIn, ReglagesPatrimoine
+from schemas import ActifIn, CoursPassesIn, RapprochementIn, ReglagesPatrimoine
 from routes import bourse
 from routes.carnet import lire_dettes
 
@@ -122,6 +127,7 @@ def calculer_patrimoine(auj: date) -> dict:
         params = _params(c)
         moyenne, nb_mois = depense_moyenne(c, auj)
         depense_an, epargne_an, nb_mois_an = moyennes_annuelles(c, auj)
+        pointage = dernier_pointage(c, auj)
     try:
         compte = bourse.obtenir_dashboard()
         apports, compte_bourse = compte.apports_nets, compte.patrimoine_total
@@ -173,7 +179,110 @@ def calculer_patrimoine(auj: date) -> dict:
             "liquidites": round(liquidites, 2), "bourse": round(compte_bourse, 2),
             "autres_actifs": round(autres, 2), "creances": round(on_me_doit, 2), "dettes": round(je_dois, 2),
             "total": round(total, 2), "actifs": actifs, "types_actifs": TYPES_ACTIFS,
-            "reserve": reserve, "zakat": zakat, "liberte": liberte}
+            "reserve": reserve, "zakat": zakat, "liberte": liberte, "pointage": pointage}
+
+
+# ---------------------------------------------------------------- pointage du solde
+POINTAGE_A_REFAIRE_JOURS = 30   # au-delà, l'accueil et le message du lundi invitent à pointer
+JOURS_SANS_DEPENSE_MAX = 62     # période examinée pour repérer les jours sans aucune dépense
+LIBELLE_ECART = "Écart de pointage du solde"
+TAG_ECART = "pointage"
+RAPPROCHEMENT_COLONNES = "id, date, solde_reel, solde_calcule, comptes, regle, note"
+
+
+def dernier_pointage(c, auj: date) -> Optional[dict]:
+    """Dernier pointage : {date, jours, ecart, regle, a_refaire} (`jours` : il y a combien de jours),
+    None s'il n'y en a jamais eu."""
+    r = c.execute("SELECT date, solde_reel - solde_calcule ecart, regle FROM rapprochements "
+                  "ORDER BY date DESC, id DESC LIMIT 1").fetchone()
+    if not r:
+        return None
+    jours = (auj - r["date"]).days
+    return {"date": r["date"], "jours": jours, "ecart": float(r["ecart"]), "regle": r["regle"],
+            "a_refaire": jours > POINTAGE_A_REFAIRE_JOURS}
+
+
+def liquidites_du_jour(auj: date, p: Optional[dict] = None) -> float:
+    """Liquidités calculées à la fin d'aujourd'hui : celles du patrimoine, sans les opérations du
+    Budget datées de demain ou après (un loyer saisi d'avance n'est pas encore sorti de la banque)."""
+    p = p or calculer_patrimoine(auj)
+    with db() as c:
+        futur = c.execute("""SELECT (SELECT COALESCE(SUM(montant),0) FROM revenus WHERE date > %s)
+                                  - (SELECT COALESCE(SUM(montant),0) FROM depenses WHERE date > %s) t""",
+                          (auj.isoformat(), auj.isoformat())).fetchone()["t"]
+    return round(p["liquidites"] - float(futur), 2)
+
+
+def jours_sans_depense(c, debut: date, fin: date) -> list:
+    """Jours de [debut, fin] sans aucune dépense : c'est souvent là que se cachent les oublis."""
+    debut = max(debut, fin - timedelta(days=JOURS_SANS_DEPENSE_MAX - 1))
+    if debut > fin:
+        return []
+    avec = {r["date"] for r in c.execute("SELECT DISTINCT date FROM depenses WHERE date >= %s AND date <= %s",
+                                         (debut.isoformat(), fin.isoformat())).fetchall()}
+    jours = [debut + timedelta(days=i) for i in range((fin - debut).days + 1)]
+    return [j for j in jours if j.isoformat() not in avec]
+
+
+def _rapprochement(r: dict) -> dict:
+    comptes = json.loads(r["comptes"]) if isinstance(r["comptes"], str) else r["comptes"]
+    return {**r, "solde_reel": float(r["solde_reel"]), "solde_calcule": float(r["solde_calcule"]),
+            "ecart": round(float(r["solde_reel"] - r["solde_calcule"]), 2), "comptes": comptes}
+
+
+@router.get("/rapprochements")
+def lire_rapprochements():
+    """Liquidités calculées à comparer au solde réel, les pointages passés (les plus récents d'abord)
+    et les jours sans dépense depuis le dernier pointage (sinon sur les 30 derniers jours)."""
+    auj = aujourdhui()
+    calcule = liquidites_du_jour(auj)
+    with db() as c:
+        historique = [_rapprochement(r) for r in c.execute(
+            f"SELECT {RAPPROCHEMENT_COLONNES} FROM rapprochements ORDER BY date DESC, id DESC LIMIT 12").fetchall()]
+        depuis = historique[0]["date"] + timedelta(days=1) if historique else auj - timedelta(days=30)
+        sans = jours_sans_depense(c, depuis, auj - timedelta(days=1))
+    return {"solde_calcule": calcule, "historique": historique, "jours_sans_depense": sans, "depuis": depuis,
+            "a_refaire_jours": POINTAGE_A_REFAIRE_JOURS}
+
+
+def pointer(auj: date, comptes: list, note: str = "", categorie: Optional[str] = None,
+            enregistrer_ecart: bool = False) -> dict:
+    """Enregistre un pointage (`comptes` : [{nom, montant}]) et, si demandé, l'écart en opération du
+    jour. Renvoie le pointage avec son `ecart` (réel − calculé : négatif = argent qui manque)."""
+    calcule = liquidites_du_jour(auj)
+    reel = round(sum(float(x["montant"]) for x in comptes), 2)
+    ecart = round(reel - calcule, 2)
+    regle = None
+    with references_valides(), db() as c:
+        if enregistrer_ecart and abs(ecart) >= 0.01:
+            if ecart < 0:
+                if not categorie or not c.execute("SELECT 1 FROM categories WHERE nom=%s AND actif=1", (categorie,)).fetchone():
+                    raise HTTPException(400, "Choisis la catégorie de la dépense qui manque")
+                c.execute("INSERT INTO depenses(date,categorie,description,montant,tags) VALUES(%s,%s,%s,%s,%s)",
+                          (auj.isoformat(), categorie, LIBELLE_ECART, -ecart, [TAG_ECART]))
+                regle = "depense"
+            else:
+                c.execute("INSERT INTO revenus(date,source,description,montant,tags) VALUES(%s,NULL,%s,%s,%s)",
+                          (auj.isoformat(), LIBELLE_ECART, ecart, [TAG_ECART]))
+                regle = "revenu"
+        row = c.execute(f"""INSERT INTO rapprochements (date, solde_reel, solde_calcule, comptes, regle, note)
+                            VALUES (%s,%s,%s,%s,%s,%s) RETURNING {RAPPROCHEMENT_COLONNES}""",
+                        (auj, reel, calcule, json.dumps(comptes, ensure_ascii=False), regle, note)).fetchone()
+    return _rapprochement(row)
+
+
+@router.post("/rapprochements", status_code=201)
+def ajouter_rapprochement(r: RapprochementIn):
+    return pointer(aujourdhui(), [x.model_dump() for x in r.comptes], r.note, r.categorie, r.enregistrer_ecart)
+
+
+@router.delete("/rapprochements/{rapprochement_id}", status_code=204)
+def supprimer_rapprochement(rapprochement_id: int):
+    """Retire un pointage (erreur de frappe). L'opération d'écart éventuelle reste dans le Budget :
+    elle se supprime dans Saisie, comme toute opération."""
+    with db() as c:
+        if c.execute("DELETE FROM rapprochements WHERE id=%s", (rapprochement_id,)).rowcount == 0:
+            raise HTTPException(404, "Pointage introuvable")
 
 
 COLONNES_HISTORIQUE = ("total", "liquidites", "bourse", "autres_actifs", "creances", "dettes")

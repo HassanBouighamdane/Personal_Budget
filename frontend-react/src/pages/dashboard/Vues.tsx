@@ -10,11 +10,12 @@ import {
 import { C, PALETTE, regrouperAutres, signe, T } from '../../lib/palette';
 import type { DashboardBourse } from '../../lib/types';
 import {
-  usePatrimoineSilencieux, useResumeAnnee, useResumeBourseSilencieux, useResumeGlobal, useResumeJour, useResumeMois, useResumeSemaine, useTags,
+  useEcheances, usePatrimoineSilencieux, useResumeAnnee, useResumeBourseSilencieux, useResumeGlobal, useResumeJour, useResumeMois, useResumeSemaine, useTags,
 } from '../../lib/queries';
 import { Donut, Graphique, optionsSeries } from '../../components/Graphique';
 import { Carte, Grille2, GrilleKpi, Kpi, Tableau, Variation, Vide } from '../../components/ui';
 import { EnTetePeriode, type NavDashboard } from './Dashboard';
+import { aProvisionner } from '../carnet/Echeances';
 
 /* ---------- Pièces communes ---------- */
 function Squelette({ nav, titre }: { nav: NavDashboard; titre: string }) {
@@ -86,6 +87,7 @@ const serieEpargneCumulee = (labels: string[], data: number[]) => ({
 export function VueMois({ nav }: { nav: NavDashboard }) {
   const { data: r } = useResumeMois(nav.mois);
   const { data: bourse } = useResumeBourseSilencieux('mois=' + nav.mois);
+  const { data: echeances } = useEcheances();
   const titre = libelleMois(nav.mois);
   if (!r) return <Squelette nav={nav} titre={titre} />;
 
@@ -127,7 +129,8 @@ export function VueMois({ nav }: { nav: NavDashboard }) {
         <Kpi label="Reste à dépenser" icone={IconWallet} teinte="emeraude" valeur={fmt(r.reste_budget)} couleur={signe(r.reste_budget)}
              aide={`sur un budget de ${fmt(r.budget_total)}`} />
         <Kpi label="Épargne" icone={IconPigMoney} teinte="emeraude" valeur={fmt(r.epargne)} couleur={epC}
-             aide={`objectif : ${fmt(r.objectif_epargne)} · taux : ${r.epargne >= 0 ? r.taux_epargne + '%' : '—'}`} />
+             aide={`objectif : ${fmt(r.objectif_epargne)} · taux : ${r.epargne >= 0 ? r.taux_epargne + '%' : '—'}`
+               + (estMoisCourant && aProvisionner(echeances).nb ? ` · à provisionner ce mois : ${fmt(aProvisionner(echeances).total)}` : '')} />
         <KpiResultatBourse bourse={bourse} libelle="du mois" />
       </GrilleKpi>
 

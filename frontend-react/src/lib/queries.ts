@@ -5,7 +5,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 
 import { api, apiSilencieux, toast } from './api';
 import type {
-  ALire, ApercuRappels, BilanLecture, CalendrierDividendes, NoteDuJour, Patrimoine, PointPatrimoine, CoursPasse, PretLivre, Projet, SerieLecture, BudgetHistorique, CibleSecteur, Config, CoursActualisation, DashboardBourse, Dette, Dividende, Echeance, EtatRappels, Fiscalite, FraisBourse, Gain, Genre,
+  Alerte, ALire, ApercuRappels, EtatTelegram, Rapprochements, BilanLecture, CalendrierDividendes, NoteDuJour, Patrimoine, PointPatrimoine, CoursPasse, PretLivre, Projet, SerieLecture, BudgetHistorique, CibleSecteur, Config, CoursActualisation, DashboardBourse, Dette, Dividende, Echeance, EtatRappels, Fiscalite, FraisBourse, Gain, Genre,
   Livre, Mouvement, NoteLecture, ObjectifsLecture, Position, Recherche, ResumeAnnee, ResumeGlobal, ResumeJour, ResumeMois, ResumeSemaine, ResumeTag,
   Suggestion, Titre, TransactionBourse, TransactionsMois,
 } from './types';
@@ -38,6 +38,8 @@ export const useSuggestions = (type: 'depenses' | 'revenus', nom: string | null)
   enabled: !!nom,
 });
 export const useTags = () => lire<ResumeTag[]>(['budget', 'tags'], '/api/tags');
+/** Dépenses inhabituelles (accueil) : jamais d'erreur affichée */
+export const useAlertes = () => useQuery({ queryKey: ['budget', 'alertes'], queryFn: () => apiSilencieux<Alerte[]>('/api/alertes') });
 export const useHistoriqueBudget = (cid: number) => lire<BudgetHistorique[]>(['budget', 'historique', cid], `/api/categories/${cid}/historique`);
 
 /* ---------- Bourse ---------- */
@@ -121,11 +123,13 @@ export const usePatrimoineSilencieux = () => useQuery({
 /** Courbe du patrimoine ; `jours` null = tout l'historique */
 export const useHistoriquePatrimoine = (jours: number | null) =>
   lire<PointPatrimoine[]>(['patrimoine', 'historique', jours], '/api/patrimoine/historique' + (jours ? '?jours=' + jours : ''));
+export const useRapprochements = () => lire<Rapprochements>(['patrimoine', 'rapprochements'], '/api/patrimoine/rapprochements');
 export const useCoursPasses = (jour: string) =>
   lire<CoursPasse[]>(['patrimoine', 'cours-passes', jour], '/api/patrimoine/cours-passes?jour=' + jour);
 
 /* ---------- Rappels et résumé hebdomadaire ---------- */
 export const useEtatRappels = () => lire<EtatRappels>(['rappels', 'etat'], '/api/rappels/etat');
+export const useEtatTelegram = () => lire<EtatTelegram>(['rappels', 'telegram'], '/api/telegram/etat');
 /** Jamais gardé en cache : l'aperçu reflète les données du moment où on l'ouvre */
 export const useApercuRappels = (periode: 'semaine' | 'mois' | 'annee') => useQuery({
   queryKey: ['rappels', 'apercu', periode], queryFn: () => api<ApercuRappels>('/api/rappels/apercu?periode=' + periode), gcTime: 0,

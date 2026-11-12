@@ -3,12 +3,12 @@ import { ActionIcon, Badge, Box, Button, Center, Checkbox, Divider, Grid, Group,
 import { MonthPickerInput } from '@mantine/dates';
 import { modals } from '@mantine/modals';
 import { useQueryClient } from '@tanstack/react-query';
-import { IconBell, IconBriefcase, IconCategory, IconClockHour4, IconDeviceFloppy, IconEye, IconHistory, IconLock, IconPlus, IconSend, IconTarget } from '@tabler/icons-react';
+import { IconBell, IconBrandTelegram, IconBriefcase, IconCategory, IconClockHour4, IconDeviceFloppy, IconEye, IconHistory, IconLock, IconPlus, IconSend, IconTarget } from '@tabler/icons-react';
 
 import { api, toast } from '../lib/api';
 import { auj, fmt, libelleMois } from '../lib/format';
 import type { Canal, Categorie, Envoi, PassageCron, Source } from '../lib/types';
-import { useApercuRappels, useConfig, useEcriture, useEtatRappels, useHistoriqueBudget } from '../lib/queries';
+import { useApercuRappels, useConfig, useEcriture, useEtatRappels, useEtatTelegram, useHistoriqueBudget } from '../lib/queries';
 import { ImportExport } from '../components/ImportExport';
 import { BoutonSuppr, Carte, Chargement, confirmer, EnTetePage, Info, Pastille, Tableau, Vide } from '../components/ui';
 
@@ -283,6 +283,61 @@ function CarteRappels() {
   );
 }
 
+/* ---------- Saisie rapide par Telegram ---------- */
+const EXEMPLES_TELEGRAM: [string, string][] = [
+  ['45 café', 'dépense, catégorie devinée (sinon le bot te la demande)'],
+  ['1200 courses #maison', 'avec un tag'],
+  ['café 45 hier', 'montant à la fin, daté d\'hier'],
+  ['+8000 salaire', 'un revenu'],
+  ['?', 'ce qu\'il reste à dépenser aujourd\'hui et ce mois-ci'],
+  ['solde 12500', 'pointe ton solde réel (« solde » seul : les liquidités calculées)'],
+];
+
+function CarteTelegram() {
+  const { data: etat, isPending } = useEtatTelegram();
+  const qc = useQueryClient();
+  const [envoi, setEnvoi] = useState(false);
+  async function basculer(activer: boolean) {
+    setEnvoi(true);
+    try {
+      await api(`/api/telegram/${activer ? 'activer' : 'desactiver'}`, { method: 'POST' });
+      await qc.invalidateQueries({ queryKey: ['rappels', 'telegram'] });
+      toast(activer ? 'Saisie par Telegram activée ✓ : écris « 45 café » au bot' : 'Saisie par Telegram désactivée');
+    } catch { /* message déjà affiché */ } finally { setEnvoi(false); }
+  }
+  return (
+    <Carte titre="Saisie par Telegram" description="Écris tes dépenses au bot, sans ouvrir l'application"
+           icone={<Pastille icone={IconBrandTelegram} couleur="bleu" />}>
+      {isPending ? <Chargement lignes={2} /> : !etat?.configure ? (
+        <Info>
+          Configure d'abord Telegram sur le serveur (TELEGRAM_BOT_TOKEN et TELEGRAM_CHAT_ID, cf. DOCUMENTATION.md, section
+          « Suivi, rappels et résumés ») : le même bot sert aux rappels et à la saisie.
+        </Info>
+      ) : (
+        <Stack gap="sm">
+          <Group gap={6}>
+            <Badge variant="light" color={etat.actif ? 'emeraude' : 'gray'}>Saisie : {etat.actif ? 'activée' : 'désactivée'}</Badge>
+          </Group>
+          {etat.adresse && !etat.actif && <Text fz="xs" c="dimmed">Le bot est relié à une autre adresse : {etat.adresse}</Text>}
+          {etat.erreur && <Text fz="xs" c="rouge">Dernière erreur signalée par Telegram : {etat.erreur}</Text>}
+          <Stack gap={4}>
+            {EXEMPLES_TELEGRAM.map(([exemple, sens]) => (
+              <Text key={exemple} fz="sm"><Text span ff="monospace" fw={600}>{exemple}</Text> <Text span c="dimmed" fz="xs">— {sens}</Text></Text>
+            ))}
+          </Stack>
+          <Text fz="xs" c="dimmed">
+            Le bot répond avec un bouton « Annuler » et un bouton pour changer de catégorie. Seule ta conversation (TELEGRAM_CHAT_ID) est acceptée.
+          </Text>
+          <Button variant={etat.actif ? 'default' : 'filled'} leftSection={<IconBrandTelegram size={16} />} style={{ alignSelf: 'flex-start' }}
+                  loading={envoi} onClick={() => basculer(!etat.actif)}>
+            {etat.actif ? 'Désactiver la saisie' : 'Activer la saisie'}
+          </Button>
+        </Stack>
+      )}
+    </Carte>
+  );
+}
+
 export function Parametres({ onMdpChange }: { onMdpChange: () => void }) {
   const { data: config, isPending } = useConfig();
   const ecrire = useEcriture('budget');
@@ -429,7 +484,7 @@ export function Parametres({ onMdpChange }: { onMdpChange: () => void }) {
       <EnTetePage titre="Paramètres" description="Budget, sources de revenus, rappels et sécurité du compte" />
       <Grid gap="lg" align="flex-start">
         <Grid.Col span={{ base: 12, md: 7 }}><Stack gap="lg">{categoriesCarte}{sourcesCarte}</Stack></Grid.Col>
-        <Grid.Col span={{ base: 12, md: 5 }}><Stack gap="lg">{objectifCarte}{travailCarte}<CarteRappels />{mdpCarte}</Stack></Grid.Col>
+        <Grid.Col span={{ base: 12, md: 5 }}><Stack gap="lg">{objectifCarte}{travailCarte}<CarteRappels /><CarteTelegram />{mdpCarte}</Stack></Grid.Col>
         <Grid.Col span={12}><ImportExport /></Grid.Col>
       </Grid>
     </Stack>

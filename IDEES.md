@@ -1,41 +1,77 @@
 # Ideas to improve the app
 
-From a review of the code on 2026-10-05, updated on 2026-10-10 and 2026-11-11. Everything below is still open; what has been built is listed under [Done](#done). Within each section, items are ordered by expected payoff. Effort: **S** = an evening, **M** = a few evenings, **L** = needs design first.
+From a review of the code on 2026-10-05, updated on 2026-10-10, 2026-11-11 and 2026-11-12 (full re-read after the fourth batch, with new high-payoff ideas; the balance check, Telegram entry, provisions, alerts and Lectures references were built the same day, fifth batch). Everything below is still open; what has been built is listed under [Done](#done). Within each section, items are ordered by expected payoff. Effort: **S** = an evening, **M** = a few evenings, **L** = needs design first. Ideas marked ★ are the ones with the biggest payoff.
 
-## 1. Budget
+### Where the app stands
 
-1. **Recurring transactions** (M): rent, subscriptions and salary are retyped every month. Add a `recurrences` table (amount, category or source, day of month, active) and a "generate this month's entries" button on Saisie. Store the last generated month per recurrence so pressing twice does nothing, and clamp day 31 to the month's last day. Categories marked "Fixe" are the natural first candidates; "Dupliquer" already covers one-off copies.
+Almost everything is built on one number: **liquidités** = opening balance + cumulative Budget savings − Bourse deposits − money set aside − loans. Net worth, "Liquidités libres", runway, financial freedom, zakat and the net-worth curve all depend on it. That number is only as good as the entries. Since the fifth batch:
+- it can be checked against the real bank balance ("Pointer le solde"), and the gap booked;
+- an expense can be sent to the Telegram bot in a few seconds, without opening the app;
+- deadlines with an amount are prepared month by month (provisions), and unusual spending shows on the home page.
 
-## 2. Bourse
+What is left: recurring entries are still typed by hand, the bank import still needs every line categorised, and the app still cannot say whether the coming months will be tight. The remaining ideas below are ordered for that.
 
-5. **Price history** (S to start, M for the chart): `bourse_prix` keeps one price per stock. Insert a row into `bourse_prix_historique(titre, date, cours)` in `maj_prix` and `_actualiser_cours`, so a portfolio-value chart per stock becomes possible. The daily task already calls `_actualiser_cours` every morning, so this fills itself with no extra request (one row per stock and day: `ON CONFLICT (titre, date) DO UPDATE`). Holdings at a past date can already be rebuilt from transactions. Like the net-worth curve, the history only exists from the day it is enabled. Rows written there could also feed the month-end rebuild of the net-worth curve (today it uses `bourse_cours_historique`, typed by hand, then the last transaction price).
-6. **Bulk price update** (S, now low value): prices are fetched automatically every morning and when the app opens, so a bulk screen only helps for stocks set to manual or when the sources fail. A smaller version is an "out-of-date prices" list: held stocks whose price is more than 3 days old.
+## 1. Trust in the numbers
+
+2. ★ **More frequent backup** (S): the full backup is sent on the 1st of the month only, so up to 30 days of entries can be lost, and Neon's free plan only keeps a short restore window. Send it every Monday with the weekly summary, on Telegram only (`sendDocument` accepts 50 MB), and keep the monthly e-mail copy. Add a line in Paramètres, "dernière sauvegarde envoyée le …", from `cron_journal`. **Payoff:** worst-case data loss drops from a month to a week, for a few lines in `routes/rappels.py`.
+
+## 2. Budget: capture with less effort
+
+4. ★ **Recurring transactions** (M): rent, subscriptions and salary are retyped every month. Add a `recurrences` table (amount, category or source, day of month, tags, active). Generate the entries with a button on Saisie, or by themselves on the due day from the morning task, as an option per recurrence. Store the last generated month per recurrence so a second run does nothing, and clamp day 31 to the month's last day. Suggest candidates from the history: same category and description, amount within 10 %, in each of the last 3 months. Categories marked "Fixe" are the natural first ones; "Dupliquer" already covers one-off copies. **Payoff:** the biggest part of the monthly entries disappears, and idea 6 needs this data.
+5. **Categorisation rules for the CSV import** (S): bank statements have no category column, so each imported line is categorised by hand. Suggest a category in the import preview:
+   - first from user rules, stored in `regles_import(motif, categorie, tags)`, for example "contient MARJANE → Courses";
+   - otherwise from the category most often used for the same normalised description (digits, dates and card references removed).
+
+   A line categorised by hand in the preview can be saved as a rule. **Payoff:** importing a month of statements takes one minute instead of thirty, so the import becomes a real way to catch the entries missed (with the balance check). The category guess of the Telegram bot (`deviner_categorie` in `routes/telegram.py`) can be reused.
+6. **Offline entries** (M): the installed app opens without a network, but saving fails. Queue new expenses in IndexedDB, mark them "en attente", and send them when the connection returns (`online` event, plus a retry when the app opens). Use the existing duplicate rule (same date, amount and description) to avoid double sends. **Payoff:** nothing is lost when paying in a shop or a car park without signal. Less needed now that Telegram entry exists: Telegram keeps messages typed offline and sends them later.
+
+## 3. Looking ahead
+
+7. ★ **Cash-flow forecast** (M, after idea 4): the app shows the past only. Add a "Prévisions" card (Dashboard or Suivi) for the next 3 to 6 months:
+   - starting point: today's liquidités;
+   - money in: recurring income (idea 4);
+   - money out: recurring expenses, the average variable spending over the last 6 months, deadlines with an amount (`echeances.montant`, fifth batch), debt repayments due, and each goal's monthly amount (`par_mois`, provisions included).
+
+   Show the month-by-month balance and its lowest point. Warn in "À traiter" when a month goes below the emergency floor, or when the goals ask for more each month than the average savings. **Payoff:** it answers "can I afford this in March?" and "are my goals realistic?" before the problem arrives.
+
+## 4. Bourse
+
+10. ★ **Price history** (S to start, M for the chart): `bourse_prix` keeps one price per stock. Insert a row into `bourse_prix_historique(titre, date, cours)` in `maj_prix` and `_actualiser_cours`, so a portfolio-value chart per stock becomes possible. The daily task already calls `_actualiser_cours` every morning, so this fills itself with no extra request (one row per stock and day: `ON CONFLICT (titre, date) DO UPDATE`). Holdings at a past date can already be rebuilt from transactions. **It only exists from the day it is enabled, so each day of waiting is lost history.** These rows can also feed the month-end rebuild of the net-worth curve: today it uses `bourse_cours_historique`, typed by hand, then the last transaction price.
+11. **Compare with the MASI** (M, after idea 10): the annualised return (XIRR) has no reference point. Record the MASI index every morning next to the prices. Then compute what the same deposits, on the same dates, would be worth if invested in the index (a "virtual index portfolio"). Show both returns under "Performance globale". **Payoff:** it tells whether picking stocks beats a simple index fund, which is the most important investment decision.
+12. **Out-of-date prices** (S, low value): prices are fetched every morning and when the app opens. List held stocks whose price is more than 3 days old (manual stocks, or when the sources fail).
 
 ## 5. Backend best practices
 
 - **Numbered migrations** (M): since 2026-11-03, `init_db()` runs once per deployed version, under a lock (`migrations_appliquees`). It still replays *all* the DDL each time, and data migrations are hidden `if` blocks in it (the `modifie_le` columns added on 2026-11-11 are one more). That is how one of them added and dropped a column on every start until the table nearly hit PostgreSQL's 1600-column limit. Numbered SQL files in `backend/migrations/`, each applied once and recorded, make data migrations like the `TEXT` dates safe. `migrations_appliquees` can become that record.
 - **`DATE` and `NUMERIC` in the Budget tables** (M): Bourse already uses them. `DOUBLE PRECISION` amounts accumulate rounding errors. Do it as the first real migration; `rapports.py` has tests for the month, week and year views, extend them to the day and global views before.
-- **Lectures references** (S): `lectures_livres.genre` and `lectures_a_lire.genre` still reference `lectures_genres.nom` by name without a constraint; the same foreign key as the Budget and Bourse tables would cascade genre renames (an empty genre would become NULL, as for revenue sources).
 - **Logging** (S): no logging is configured, and Vercel keeps logs for one hour only. Log unhandled exceptions with the route, and the start-up migrations; `cron_journal` shows that a table in the database is a simple way to keep what matters longer.
 - **Health check** (S, low value on Vercel): `GET /api/health` doing `SELECT 1`, for an external uptime monitor. The home page already warns when the morning task stops.
 
-## 7. Tests and tooling
+## 6. Tests and tooling
 
-- **Separate test database** (S): tests run against the `.env` database and only rely on a `ZZTEST` prefix or dates in 1901. Read `TEST_DATABASE_URL` and refuse to run if it is missing or equals `DATABASE_URL`. Tests also don't run `init_db()`, so a database behind the code fails with `UndefinedColumn` until the app has been started once (after the 2026-11-11 changes: start the app locally once before `pytest`).
-- **More tests** (S): still missing the global view, auth and the login limiter.
+- ★ **Separate test database** (S): tests run against the `.env` database, which is the real data, and only rely on a `ZZTEST` prefix or dates in 1901. Read `TEST_DATABASE_URL` and refuse to run if it is missing or equals `DATABASE_URL`. A free Neon branch of the main database works well for this. Have `conftest.py` run `init_db()` once, so a database that is behind the code no longer fails with `UndefinedColumn`. Since 2026-11-11, several batches of database tests were written but never run. This is the step that lets them run safely.
+- **More tests** (S): the login limiter, security headers and input limits are now covered (`test_securite.py`). Still missing: the global view (`calculer_resume_global`), and the login and logout routes themselves.
 - **Pinned dependencies** (S): `requirements.txt` and `pyproject.toml` have no versions, so a deploy can pull a breaking FastAPI or psycopg release. Pin them (or use `uv` with a lock file). `package-lock.json` already covers the frontend.
 - **CI** (S): a GitHub Actions workflow running `pytest` against a Postgres service container, `npm run typecheck`, and `ruff check`.
 - **Frontend tests** (S to start): Vitest for `lib/format.ts`, `lib/csv.ts` (date and amount parsing of bank statements), the budget alert of the expense form and `alerteTache` on the home page.
 
 ## Suggested order
 
-1. The separate test database: it protects the data, and the test suite keeps growing.
-2. Price history (5): like the net-worth curve, it only exists from the day it is enabled.
-3. Daily friction: recurring transactions (1).
-4. Foundations: numbered migrations, then `DATE`/`NUMERIC`, then pinned dependencies and CI.
-5. Then the smaller extras: out-of-date prices (6).
+1. **Protect the data first** (two evenings): the separate test database (it lets the unrun tests from the last batches run, the fifth batch included), then the weekly backup (2).
+2. **Start the history that cannot be rebuilt** (one evening): price history (10). Every day without it is lost.
+3. **Capture**: recurring transactions (4), then import rules (5). With Telegram entry, they remove most of the typing.
+4. **Looking ahead**: the cash-flow forecast (7), now that deadlines have amounts and provisions a monthly figure.
+5. **Foundations**: numbered migrations, then `DATE`/`NUMERIC`, then pinned dependencies and CI.
+6. Then the smaller extras: MASI comparison (11), offline entries (6), out-of-date prices (12).
 
 ## Done
+
+**Built on 2026-11-12, fifth batch** (type-checked and built; the parser tests of the Telegram bot pass, the database tests were written but not run here)
+- **Balance check** ("Pointer le solde", Suivi → Patrimoine): the real balance, account by account, compared with the computed liquidités of the day; the gap can be booked as an expense or income of the day (tag `pointage`). Days without any expense since the last check are listed. Table `rapprochements`; "À traiter" and the Monday message invite to check after 30 days (or if never done).
+- **Quick entry from Telegram**: `45 café`, `café 45 hier`, `1200 courses #tag`, `+8000 salaire`, `?`, `solde`, `solde 12500` sent to the bot. Category guessed from the history and the category names, otherwise asked with buttons; reply with "Annuler" and "Catégorie" buttons. Webhook `POST /api/telegram/webhook` (secret derived from the bot token), switched on from Paramètres; `routes/telegram.py`, table `telegram_messages`.
+- **Provisions for irregular expenses**: a deadline can have an amount and a savings goal for the same amount and date (`echeances.montant`, `objectif_id`). Reporting a recurring deadline archives the goal and opens the next one. "À mettre de côté ce mois-ci" on Échéances and in the month dashboard.
+- **Unusual-spending alerts** (`routes/alertes.py`): category well above its 6-month average, price increase of a fixed recurring amount, likely duplicate. On the home page (with "Ignorer", table `alertes_ignorees`) and in the Monday morning message.
+- **Lectures references**: `lectures_livres.genre` and `lectures_a_lire.genre` reference `lectures_genres.nom` (`ON UPDATE CASCADE`); an empty genre is NULL. Renaming a genre now also renames the books to read (it only renamed the books read). Old backups with empty names are restored as NULL.
 
 **Built on 2026-11-12, fourth batch** (type-checked and built; the database tests were written but not run here)
 - **Savings goals fed by a tag**: a goal can follow a tag (`tag`, `tag_depuis` on `objectifs`). Tagged expenses from that date, minus tagged income, are taken from the money set aside: a second bar shows spent vs set aside, "Liquidités libres" subtracts only what is still reserved, and overspending shows in red and on the home page. The goal's "Versements" window lists the tagged operations.

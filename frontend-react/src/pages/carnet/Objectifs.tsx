@@ -218,6 +218,11 @@ function LigneObjectif({ o }: { o: Projet }) {
         <Text fz="xs" c="dimmed" mt={4} lineClamp={2}>{details}</Text>
         <Group gap={5}>
           {o.tag && <Badge size="xs" variant="light" color="gray" mt={5} tt="none">#{o.tag}</Badge>}
+          {o.echeance_id && (
+            <Tooltip label="Provision d'une échéance : son montant et sa date se changent dans Suivi → Échéances" withArrow multiline w={240}>
+              <Badge size="xs" variant="light" color="marque" mt={5} tt="none">échéance</Badge>
+            </Tooltip>
+          )}
           {o.depassement > 0 && !o.archive && (
             <Badge size="xs" variant="light" color="rouge" mt={5} tt="none">{fmt(o.depassement)} dépensés au-delà de l'enveloppe</Badge>
           )}

@@ -24,7 +24,7 @@ import sauvegarde
 from messagerie import EnvoiImpossible, canaux, envoyer, envoyer_fichier
 from schemas import EnvoiIn
 from securite import utilisateur_courant
-from routes import bourse, lectures, patrimoine
+from routes import alertes, bourse, lectures, patrimoine
 from routes.carnet import lire_dettes, lire_echeances
 from routes.rapports import calculer_resume, calculer_resume_annuel, calculer_resume_semaine
 from resume_rendu import (delai, dh, jour, rendre_email, rendre_matin, rendre_email_annee, rendre_email_mois, rendre_telegram,
@@ -62,6 +62,21 @@ def rappels_du_jour(auj: date) -> list:
     for d in dettes:
         if d["reste"] > 0 and d["echeance"] and (d["echeance"] - auj).days in RAPPEL_DETTE_JOURS:
             lignes.append(f"• {_dette_libelle(d)} : remboursement prévu {delai((d['echeance'] - auj).days)}")
+    if auj.weekday() == 0:
+        lignes += _section("lundi", lambda: rappels_du_lundi(auj), [])
+    return lignes
+
+
+def rappels_du_lundi(auj: date) -> list:
+    """Le lundi : dépenses inhabituelles, et le solde à pointer s'il ne l'a pas été depuis un mois."""
+    lignes = [f"• {a['titre']} — {a['detail']}" for a in alertes.calculer_alertes(auj)]
+    with db() as c:
+        p = patrimoine.dernier_pointage(c, auj)
+        a_des_operations = c.execute("SELECT EXISTS (SELECT 1 FROM depenses) e").fetchone()["e"]
+    if p is None and a_des_operations:
+        lignes.append("• Pointe ton solde : compare tes liquidités à ce que dit ta banque (Suivi → Patrimoine)")
+    elif p and p["a_refaire"]:
+        lignes.append(f"• Pointe ton solde : dernier pointage il y a {p['jours']} jours (Suivi → Patrimoine)")
     return lignes
 
 

@@ -18,6 +18,8 @@ Architecture modulaire :
     routes/patrimoine.py      patrimoine net, autres actifs, réserve de sécurité, zakat
     routes/sauvegarde.py      téléchargement de la sauvegarde complète
     routes/rappels.py         rappels du jour et résumé hebdomadaire (Telegram / e-mail)
+    routes/alertes.py         dépenses inhabituelles (catégorie, hausse d'un montant récurrent, doublon)
+    routes/telegram.py        saisie rapide des dépenses en écrivant au bot Telegram
 
 Installation :  pip install -r requirements.txt   (en local ; Vercel lit pyproject.toml)
 Lancement    :  python app.py
@@ -42,7 +44,8 @@ from fastapi.staticfiles import StaticFiles
 
 from config import FRONT_DIR, DATABASE_URL, PORT, CORS_ORIGINS
 from database import init_db, message_cle_etrangere, migrations_a_faire, _pool
-from routes import auth, configuration, transactions, rapports, bourse, lectures, carnet, objectifs, patrimoine, rappels, sauvegarde
+from routes import (alertes, auth, configuration, transactions, rapports, bourse, lectures, carnet, objectifs, patrimoine,
+                    rappels, sauvegarde, telegram)
 
 @asynccontextmanager
 async def cycle_de_vie(_app: FastAPI):
@@ -137,6 +140,9 @@ app.include_router(patrimoine.router)
 app.include_router(sauvegarde.router)
 app.include_router(rappels.router)
 app.include_router(rappels.cron)
+app.include_router(alertes.router)
+app.include_router(telegram.router)
+app.include_router(telegram.webhook)
 
 # Frontend statique — monté APRÈS les routes /api pour garder leur priorité
 if (FRONT_DIR / "index.html").exists():

@@ -503,19 +503,35 @@ class DetteOut(BaseModel):
 
 # ---------------------------------------------------------------- Carnet : échéances
 class EcheanceIn(BaseModel):
+    """`montant` : ce que coûtera l'échéance (assurance, Aïd, rentrée). `provisionner` : un objectif
+    d'épargne du même montant, pour la même date, la prépare mois après mois."""
     titre: str = Field(min_length=1, max_length=150)
     categorie: str = Field(default="", max_length=50)
     date_echeance: date
     rappel_jours: int = Field(default=30, ge=0, le=365)
     recurrence_mois: Optional[int] = Field(default=None, gt=0, le=120)
     note: str = Field(default="", max_length=2000)
+    montant: Optional[Montant] = None
+    provisionner: bool = False
 
     @model_validator(mode="after")
     def _titre_non_vide(self):
         self.titre = self.titre.strip()
         if not self.titre:
             raise ValueError("Indique le titre")
+        if self.provisionner and not self.montant:
+            raise ValueError("Indique le montant pour le mettre de côté chaque mois")
         return self
+
+
+class ProvisionOut(BaseModel):
+    """Objectif qui provisionne une échéance : mis de côté, reste, rythme mensuel."""
+    objectif_id: int
+    verse: float
+    cible: float
+    reste: float
+    par_mois: Optional[float]
+    archive: bool
 
 
 class EcheanceOut(BaseModel):
@@ -528,6 +544,9 @@ class EcheanceOut(BaseModel):
     note: str
     jours_restants: int      # négatif = en retard
     a_rappeler: bool         # dans la fenêtre de rappel (ou en retard)
+    montant: Optional[float] = None
+    objectif_id: Optional[int] = None
+    provision: Optional[ProvisionOut] = None
 
 
 # ---------------------------------------------------------------- Objectifs d'épargne par projet
@@ -614,6 +633,7 @@ class ProjetOut(BaseModel):
     reserve: float = 0               # encore réservé : mis de côté − dépensé (0 au plus bas) ; sans tag = verse
     depassement: float = 0           # dépensé au-delà de ce qui était mis de côté
     operations: List[OperationTaggee] = []   # les 50 plus récentes
+    echeance_id: Optional[int] = None        # objectif qui provisionne une échéance (routes/carnet.py)
 
 
 # ---------------------------------------------------------------- Patrimoine
@@ -661,3 +681,24 @@ class EnvoiIn(BaseModel):
     envoi: Literal["note", "semaine", "mois", "annee"]
     canal: Literal["telegram", "email"]
     actif: bool
+
+
+# ---------------------------------------------------------------- Pointage du solde
+class CompteSolde(BaseModel):
+    nom: Texte(60, min_length=1)                                      # « Banque », « Espèces »...
+    montant: float = Field(ge=-MONTANT_MAX, le=MONTANT_MAX)           # négatif : découvert
+
+
+class RapprochementIn(BaseModel):
+    """Solde réel du jour, compte par compte. `enregistrer_ecart` : l'écart avec les liquidités
+    calculées devient une opération datée d'aujourd'hui (dépense dans `categorie` s'il manque de
+    l'argent, revenu s'il y en a en trop) ; sinon il est seulement noté."""
+    comptes: List[CompteSolde] = Field(min_length=1, max_length=10)
+    note: Texte(500) = ""
+    enregistrer_ecart: bool = False
+    categorie: Optional[Texte(100)] = None
+
+
+# ---------------------------------------------------------------- Alertes de dépenses
+class IgnorerAlerteIn(BaseModel):
+    cle: Texte(300, min_length=1)

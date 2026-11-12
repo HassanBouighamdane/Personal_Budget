@@ -72,6 +72,24 @@ def _expedier(message: EmailMessage):
 _ENVOIS = {"telegram": _telegram, "email": _email}
 
 
+def appel_telegram(methode: str, champs: dict, timeout: int = 10) -> dict:
+    """Appel quelconque de l'API du bot (sendMessage, editMessageText, setWebhook...) ; renvoie son
+    `result`. RuntimeError avec la description de Telegram en cas de refus."""
+    requete = urllib.request.Request(f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/{methode}",
+                                     data=json.dumps(champs).encode(), headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(requete, timeout=timeout) as r:
+            return json.loads(r.read() or b"{}").get("result")
+    except urllib.error.HTTPError as e:
+        try:
+            raison = json.loads(e.read()).get("description", "")
+        except Exception:
+            raison = ""
+        raise RuntimeError(f"refus de Telegram (HTTP {e.code}){' : ' + raison if raison else ''}")
+    except (urllib.error.URLError, TimeoutError) as e:
+        raise RuntimeError(f"Telegram injoignable ({getattr(e, 'reason', e)})")
+
+
 def _sur_chaque_canal(envoi, seulement: list | None = None) -> list:
     """Appelle `envoi(canal)` pour chaque canal configuré (parmi `seulement` s'il est donné) et
     renvoie ceux qui ont réussi. Lève EnvoiImpossible s'il n'y en a aucun ; un canal en échec

@@ -29,15 +29,16 @@ from schemas import (ALireIn, ALireOut, GenreOut, LivreIn, LivreOut, NomIn, Note
 router = APIRouter(prefix="/api/lectures", tags=["lectures"],
                    dependencies=[Depends(utilisateur_courant)])
 
-LIVRE_COLONNES = "id, titre, auteur, genre, date_debut, date_fin, pages, note, commentaire, isbn, couverture"
+# Genre : NULL en base pour un livre sans genre (clé étrangère vers lectures_genres), "" pour l'API
+LIVRE_COLONNES = "id, titre, auteur, COALESCE(genre,'') genre, date_debut, date_fin, pages, note, commentaire, isbn, couverture"
 # Liste des livres avec leur nombre de notes / citations
 LIVRES_AVEC_NOTES = f"""SELECT {LIVRE_COLONNES},
     (SELECT COUNT(*) FROM lectures_notes n WHERE n.livre_id = l.id)::int nb_notes FROM lectures_livres l"""
-A_LIRE_COLONNES = "id, titre, auteur, genre, pages, isbn, couverture, commentaire, date_debut"
+A_LIRE_COLONNES = "id, titre, auteur, COALESCE(genre,'') genre, pages, isbn, couverture, commentaire, date_debut"
 
 
 def _valeurs(l: LivreIn) -> tuple:
-    return (l.titre.strip(), l.auteur.strip(), l.genre.strip(), l.date_debut, l.date_fin,
+    return (l.titre.strip(), l.auteur.strip(), l.genre.strip() or None, l.date_debut, l.date_fin,
             l.pages, l.note, l.commentaire.strip(), _isbn_normalise(l.isbn), l.couverture.strip())
 
 
@@ -97,7 +98,7 @@ def supprimer_livre(livre_id: int):
 
 # ---------------------------------------------------------------- à lire / en cours
 def _valeurs_a_lire(a: ALireIn) -> tuple:
-    return (a.titre.strip(), a.auteur.strip(), a.genre.strip(), a.pages, _isbn_normalise(a.isbn),
+    return (a.titre.strip(), a.auteur.strip(), a.genre.strip() or None, a.pages, _isbn_normalise(a.isbn),
             a.couverture.strip(), a.commentaire.strip(), a.date_debut)
 
 
@@ -304,10 +305,8 @@ def modifier_genre(genre_id: int, g: NomIn):
             ancien = c.execute("SELECT nom FROM lectures_genres WHERE id=%s", (genre_id,)).fetchone()
             if not ancien:
                 raise HTTPException(404, "Genre introuvable")
+            # Clé étrangère ON UPDATE CASCADE : les livres lus et à lire suivent le renommage
             c.execute("UPDATE lectures_genres SET nom=%s WHERE id=%s", (nouveau_nom, genre_id))
-            if nouveau_nom != ancien["nom"]:
-                # Le genre est stocké par son nom : les livres déjà saisis suivent le renommage
-                c.execute("UPDATE lectures_livres SET genre=%s WHERE genre=%s", (nouveau_nom, ancien["nom"]))
     except UniqueViolation:
         raise HTTPException(409, f"Le genre « {nouveau_nom} » existe déjà")
     return {"ok": True}

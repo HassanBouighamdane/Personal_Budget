@@ -193,3 +193,28 @@ def test_notes_d_un_livre():
     assert next(x for x in lister_livres(ANNEE) if x["id"] == l["id"])["nb_notes"] == 1
     with pytest.raises(ValueError):
         NoteIn(livre_id=l["id"], a_lire_id=1, texte="x")      # un seul livre de rattachement
+
+
+def test_genre_par_cle_etrangere_vide_inconnu_et_renommage_des_livres_a_lire():
+    from psycopg.errors import ForeignKeyViolation
+    from schemas import ALireIn
+    from routes.lectures import ajouter_a_lire, supprimer_a_lire
+    # Sans genre : NULL en base, "" pour l'API
+    l = _livre(1, titre="Sans genre")
+    assert l["genre"] == ""
+    with db() as c:
+        assert c.execute("SELECT genre FROM lectures_livres WHERE id=%s", (l["id"],)).fetchone()["genre"] is None
+    # Genre inconnu : refusé par la clé étrangère (400 lisible via le gestionnaire de app.py)
+    with pytest.raises(ForeignKeyViolation):
+        _livre(1, titre="Genre inconnu", genre=f"{PREFIXE} Inexistant")
+    # Renommer un genre renomme aussi les livres à lire (avant, seuls les livres lus suivaient)
+    ajouter_genre(NomIn(nom=f"{PREFIXE}Avant"))
+    a = ajouter_a_lire(ALireIn(titre=f"{PREFIXE} A lire", genre=f"{PREFIXE}Avant"))
+    try:
+        with db() as c:
+            gid = c.execute("SELECT id FROM lectures_genres WHERE nom=%s", (f"{PREFIXE}Avant",)).fetchone()["id"]
+        modifier_genre(gid, NomIn(nom=f"{PREFIXE}Apres"))
+        with db() as c:
+            assert c.execute("SELECT genre FROM lectures_a_lire WHERE id=%s", (a["id"],)).fetchone()["genre"] == f"{PREFIXE}Apres"
+    finally:
+        supprimer_a_lire(a["id"])

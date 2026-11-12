@@ -1,6 +1,7 @@
 
 # -*- coding: utf-8 -*-
 """Configuration : variables d'environnement (.env) et constantes."""
+import hashlib
 import os
 from datetime import date, datetime
 from pathlib import Path
@@ -48,6 +49,10 @@ def aujourdhui() -> date:
 # renseignées. Telegram : jeton du bot (@BotFather) et identifiant de la conversation.
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+# Saisie rapide par Telegram (routes/telegram.py) : Telegram renvoie ce secret dans chaque appel du
+# webhook. Par défaut, il est tiré du jeton du bot : rien de plus à configurer.
+TELEGRAM_WEBHOOK_SECRET = (os.environ.get("TELEGRAM_WEBHOOK_SECRET", "").strip() or
+                           (hashlib.sha256(f"carnet-webhook:{TELEGRAM_BOT_TOKEN}".encode()).hexdigest() if TELEGRAM_BOT_TOKEN else ""))
 # E-mail : serveur SMTP (Gmail : smtp.gmail.com, port 587, mot de passe d'application)
 SMTP_HOTE = os.environ.get("SMTP_HOTE", "").strip()
 SMTP_PORT = int(os.environ.get("SMTP_PORT", 587))

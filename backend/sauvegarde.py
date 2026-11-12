@@ -13,9 +13,9 @@ from decimal import Decimal
 from psycopg import sql
 
 from config import aujourdhui
-from database import db
+from database import CLES_ETRANGERES, db
 
-TABLES_EXCLUES = {"utilisateurs", "sessions", "cron_journal"}
+TABLES_EXCLUES = {"utilisateurs", "sessions", "cron_journal", "telegram_messages"}
 FORMAT = 1
 APPLICATION = "Carnet"
 # Nom de l'application avant son renommage : ses sauvegardes restent lisibles
@@ -108,7 +108,11 @@ def restaurer(c, donnees: dict) -> dict:
             requete = sql.SQL("INSERT INTO {} ({}) VALUES ({})").format(
                 sql.Identifier(t), sql.SQL(", ").join(map(sql.Identifier, colonnes)),
                 sql.SQL(", ").join(sql.Placeholder() * len(colonnes)))
-            c.cursor().executemany(requete, [[l.get(k) for k in colonnes] for l in lignes])
+            # Sauvegarde d'avant les clés étrangères : un nom vide (revenu sans source, livre sans
+            # genre) devient NULL, comme dans la base actuelle
+            vides = {col for table, col, *_ in CLES_ETRANGERES if table == t}
+            valeur = lambda l, k: None if k in vides and isinstance(l.get(k), str) and not l[k].strip() else l.get(k)
+            c.cursor().executemany(requete, [[valeur(l, k) for k in colonnes] for l in lignes])
         bilan[t] = len(lignes)
         # Les identifiants automatiques repartent après le plus grand restauré
         for r in c.execute("""SELECT column_name, pg_get_serial_sequence(%s, column_name) seq FROM information_schema.columns

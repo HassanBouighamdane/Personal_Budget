@@ -8,7 +8,8 @@ import {
 import { DatePickerInput } from '@mantine/dates';
 import { modals } from '@mantine/modals';
 import {
-  IconBuildingBank, IconChartLine, IconCoin, IconInfoCircle, IconMoonStars, IconPencil, IconShieldCheck, IconSunrise, IconWallet,
+  IconBuildingBank, IconChartLine, IconCheck, IconCoin, IconInfoCircle, IconMoonStars, IconPencil, IconPlus, IconScale, IconShieldCheck,
+  IconSunrise, IconWallet, IconX,
 } from '@tabler/icons-react';
 
 import { toast } from '../../lib/api';
@@ -16,7 +17,7 @@ import { auj, dateFr, fmt, jjmm, jjmmaa, libelleMois, lireMontant } from '../../
 import { C, T, signe } from '../../lib/palette';
 import type { ChartData } from 'chart.js';
 import type { Actif, Patrimoine, Reconstitution } from '../../lib/types';
-import { useCoursPasses, useEcriture, useHistoriquePatrimoine, usePatrimoine } from '../../lib/queries';
+import { useConfig, useCoursPasses, useEcriture, useHistoriquePatrimoine, usePatrimoine, useRapprochements } from '../../lib/queries';
 import { Graphique, optionsSeries } from '../../components/Graphique';
 import { ChampDate, ChampMontant } from '../../components/champs';
 import { BoutonSuppr, Carte, Chargement, confirmer, Info, Kpi, Pastille, Vide } from '../../components/ui';
@@ -151,6 +152,128 @@ function SoldeDepart({ p }: { p: Patrimoine }) {
         <Button variant="default" onClick={enregistrer} loading={ecrire.isPending}>Enregistrer</Button>
       </Group>
       <Info>L'argent que tu avais déjà (banque, espèces) avant ta première saisie dans l'application : sans lui, tes liquidités ne comptent que l'épargne faite depuis.</Info>
+    </Stack>
+  );
+}
+
+/* ---------- Pointage du solde : le solde réel comparé aux liquidités calculées ---------- */
+const COMPTES_DEFAUT = [{ nom: 'Banque', montant: '' }, { nom: 'Espèces', montant: '' }];
+const MAX_COMPTES = 10;
+
+function Pointage() {
+  const { data, isPending } = useRapprochements();
+  const { data: config } = useConfig();
+  // Une dépense ou un revenu d'écart change le Budget : 'budget' recharge aussi le patrimoine
+  const ecrire = useEcriture('budget');
+  const supprimer = useEcriture('patrimoine');
+  const [comptes, setComptes] = useState(COMPTES_DEFAUT);
+  const [categorie, setCategorie] = useState<string | null>(null);
+  const categories = (config?.categories ?? []).map(c => c.nom);
+  useEffect(() => {
+    if (categorie === null && categories.length) setCategorie(categories.find(c => /impr[ée]vu|divers/i.test(c)) ?? null);
+  }, [categories, categorie]);
+  if (isPending || !data) return <Chargement lignes={3} />;
+
+  const remplis = comptes.filter(c => c.montant.trim());
+  const valeurs = remplis.map(c => lireMontant(c.montant));
+  const invalide = valeurs.some(isNaN);
+  const reel = valeurs.reduce((s, v) => s + (isNaN(v) ? 0 : v), 0);
+  const ecart = Math.round((reel - data.solde_calcule) * 100) / 100;
+  const juste = Math.abs(ecart) < 0.01;
+  const modifier = (i: number, champ: 'nom' | 'montant', v: string) =>
+    setComptes(comptes.map((c, j) => j === i ? { ...c, [champ]: v } : c));
+
+  function enregistrer(enregistrerEcart: boolean) {
+    if (!remplis.length) return toast('Indique au moins un solde', false);
+    if (invalide) return toast('Montant invalide', false);
+    if (enregistrerEcart && ecart < 0 && !categorie) return toast('Choisis la catégorie de la dépense qui manque', false);
+    const body = {
+      comptes: remplis.map(c => ({ nom: c.nom.trim() || 'Compte', montant: lireMontant(c.montant) })),
+      enregistrer_ecart: enregistrerEcart, categorie: enregistrerEcart && ecart < 0 ? categorie : null,
+    };
+    ecrire.mutate({ path: '/api/patrimoine/rapprochements', method: 'POST', body,
+                    succes: enregistrerEcart && !juste ? `Pointage noté, écart enregistré en ${ecart < 0 ? 'dépense' : 'revenu'} ✓` : 'Pointage noté ✓' },
+                  { onSuccess: () => setComptes(comptes.map(c => ({ ...c, montant: '' }))) });
+  }
+
+  return (
+    <Stack gap="sm">
+      <Group justify="space-between" gap="xs">
+        <Text fz="sm" c="dimmed">Liquidités calculées aujourd'hui</Text>
+        <Text className="chiffre" fw={700}>{fmt(data.solde_calcule)}</Text>
+      </Group>
+      {comptes.map((c, i) => (
+        <Group key={i} gap="xs" wrap="nowrap" align="flex-end">
+          <TextInput aria-label="Compte" value={c.nom} onChange={e => modifier(i, 'nom', e.currentTarget.value)} maxLength={60} style={{ flex: 1 }} />
+          <ChampMontant aria-label={`Solde ${c.nom}`} value={c.montant} onChange={v => modifier(i, 'montant', v)} style={{ flex: 1 }} />
+          {comptes.length > 1 && (
+            <ActionIcon variant="subtle" color="gray" aria-label="Retirer ce compte" onClick={() => setComptes(comptes.filter((_, j) => j !== i))}>
+              <IconX size={15} />
+            </ActionIcon>
+          )}
+        </Group>
+      ))}
+      {comptes.length < MAX_COMPTES && (
+        <Button variant="subtle" size="compact-sm" leftSection={<IconPlus size={14} />} style={{ alignSelf: 'flex-start' }}
+                onClick={() => setComptes([...comptes, { nom: '', montant: '' }])}>Ajouter un compte</Button>
+      )}
+      {remplis.length > 0 && !invalide && (
+        juste ? (
+          <Alert color="emeraude" variant="light" icon={<IconCheck size={18} />} p="xs">
+            Solde réel {fmt(reel)} : exactement ce qui est calculé, tout est saisi.
+          </Alert>
+        ) : (
+          <Alert color={ecart < 0 ? 'rouge' : 'ambre'} variant="light" icon={<IconScale size={18} />} p="xs">
+            <Text fz="sm" fw={600}>Solde réel {fmt(reel)} : {fmt(Math.abs(ecart))} {ecart < 0 ? 'manquent' : 'en trop'}</Text>
+            <Text fz="xs" mt={2}>
+              {ecart < 0 ? "Une dépense oubliée, un retrait d'espèces, des frais bancaires ?" : 'Un revenu oublié, un remboursement reçu ?'}
+              {data.jours_sans_depense.length > 0 && ` Jours sans aucune dépense depuis le ${dateFr(data.depuis, false)} : `}
+            </Text>
+            {data.jours_sans_depense.length > 0 && (
+              <Group gap={4} mt={4}>
+                {data.jours_sans_depense.slice(0, 31).map(j => <Badge key={j} size="xs" variant="outline" color="gray">{jjmm(j)}</Badge>)}
+                {data.jours_sans_depense.length > 31 && <Text fz="xs">…</Text>}
+              </Group>
+            )}
+          </Alert>
+        )
+      )}
+      {remplis.length > 0 && !invalide && !juste && ecart < 0 && (
+        <Select label="Catégorie de la dépense d'écart" data={categories} value={categorie} onChange={setCategorie} searchable />
+      )}
+      {remplis.length > 0 && !invalide && (
+        <Group gap="xs">
+          {!juste && (
+            <Button onClick={() => enregistrer(true)} loading={ecrire.isPending}>
+              Enregistrer l'écart en {ecart < 0 ? 'dépense' : 'revenu'}
+            </Button>
+          )}
+          <Button variant={juste ? 'filled' : 'default'} onClick={() => enregistrer(false)} loading={ecrire.isPending}>
+            {juste ? 'Noter le pointage' : "Noter sans l'enregistrer"}
+          </Button>
+        </Group>
+      )}
+      <Info>
+        Les liquidités sont calculées à partir de tes saisies : compare-les à ce que disent ta banque et ton porte-monnaie, une fois par mois.
+        L'écart enregistré est une opération du jour (tag #pointage) : ta courbe et tes indicateurs repartent justes.
+      </Info>
+      {data.historique.length > 0 && (
+        <Stack gap={2}>
+          <Divider label="Derniers pointages" labelPosition="left" />
+          {data.historique.slice(0, 5).map(r => (
+            <Group key={r.id} justify="space-between" wrap="nowrap" gap="xs" className="ligne-op" px={4} py={2}>
+              <Text fz="sm">{dateFr(r.date)} · <Text span inherit className="chiffre">{fmt(r.solde_reel)}</Text></Text>
+              <Group gap={4} wrap="nowrap">
+                <Badge size="sm" variant="light" color={Math.abs(r.ecart) < 0.01 ? 'emeraude' : r.regle ? 'gray' : r.ecart < 0 ? 'rouge' : 'ambre'}>
+                  {Math.abs(r.ecart) < 0.01 ? 'juste' : `${r.ecart > 0 ? '+' : '−'}${fmt(Math.abs(r.ecart))}${r.regle ? ' · enregistré' : ''}`}
+                </Badge>
+                <BoutonSuppr label="Retirer ce pointage" onClick={() => confirmer(`Retirer le pointage du ${dateFr(r.date)} ?${r.regle ? " L'opération d'écart reste dans Saisie." : ''}`, () =>
+                  supprimer.mutate({ path: `/api/patrimoine/rapprochements/${r.id}`, method: 'DELETE', succes: 'Pointage retiré' }))} />
+              </Group>
+            </Group>
+          ))}
+        </Stack>
+      )}
     </Stack>
   );
 }
@@ -507,6 +630,11 @@ export function VuePatrimoine() {
       <Grid gap="lg" align="flex-start">
         <Grid.Col span={{ base: 12, md: 5 }}>
           <Stack gap="lg">
+            <Carte titre="Pointer le solde" icone={<Pastille icone={IconScale} couleur={!p.pointage || p.pointage.a_refaire ? 'ambre' : 'emeraude'} />}
+                   description={p.pointage ? `Dernier pointage ${p.pointage.jours === 0 ? "aujourd'hui" : `il y a ${p.pointage.jours} jour${p.pointage.jours > 1 ? 's' : ''}`}`
+                     : 'Ta banque et tes espèces comparées à ce que calcule l\'application'}>
+              <Pointage />
+            </Carte>
             <Carte titre="Ajouter un actif" description="Or, compte épargne, placement, bien immobilier : ce qui n'est ni dans le Budget ni en Bourse"
                    icone={<Pastille icone={IconCoin} couleur="marque" />}>
               <FormActif p={p} />

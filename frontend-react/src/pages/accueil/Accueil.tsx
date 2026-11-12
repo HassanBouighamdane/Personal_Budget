@@ -1,18 +1,18 @@
 /* Accueil — l'essentiel du jour, tiré de chaque module : ce qu'il reste à dépenser, la réserve de sécurité, la Bourse,
  * la lecture en cours, la note du jour et ce qui demande une action. Chaque bloc mène à son écran. */
 import type { ReactNode } from 'react';
-import { Badge, Box, Button, Grid, Group, Progress, SimpleGrid, Stack, Text } from '@mantine/core';
+import { ActionIcon, Badge, Box, Button, Grid, Group, Progress, SimpleGrid, Stack, Text, Tooltip } from '@mantine/core';
 import {
-  IconAlertTriangle, IconArrowRight, IconBook2, IconBuildingBank, IconCalendarDue, IconCheck, IconFlame, IconPencilPlus, IconShieldCheck,
-  IconTarget, IconTrendingUp, IconWallet,
+  IconAlertTriangle, IconArrowRight, IconBook2, IconBuildingBank, IconCalendarDue, IconCheck, IconChartBar, IconCopy, IconFlame,
+  IconPencilPlus, IconScale, IconShieldCheck, IconTarget, IconTrendingUp, IconWallet, IconX,
 } from '@tabler/icons-react';
 
 import { auj, dateFr, fmt, libelleMois } from '../../lib/format';
 import { T, signe } from '../../lib/palette';
-import type { EtatRappels } from '../../lib/types';
+import type { Alerte, EtatRappels, Patrimoine } from '../../lib/types';
 import {
-  useALire, useDettes, useEcheances, useEtatRappels, useObjectifs, usePatrimoineSilencieux, useResumeBourseSilencieux, useResumeJour,
-  useResumeMois, useSerieLecture,
+  useALire, useAlertes, useDettes, useEcheances, useEcriture, useEtatRappels, useObjectifs, usePatrimoineSilencieux,
+  useResumeBourseSilencieux, useResumeJour, useResumeMois, useSerieLecture,
 } from '../../lib/queries';
 import { Carte, Chargement, EnTetePage, Kpi, Pastille } from '../../components/ui';
 import { FenetreNoteDuJour, NoteDuJour } from '../lectures/communs';
@@ -120,18 +120,54 @@ export function alerteTache(e: EtatRappels | undefined, maintenant = Date.now())
   return null;
 }
 
-/* ---------- À traiter : échéances, remboursements et objectifs en retard, tâche du matin ---------- */
+/** Rappel de pointer le solde : jamais fait (dès qu'il y a des opérations), ou plus vieux qu'un mois */
+export function pointageARefaire(p: Patrimoine | null | undefined): string | null {
+  if (!p) return null;
+  if (!p.pointage) return p.epargne_cumulee !== 0 ? 'Pointe ton solde : compare tes liquidités à ta banque' : null;
+  return p.pointage.a_refaire ? `Pointe ton solde : dernier pointage il y a ${p.pointage.jours} jours` : null;
+}
+
+const ICONES_ALERTE = { categorie: IconChartBar, hausse: IconTrendingUp, doublon: IconCopy };
+
+function LigneAlerte({ a }: { a: Alerte }) {
+  const ecrire = useEcriture('budget');
+  const Icone = ICONES_ALERTE[a.type];
+  return (
+    <Group justify="space-between" wrap="nowrap" gap="xs" align="flex-start">
+      <Group gap={6} wrap="nowrap" align="flex-start" style={{ minWidth: 0 }}>
+        <Icone size={15} stroke={1.8} color="var(--c-neg)" style={{ flexShrink: 0, marginTop: 3 }} />
+        <Box style={{ minWidth: 0 }}>
+          <Text fz="sm" fw={600} truncate>{a.titre}</Text>
+          <Text fz="xs" c="dimmed" lineClamp={2}>{a.detail}</Text>
+        </Box>
+      </Group>
+      <Tooltip label="Ignorer cette alerte" withArrow>
+        <ActionIcon variant="subtle" color="gray" size="sm" aria-label="Ignorer cette alerte" loading={ecrire.isPending}
+                    onClick={() => ecrire.mutate({ path: '/api/alertes/ignorer', method: 'POST', body: { cle: a.cle } })}>
+          <IconX size={14} />
+        </ActionIcon>
+      </Tooltip>
+    </Group>
+  );
+}
+
+/* ---------- À traiter : échéances, remboursements et objectifs en retard, tâche du matin, dépenses inhabituelles ---------- */
 function CarteATraiter({ aller }: { aller: (c: CibleAccueil) => void }) {
   const { data: echeances, isPending } = useEcheances();
   const { data: dettes } = useDettes();
   const { data: etatRappels } = useEtatRappels();
   const { data: objectifs } = useObjectifs();
+  const { data: alertes } = useAlertes();
+  const { data: patrimoine } = usePatrimoineSilencieux();
   const aTraiter = (echeances ?? []).filter(e => e.a_rappeler);
   const enRetard = (dettes ?? []).filter(d => d.reste > 0 && d.echeance && d.echeance < auj());
   const tache = alerteTache(etatRappels);
   const objectifsEnRetard = (objectifs ?? []).filter(o => o.en_retard);
   const enveloppesDepassees = (objectifs ?? []).filter(o => !o.archive && o.depassement > 0);
-  const rien = !aTraiter.length && !enRetard.length && !tache && !objectifsEnRetard.length && !enveloppesDepassees.length;
+  const pointage = pointageARefaire(patrimoine);
+  const inhabituelles = alertes ?? [];
+  const rien = !aTraiter.length && !enRetard.length && !tache && !objectifsEnRetard.length && !enveloppesDepassees.length
+    && !pointage && !inhabituelles.length;
   return (
     <Carte titre="À traiter" icone={<Pastille icone={IconCalendarDue} couleur={rien ? 'gray' : 'ambre'} />}
            droite={<Lien onClick={() => aller('echeances')}>Échéances</Lien>}>
@@ -182,6 +218,16 @@ function CarteATraiter({ aller }: { aller: (c: CibleAccueil) => void }) {
               <Badge size="sm" variant="light" color="rouge" style={{ flexShrink: 0 }}>enveloppe dépassée</Badge>
             </Group>
           ))}
+          {pointage && (
+            <Group justify="space-between" wrap="nowrap" gap="xs" style={{ cursor: 'pointer' }} onClick={() => aller('patrimoine')}>
+              <Group gap={6} wrap="nowrap" style={{ minWidth: 0 }}>
+                <IconScale size={15} stroke={1.8} style={{ flexShrink: 0 }} />
+                <Text fz="sm" truncate>{pointage}</Text>
+              </Group>
+              <Badge size="sm" variant="light" color="ambre" style={{ flexShrink: 0 }}>Patrimoine</Badge>
+            </Group>
+          )}
+          {inhabituelles.map(a => <LigneAlerte key={a.cle} a={a} />)}
         </Stack>
       )}
     </Carte>

@@ -84,8 +84,12 @@ def lire_objectifs(c, auj: date, projet_id: int | None = None) -> list:
     for v in c.execute("SELECT id, objectif_id, date_operation, montant, libelle FROM objectifs_versements"
                        f"{clause} ORDER BY date_operation DESC, id DESC", params).fetchall():
         par_projet.setdefault(v["objectif_id"], []).append(v)
+    # Objectif qui provisionne une échéance (assurance, Aïd...) : cf. routes/carnet.py
+    echeances = {r["objectif_id"]: r["id"] for r in c.execute(
+        "SELECT id, objectif_id FROM echeances WHERE objectif_id IS NOT NULL").fetchall()}
     resultat = []
     for o in projets:
+        o["echeance_id"] = echeances.get(o["id"])
         depense, operations = operations_taggees(c, o["tag"], o["tag_depuis"]) if o["tag"] else (Decimal(0), [])
         resultat.append(calculer(o, par_projet.get(o["id"], []), auj, depense, operations))
     return sorted(resultat, key=lambda o: (o["archive"], o["date_limite"] or date.max, o["id"]))

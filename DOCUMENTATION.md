@@ -357,7 +357,7 @@ Index : `depenses(date)`, `revenus(date)`.
 
 | Table | Colonnes principales | Remarques |
 |---|---|---|
-| `lectures_livres` | `titre`, `auteur`, `genre`, `date_debut` (optionnelle), `date_fin`, `pages`, `note` (1 à 5), `commentaire` | genre stocké par son nom ; `CHECK date_debut ≤ date_fin` |
+| `lectures_livres` | `titre`, `auteur`, `genre`, `date_debut` (optionnelle), `date_fin`, `pages`, `note` (1 à 5), `commentaire` | `genre` : clé étrangère vers `lectures_genres.nom` (`ON UPDATE CASCADE`, comme `lectures_a_lire.genre`), NULL sans genre (`""` dans l'API) ; `CHECK date_debut ≤ date_fin` |
 | `lectures_genres` | `id`, `nom` UNIQUE, `actif` | suppression douce, comme les catégories |
 
 | `lectures_progression` | `a_lire_id`, `date`, `page` | page atteinte dans un livre en cours, une ligne par jour ; supprimée avec le livre |
@@ -372,7 +372,7 @@ Les objectifs de lecture sont dans `params` : `objectif_lecture_annuel` (24 par 
 |---|---|---|
 | `dettes` | `sens` (`pret` / `emprunt`), `personne`, `montant`, `date_operation`, `echeance` (optionnelle), `libelle` | `pret` : on me doit ; `emprunt` : je dois |
 | `dettes_remboursements` | `dette_id`, `date_operation`, `montant`, `libelle` | supprimés avec leur dette (`ON DELETE CASCADE`) |
-| `echeances` | `titre`, `categorie`, `date_echeance`, `rappel_jours`, `recurrence_mois` (NULL = ponctuelle), `note` | |
+| `echeances` | `titre`, `categorie`, `date_echeance`, `rappel_jours`, `recurrence_mois` (NULL = ponctuelle), `note`, `montant` (optionnel), `objectif_id` | `objectif_id` : objectif qui provisionne l'échéance (`ON DELETE SET NULL`, voir §10) |
 
 | `actifs` | `nom`, `type`, `valeur`, `verse`, `zakat`, `maj_le`, `note` | actifs hors Bourse, valeur saisie à la main (voir §11) |
 
@@ -384,6 +384,9 @@ Deux clés de `params` servent à la tâche planifiée : `cron_dernier_jour` (de
 | `objectifs_versements` | `objectif_id`, `date_operation`, `montant` (négatif = argent repris), `libelle` | supprimés avec leur objectif (`ON DELETE CASCADE`) |
 | `patrimoine_historique` | `date` PK, `total`, `liquidites`, `bourse`, `autres_actifs`, `creances`, `dettes`, `estime`, `maj_le` | patrimoine noté une fois par jour, pour sa courbe (voir §11) ; `estime` = fin de mois reconstituée après coup |
 | `bourse_cours_historique` | (`titre`, `date`) PK, `cours`, `cree_le` | cours passés saisis à la main (relevés de fin de mois du courtier), pour la reconstitution de la courbe |
+| `rapprochements` | `date`, `solde_reel`, `solde_calcule`, `comptes` (JSONB `[{nom, montant}]`), `regle` (`depense` / `revenu` / NULL), `note` | pointages du solde (voir §11) |
+| `alertes_ignorees` | `cle` PK, `le` | alertes de dépenses écartées à la main (voir §11) |
+| `telegram_messages` | `update_id` PK, `le`, `attente` (JSONB) | messages reçus du bot, traités une seule fois, gardés 7 jours ; `attente` : dépense qui attend sa catégorie. Hors sauvegarde |
 
 Les modules Bourse et Suivi utilisent les types `DATE` et `NUMERIC`. Le module Budget utilise `TEXT` pour les dates et `DOUBLE PRECISION` pour les montants.
 
@@ -458,6 +461,14 @@ Toutes les routes sauf `/api/login`, `/api/logout` et `/api/cron/quotidien` (pro
 | POST | `/api/patrimoine/historique/reconstituer` | — | recalcule les fins de mois passées (`{points, debut, fin}`) |
 | GET | `/api/patrimoine/cours-passes` | `?jour=AAAA-MM-JJ` | titres détenus ce jour-là : `{titre, quantite, saisi, estime, source, source_date}` |
 | PUT | `/api/patrimoine/cours-passes` | `{jour, cours: [{titre, cours\|null}]}` | enregistre (ou retire, `null`) des cours passés, puis recalcule les fins de mois |
+| GET | `/api/patrimoine/rapprochements` | — | `{solde_calcule, historique, jours_sans_depense, depuis, a_refaire_jours}` : liquidités du jour, 12 derniers pointages, jours sans dépense depuis le dernier |
+| POST | `/api/patrimoine/rapprochements` | `{comptes: [{nom, montant}], note, enregistrer_ecart, categorie}` | le pointage avec son `ecart` ; avec `enregistrer_ecart`, l'écart devient une dépense (dans `categorie`, 400 sans elle) ou un revenu du jour, tag `pointage` |
+| DELETE | `/api/patrimoine/rapprochements/{id}` | — | 204 (l'opération d'écart reste dans le Budget) |
+| GET | `/api/alertes` | — | `[{cle, type: categorie\|hausse\|doublon, categorie, titre, detail, montant}]` : dépenses inhabituelles (voir §11) |
+| POST | `/api/alertes/ignorer` | `{cle}` | 204 : l'alerte ne revient plus |
+| GET | `/api/telegram/etat` | — | `{configure, actif, adresse, erreur}` : saisie par Telegram (voir §10) |
+| POST | `/api/telegram/activer` · `/desactiver` | — | déclare (ou retire) le webhook auprès de Telegram, à l'adresse de la requête ; 400 en local |
+| POST | `/api/telegram/webhook` | mise à jour Telegram ; en-tête `X-Telegram-Bot-Api-Secret-Token` | `{ok}` ; **sans session** : appelé par Telegram ; 401 sans le secret, 503 si Telegram n'est pas configuré |
 | GET / POST / PUT / DELETE | `/api/objectifs[/{id}]` | `{nom, cible, date_limite, note, archive, tag, tag_depuis}` (PUT : tous les champs, un tag absent est retiré) | `[ProjetOut]` / `ProjetOut` (avec `verse`, `reste`, `progression`, `mois_restants`, `par_mois`, `en_retard`, `versements`, `depense`, `reserve`, `depassement`, `operations`) / 204 |
 | POST | `/api/objectifs/{id}/versements` | `{date_operation, montant, libelle}` (montant négatif = argent repris) | `ProjetOut` ; 400 si l'on reprend plus que ce qui est de côté |
 | DELETE | `/api/objectifs/versements/{id}` | — | 204 ; 400 si le total mis de côté deviendrait négatif |
@@ -467,8 +478,8 @@ Toutes les routes sauf `/api/login`, `/api/logout` et `/api/cron/quotidien` (pro
 | GET / POST / PUT / DELETE | `/api/carnet/dettes[/{id}]` | `DetteIn` | `[DetteOut]` / `DetteOut` (avec `rembourse`, `reste`, `remboursements`) / 204 ; 400 si le montant passe sous le déjà remboursé |
 | POST | `/api/carnet/dettes/{id}/remboursements` | `{date_operation, montant, libelle}` | `DetteOut` ; 400 si le montant dépasse le reste dû ou précède le prêt |
 | DELETE | `/api/carnet/remboursements/{id}` | — | 204 |
-| GET / POST / PUT / DELETE | `/api/carnet/echeances[/{id}]` | `EcheanceIn` | `[EcheanceOut]` / `EcheanceOut` (avec `jours_restants`, `a_rappeler`) / 204 |
-| POST | `/api/carnet/echeances/{id}/reporter` | — | `EcheanceOut` : la date avance de `recurrence_mois` ; 400 si l'échéance est ponctuelle |
+| GET / POST / PUT / DELETE | `/api/carnet/echeances[/{id}]` | `EcheanceIn` (avec `montant`, `provisionner`) | `[EcheanceOut]` / `EcheanceOut` (avec `jours_restants`, `a_rappeler`, `montant`, `objectif_id`, `provision`) / 204 |
+| POST | `/api/carnet/echeances/{id}/reporter` | — | `EcheanceOut` : la date avance de `recurrence_mois` (et l'objectif de provision passe à la période suivante) ; 400 si l'échéance est ponctuelle |
 | GET | `/api/rappels/etat` | — | `{canaux, cron, envois, passages, dernier_succes}` (aucun secret) ; `dernier_succes` : dernier appel de la tâche planifiée qui n'a pas échoué |
 | GET | `/api/rappels/apercu` | `?periode=semaine\|mois\|annee` | `{rappels, sujet, resume, html}` : ce qui serait envoyé maintenant (`html` : l'e-mail) |
 | POST | `/api/rappels/envoyer` | `?periode=semaine\|mois\|annee` | `{canaux}` : envoie le résumé choisi tout de suite ; 502 si aucun canal ou envoi refusé |
@@ -696,13 +707,19 @@ Tout ce qui a une date limite : CIN, passeport, assurance, visite technique, vig
 - `jours_restants` = date limite − aujourd'hui (fuseau `FUSEAU`), négatif si elle est dépassée. `a_rappeler` est vrai dès que `jours_restants ≤ rappel_jours` : l'échéance passe alors dans « À traiter ».
 - Une échéance **récurrente** (`recurrence_mois`) se reporte avec ✓ : sa date avance d'une période à partir de la date prévue (pas d'aujourd'hui) ; un 31 devient le dernier jour d'un mois plus court. Une échéance ponctuelle se modifie (nouvelle date d'expiration) ou se supprime.
 
+**Provisions** : une échéance qui coûte (assurance, Aïd al-Adha, rentrée scolaire, vacances) peut avoir un `montant`. Avec « Mettre de côté chaque mois d'ici là » (`provisionner`), un **objectif d'épargne** du même montant et pour la même date est créé (`objectif_id`, note « Provision pour l'échéance … ») : son `par_mois` dit ce qu'il faut mettre de côté chaque mois, pour que la dépense ne tombe pas d'un coup sur un seul mois.
+- Modifier l'échéance met l'objectif à jour (nom, montant, date). Décocher la case, ou supprimer l'échéance, supprime l'objectif s'il est vide ; s'il contient déjà de l'argent, il reste dans Objectifs (à reprendre ou archiver).
+- Reporter une échéance récurrente (✓) archive l'objectif avec ce qui a été mis de côté (l'argent a servi) et en ouvre un nouveau pour la période suivante ; le tag éventuel suit, compté à partir du lendemain. Un objectif encore vide est seulement décalé.
+- Le total à mettre de côté ce mois-ci (somme des `par_mois` des provisions en cours) s'affiche sur l'écran Échéances et dans la carte Épargne du dashboard du mois en cours. Un objectif de provision porte le badge « échéance » dans Objectifs.
+
 ### Rappels du jour
 
 `rappels_du_jour(auj)` renvoie les lignes à envoyer :
 
 - une échéance est rappelée au début de sa fenêtre (`rappel_jours` avant), puis à J−7 et J−1 s'ils tombent dans la fenêtre, et le jour même. Exemple avec « 1 mois avant » : J−30, J−7, J−1, J ;
 - une dette non soldée qui a une échéance est rappelée à J−3 et le jour même ;
-- une échéance dépassée n'est plus rappelée chaque jour : elle figure dans le résumé du lundi tant qu'elle n'est pas traitée.
+- une échéance dépassée n'est plus rappelée chaque jour : elle figure dans le résumé du lundi tant qu'elle n'est pas traitée ;
+- le **lundi**, s'ajoutent les dépenses inhabituelles (`alertes.calculer_alertes`, voir §11) et l'invitation à pointer le solde s'il ne l'a jamais été ou pas depuis 30 jours (`rappels_du_lundi`).
 
 ### Message du matin
 
@@ -768,6 +785,19 @@ Un canal est actif dès que ses variables sont renseignées ; les deux peuvent l
 2. Ouvrir la conversation avec le nouveau bot et lui envoyer un message (un bot ne peut pas écrire en premier).
 3. Ouvrir `https://api.telegram.org/bot<JETON>/getUpdates` dans le navigateur : la valeur `"chat":{"id": …}` → `TELEGRAM_CHAT_ID`.
 
+**Saisie par Telegram** (avec le même bot) : une fois l'application en ligne, Paramètres → « Saisie par Telegram » → **Activer la saisie**. Le bouton déclare le webhook auprès de Telegram (`setWebhook`, adresse `https://<site>/api/telegram/webhook`, et les commandes /aide, /reste, /solde). En local, Telegram ne peut pas joindre l'application : le bouton refuse. Le secret que Telegram renvoie à chaque appel (`TELEGRAM_WEBHOOK_SECRET`) est tiré du jeton du bot par défaut : rien de plus à configurer. Seuls les messages de la conversation `TELEGRAM_CHAT_ID` sont acceptés. Ce qu'on peut écrire au bot (`routes/telegram.py`) :
+
+| Message | Effet |
+|---|---|
+| `45 café`, `café 45`, `45 café hier`, `avant-hier 30 taxi` | dépense ; montant au début ou à la fin, `hier` / `avant-hier` pour la date |
+| `1200 courses #maison` | avec un ou plusieurs tags |
+| `+8000 salaire` | revenu ; la source est devinée par son nom, sinon le revenu reste sans source |
+| `?` ou `/reste` | reste à dépenser aujourd'hui et ce mois-ci |
+| `solde` · `solde 12500` | liquidités calculées et dernier pointage · note un pointage du solde réel (voir §11) |
+| `aide`, `/start` | mode d'emploi |
+
+La catégorie d'une dépense est devinée : celle le plus souvent utilisée pour la même description, sinon celle dont le nom contient un mot du message (« café » → « Restaurants & Cafés », sans tenir compte des accents), sinon celle des descriptions passées qui contiennent un de ses mots. Sinon, le bot demande la catégorie par boutons (la dépense attend dans `telegram_messages.attente`). La réponse donne le reste du budget de la catégorie ce mois-ci, avec les boutons « Annuler » (supprime l'opération) et « Catégorie » (la change). Un message reçu deux fois n'est traité qu'une fois ; la route répond toujours 200, sinon Telegram renverrait le même message.
+
 **E-mail (exemple Gmail)**
 1. Activer la validation en deux étapes du compte Google, puis créer un **mot de passe d'application** (myaccount.google.com/apppasswords).
 2. `SMTP_HOTE=smtp.gmail.com`, `SMTP_PORT=587`, `SMTP_UTILISATEUR=` l'adresse Gmail, `SMTP_MOT_DE_PASSE=` le mot de passe d'application. `EMAIL_DESTINATAIRE` seulement pour recevoir sur une autre adresse.
@@ -780,7 +810,7 @@ Sur Vercel, ces variables se règlent dans **Settings → Environment Variables*
 
 Onglet **Suivi**, avec quatre sous-onglets :
 - **Dettes et prêts** : totaux (on me doit, je dois, solde net), formulaire, dettes en cours avec leur avancement, fenêtre des remboursements (le champ montant vide solde la dette), dettes soldées ;
-- **Échéances** : formulaire (catégorie, date limite, délai de rappel, récurrence), « À traiter » et « Plus tard ». Le nombre d'échéances à traiter s'affiche sur l'onglet ;
+- **Échéances** : formulaire (catégorie, date limite, délai de rappel, récurrence, montant, provision), « À traiter » et « Plus tard », et le total à mettre de côté ce mois-ci pour les provisions. Le nombre d'échéances à traiter s'affiche sur l'onglet ;
 - **Objectifs** : objectifs d'épargne par projet (voir §11) ;
 - **Patrimoine** : voir §11.
 
@@ -802,6 +832,26 @@ patrimoine = liquidités + compte Bourse + autres actifs + ce qu'on me doit − 
 - Le **solde de départ** est l'argent détenu avant la première saisie ; sans lui, les liquidités ne comptent que l'épargne faite depuis.
 - Un **actif** (or, compte épargne, placement, immobilier) a une valeur saisie à la main et une date de relevé. `verse` est l'argent sorti de l'épargne pour lui **sans** être saisi en dépense : il est retiré des liquidités, donc seul le gain de valeur augmente le patrimoine. Un actif saisi en dépense, ou détenu avant l'application, garde `verse = 0` et s'ajoute en entier.
 - Un prêt ou un emprunt déplace de l'argent entre les liquidités et les créances ou dettes : le total ne change pas.
+
+### Pointage du solde
+
+Les liquidités sont **calculées** (formule ci-dessus), jamais saisies : une dépense oubliée les fausse sans que rien ne le montre, et avec elles le patrimoine, la réserve, la liberté financière et la zakat. La carte « Pointer le solde » (Patrimoine) compare le solde réel, tapé compte par compte (Banque, Espèces, autres), aux **liquidités du jour** (`liquidites_du_jour` : celles du patrimoine sans les opérations du Budget datées de demain ou après).
+
+- L'écart (réel − calculé) s'affiche en direct ; négatif, il manque de l'argent (une dépense oubliée, un retrait, des frais bancaires). Les jours sans aucune dépense depuis le dernier pointage (31 jours au plus affichés) aident à retrouver l'oubli.
+- « Enregistrer l'écart » crée une dépense (catégorie à choisir, « Imprévus » proposée) ou un revenu du jour, description « Écart de pointage du solde », tag `pointage` : la suite repart juste. « Noter sans l'enregistrer » garde seulement le pointage.
+- Chaque pointage est gardé dans `rapprochements`. `GET /api/patrimoine` renvoie le dernier dans `pointage` (`{date, jours, ecart, regle, a_refaire}`) ; au-delà de 30 jours, ou s'il n'y en a jamais eu, l'accueil (« À traiter ») et le message du lundi invitent à pointer. Sur Telegram, `solde 12500` note un pointage (sans enregistrer l'écart).
+
+### Dépenses inhabituelles
+
+`routes/alertes.py`, affichées dans « À traiter » sur l'accueil et le lundi matin (§10) :
+
+| Alerte | Règle |
+|---|---|
+| Catégorie | ce mois-ci, au moins 30 % **et** 300 DH au-dessus de sa moyenne sur les 6 derniers mois terminés (moyenne faite sur les mois où l'application a des dépenses, au moins 3) |
+| Hausse d'un montant récurrent | même catégorie et même description (casse et espaces près), vue dans au moins 3 mois sur 200 jours, à un montant fixe jusque-là (écart ≤ 2 %), dont le dernier montant, récent (45 jours), est plus élevé d'au moins 5 % et 5 DH : un abonnement qui augmente |
+| Doublon | sur 14 jours, au moins deux dépenses le même jour avec la même catégorie, la même description et le même montant |
+
+Chaque alerte a une clé (`categorie:2026-11:Courses`, `hausse:…:75.00`, `doublon:<id>:<n>`) : la croix « Ignorer » la range dans `alertes_ignorees`, elle ne revient plus (une nouvelle hausse ou un autre mois donnent une nouvelle clé). Les clés de plus de 400 jours sont effacées.
 
 ### Évolution du patrimoine
 
@@ -866,7 +916,7 @@ Page par défaut (`#/accueil`, aussi ouverte par un clic sur le logo). Elle ne d
 | Patrimoine net | `/api/patrimoine` : total et réserve de sécurité |
 | Note du jour | `/api/lectures/note_du_jour` |
 | Lecture en cours | `/api/lectures/a_lire` et `/serie` |
-| À traiter | échéances dans leur fenêtre de rappel, dettes dont l'échéance est dépassée, objectifs d'épargne dont la date limite est passée, tâche du matin arrêtée ou en échec (`/api/rappels/etat`) |
+| À traiter | échéances dans leur fenêtre de rappel, dettes dont l'échéance est dépassée, objectifs d'épargne dont la date limite est passée ou l'enveloppe dépassée, tâche du matin arrêtée ou en échec (`/api/rappels/etat`), solde à pointer (`pointage` de `/api/patrimoine`), dépenses inhabituelles (`/api/alertes`, avec une croix pour les ignorer) |
 
 Sur mobile, la barre du bas garde six onglets (Accueil, Saisie, Dashboard, Bourse, Lectures, Suivi) ; les Paramètres passent dans l'en-tête.
 
