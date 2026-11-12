@@ -30,7 +30,6 @@ from fastapi import APIRouter, Body, Depends, Header, HTTPException, Request
 from config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_WEBHOOK_SECRET, aujourdhui
 from database import db
 from messagerie import appel_telegram
-from resume_rendu import dh
 from schemas import MONTANT_MAX
 from securite import utilisateur_courant
 
@@ -53,6 +52,14 @@ Et aussi :
 • ? : ce qu'il te reste à dépenser
 • solde : tes liquidités ; « solde 12500 » pour pointer ton solde réel
 • aide : ce message"""
+
+
+def dh(v) -> str:
+    """Montant en DH, avec les centimes s'il en a (« 5,50 DH », « 1 200 DH ») : la réponse doit
+    montrer exactement ce qui est enregistré (resume_rendu.dh arrondit au dirham, pour les résumés)."""
+    v = float(v)
+    texte = f"{abs(v):,.0f}" if abs(v - round(v)) < 0.005 else f"{abs(v):,.2f}"
+    return ("−" if v < 0 else "") + texte.replace(",", " ").replace(".", ",") + " DH"
 
 
 def configure() -> bool:
