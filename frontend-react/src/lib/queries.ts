@@ -8,7 +8,7 @@ import type {
   Alerte, ALire, ApercuRappels, EtatTelegram, Rapprochements, BilanLecture, CalendrierDividendes, NoteDuJour, Patrimoine, PointPatrimoine, CoursPasse, PretLivre, Projet, SerieLecture, BudgetHistorique, CibleSecteur, Config, CoursActualisation, DashboardBourse, Dette, Dividende, Echeance, EtatRappels, Fiscalite, FraisBourse, Gain, Genre,
   Livre, Mouvement, NoteLecture, ObjectifsLecture, Position, Recherche, ResumeAnnee, ResumeGlobal, ResumeJour, ResumeMois, ResumeSemaine, ResumeTag,
   Suggestion, Titre, TransactionBourse, TransactionsMois, Recurrence, RecurrenceAGenerer, SuggestionRecurrence, Previsions,
-  HistoriquePortefeuille, HistoriqueTitre, JoursFeries, CoursEnRetard, Indices, Comparaison,
+  HistoriquePortefeuille, HistoriqueTitre, JoursFeries, CoursEnRetard, Indices, Comparaison, CouvertureTitre,
 } from './types';
 
 type Module = 'budget' | 'bourse' | 'lectures' | 'carnet' | 'patrimoine';
@@ -76,6 +76,7 @@ export const useCoursEnRetard = () => useQuery({
 export const useIndices = () => lire<Indices>(['bourse', 'indices'], '/api/bourse/indices');
 export const useComparaison = (indice: string) =>
   lire<Comparaison>(['bourse', 'comparaison', indice], '/api/bourse/indices/comparaison?indice=' + encodeURIComponent(indice));
+export const useCouvertureCours = () => lire<CouvertureTitre[]>(['bourse', 'couverture'], '/api/bourse/historique/couverture');
 export const useJoursFeries = () => lire<JoursFeries>(['bourse', 'jours-feries'], '/api/bourse/jours-feries');
 export const useDashboardBourse = (requete: string) =>
   lire<DashboardBourse>(['bourse', 'dashboard', requete], '/api/bourse/dashboard' + (requete ? '?' + requete : ''));

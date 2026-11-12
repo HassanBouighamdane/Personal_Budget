@@ -751,7 +751,8 @@ class ValeurIndice(BaseModel):
 
 
 class ImportIndiceIn(BaseModel):
-    """Valeurs passées d'un indice (fichier téléchargé), pour comparer les apports d'avant l'historique."""
+    """Valeurs passées d'un indice ou cours passés d'un titre (fichier téléchargé), pour les jours
+    d'avant l'historique noté chaque soir."""
     valeurs: List[ValeurIndice] = Field(min_length=1, max_length=20000)
 
 

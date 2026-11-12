@@ -136,3 +136,38 @@ def test_cours_manuel_trop_ancien():
     r = detecter_retards([_titre("IAM", manuel=True, maj_le=date(2026, 11, 2))], date(2026, 11, 13), {}, None)
     assert r == [{"titre": "IAM", "manuel": True, "depuis": date(2026, 11, 2), "jours": 8}]
     assert detecter_retards([_titre("IAM", manuel=True, maj_le=date(2026, 11, 10))], date(2026, 11, 13), {}, None) == []
+
+
+# ---------------------------------------------------------------------------
+# Cours passés importés
+# ---------------------------------------------------------------------------
+def test_ecart_d_un_autre_titre():
+    from routes.bourse import premier_ecart
+    notees = {date(2026, 11, 10): 680.0}
+    assert premier_ecart({date(2026, 11, 10): 105.0}, notees, 0.10) == (date(2026, 11, 10), 105.0, 680.0)
+    assert premier_ecart({date(2026, 11, 10): 700.0, date(2025, 1, 2): 500.0}, notees, 0.10) is None
+
+
+@pytest.mark.base
+def test_import_garde_les_clotures_notees():
+    from fastapi import HTTPException
+    from database import db
+    from routes.bourse import importer_cours_passes
+    from schemas import ImportIndiceIn
+    jours = [date(1901, 1, 2), date(1901, 1, 3), date(1901, 1, 4)]
+    with db() as c:
+        titre = c.execute("SELECT code FROM bourse_titres ORDER BY id LIMIT 1").fetchone()["code"]
+        c.execute("DELETE FROM bourse_prix_historique WHERE titre=%s AND date = ANY(%s)", (titre, jours))
+        c.execute("INSERT INTO bourse_prix_historique (titre, date, cours) VALUES (%s, %s, 100)", (titre, jours[0]))
+    try:
+        with pytest.raises(HTTPException):       # 150 contre 100 noté : le fichier d'un autre titre
+            importer_cours_passes(titre.lower(), ImportIndiceIn(valeurs=[{"date": jours[0], "valeur": 150}]))
+        r = importer_cours_passes(titre, ImportIndiceIn(valeurs=[{"date": d, "valeur": 102} for d in jours]))
+        assert r["importees"] == 2 and r["deja_notees"] == 1
+        with db() as c:
+            rows = c.execute("SELECT date, cours, source FROM bourse_prix_historique WHERE titre=%s AND date = ANY(%s) ORDER BY date",
+                             (titre, jours)).fetchall()
+        assert [(float(r["cours"]), r["source"]) for r in rows] == [(100, "auto"), (102, "import"), (102, "import")]
+    finally:
+        with db() as c:
+            c.execute("DELETE FROM bourse_prix_historique WHERE titre=%s AND date = ANY(%s)", (titre, jours))

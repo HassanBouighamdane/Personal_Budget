@@ -43,7 +43,7 @@ from schemas import (
     ParametresBourse, TransactionBourseCreate, TransactionBourseOut,
     PrixMaj, PositionBourse, GainRealise, DashboardBourse, TitreBourse, TitreBourseIn, CoursActualisation,
     DividendeCreate, DividendeOut, FraisBourseCreate, FraisBourseOut,
-    MouvementBourseCreate, MouvementBourseOut, CiblesIn, JourFerieIn,
+    MouvementBourseCreate, MouvementBourseOut, CiblesIn, JourFerieIn, ImportIndiceIn,
 )
 
 router = APIRouter(prefix="/api/bourse", tags=["bourse"],
@@ -427,7 +427,7 @@ def noter_cours_du_jour(auj: date, recuperes: list) -> int:
             f"""INSERT INTO bourse_prix_historique (titre, date, cours, manuel)
                 SELECT p.titre, %s, p.cours_actuel, p.manuel FROM bourse_prix p
                 WHERE p.cours_actuel > 0 AND p.titre IN ({TITRES_DETENUS}) AND (p.manuel OR p.titre = ANY(%s))
-                ON CONFLICT (titre, date) DO UPDATE SET cours = EXCLUDED.cours, manuel = EXCLUDED.manuel""",
+                ON CONFLICT (titre, date) DO UPDATE SET cours = EXCLUDED.cours, manuel = EXCLUDED.manuel, source = 'auto'""",
             (auj, list(recuperes)),
         ).rowcount
 
@@ -568,23 +568,99 @@ def historique_cours(titre: Optional[str] = None, jours: Optional[int] = None):
     depuis = aujourdhui() - timedelta(days=jours) if jours else date.min
     with db() as conn:
         if titre:
-            rows = conn.execute("""SELECT date, cours, manuel FROM bourse_prix_historique
+            rows = conn.execute("""SELECT date, cours, manuel, source FROM bourse_prix_historique
                                    WHERE titre = %s AND date > %s ORDER BY date""",
                                 (titre.strip().upper(), depuis)).fetchall()
             return {"titre": titre.strip().upper(),
-                    "points": [{"date": r["date"], "cours": float(r["cours"]), "manuel": r["manuel"]} for r in rows]}
+                    "points": [{"date": r["date"], "cours": float(r["cours"]), "manuel": r["manuel"],
+                                "importe": r["source"] == "import"} for r in rows]}
         releves = conn.execute("SELECT titre, date, cours FROM bourse_prix_historique ORDER BY date").fetchall()
+    _, _, calc = _positions_et_gains()
+    # Pas de point avant le premier achat : des cours importés peuvent remonter plus loin
+    premier_achat = min((t["date_operation"] for t in calc), default=date.max)
     cours, dates = {}, set()
     for r in releves:
         cours.setdefault(r["titre"], []).append((r["date"], float(r["cours"])))
-        if r["date"] > depuis:
+        if r["date"] > depuis and r["date"] >= premier_achat:
             dates.add(r["date"])
-    _, _, calc = _positions_et_gains()
     transactions = [{"date": t["date_operation"], "titre": t["titre"], "achat": t["type_operation"] == "Achat",
                      "quantite": float(t["quantite"]), "net": float(t["_net_decimal"]), "cours": float(t["cours_unitaire"])}
                     for t in calc]
     titres = sorted({r["titre"] for r in releves})
     return {"titres": titres, "points": valeur_aux_dates(transactions, cours, sorted(dates))}
+
+
+# ---------------------------------------------------------------- cours passés importés
+ECART_IMPORT_COURS_MAX = 0.10    # au-delà, le fichier est sans doute celui d'un autre titre
+
+
+def premier_ecart(importees: dict, notees: dict, seuil: float) -> Optional[tuple]:
+    """Première date commune où une valeur importée s'écarte de plus de `seuil` (part) de la valeur
+    déjà notée le soir : (date, importée, notée), None sinon. Sert à refuser un fichier qui n'est pas
+    celui du titre (ou de l'indice) choisi."""
+    for d in sorted(set(importees) & set(notees)):
+        if abs(importees[d] - notees[d]) > seuil * notees[d]:
+            return d, importees[d], notees[d]
+    return None
+
+
+def _nombre_fr(v: float) -> str:
+    return f"{v:,.2f}".replace(",", " ").replace(".", ",")
+
+
+@router.get("/historique/couverture")
+def couverture_historique():
+    """Pour chaque titre déjà acheté : les cours connus (notés le soir ou importés) et la date du
+    premier achat, que l'import doit couvrir pour une courbe juste depuis le début."""
+    with db() as conn:
+        rows = conn.execute(f"""
+            SELECT t.titre, MIN(t.date_operation) premier_achat, t.titre IN ({TITRES_DETENUS}) detenu,
+                   h.nb, h.nb_import, h.debut, h.fin
+            FROM bourse_transactions t
+            LEFT JOIN (SELECT titre, COUNT(*) nb, COUNT(*) FILTER (WHERE source = 'import') nb_import,
+                              MIN(date) debut, MAX(date) fin
+                       FROM bourse_prix_historique GROUP BY titre) h ON h.titre = t.titre
+            GROUP BY t.titre, h.nb, h.nb_import, h.debut, h.fin
+            ORDER BY detenu DESC, t.titre""").fetchall()
+    return [{**r, "nb": r["nb"] or 0, "nb_import": r["nb_import"] or 0} for r in rows]
+
+
+@router.post("/historique/{titre}/import")
+def importer_cours_passes(titre: str, i: ImportIndiceIn):
+    """Cours de clôture passés d'un titre (fichier « Market Data → Cours » de la Bourse de Casablanca).
+    Une clôture notée le soir est gardée ; si le fichier s'en écarte de plus de 10 % un même jour,
+    c'est sans doute le fichier d'un autre titre : tout est refusé."""
+    titre = titre.strip().upper()
+    auj = aujourdhui()
+    importees = {v.date: v.valeur for v in i.valeurs if v.date <= auj}
+    if not importees:
+        raise HTTPException(400, "Aucun cours daté d'aujourd'hui ou avant")
+    with references_valides(), db() as conn:
+        if not conn.execute("SELECT 1 FROM bourse_titres WHERE code = %s", (titre,)).fetchone():
+            raise HTTPException(404, f"Titre inconnu : {titre}")
+        notees = {r["date"]: float(r["cours"]) for r in conn.execute(
+            "SELECT date, cours FROM bourse_prix_historique WHERE titre = %s AND source = 'auto'", (titre,)).fetchall()}
+        ecart = premier_ecart(importees, notees, ECART_IMPORT_COURS_MAX)
+        if ecart:
+            d, importee, notee = ecart
+            raise HTTPException(400, f"Le {d.strftime('%d/%m/%Y')}, le fichier donne {_nombre_fr(importee)} mais la clôture "
+                                     f"notée de {titre} était {_nombre_fr(notee)} : ce fichier n'est sans doute pas celui de ce titre.")
+        nouvelles = {d: v for d, v in importees.items() if d not in notees}
+        with conn.cursor() as cur:
+            cur.executemany("""INSERT INTO bourse_prix_historique (titre, date, cours, manuel, source)
+                               VALUES (%s, %s, %s, false, 'import')
+                               ON CONFLICT (titre, date) DO UPDATE SET cours = EXCLUDED.cours
+                               WHERE bourse_prix_historique.source = 'import'""",
+                            [(titre, d, v) for d, v in nouvelles.items()])
+    return {"importees": len(nouvelles), "deja_notees": len(importees) - len(nouvelles),
+            "debut": min(importees), "fin": max(importees)}
+
+
+@router.delete("/historique/{titre}/import", status_code=204)
+def supprimer_cours_importes(titre: str):
+    """Retire les cours importés d'un titre (mauvais fichier) ; les clôtures notées le soir restent."""
+    with db() as conn:
+        conn.execute("DELETE FROM bourse_prix_historique WHERE titre = %s AND source = 'import'", (titre.strip().upper(),))
 
 
 # ---------------------------------------------------------------- dividendes

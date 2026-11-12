@@ -125,10 +125,7 @@ def ecart_import(importees: dict, notees: dict) -> Optional[tuple]:
     """Première date commune où une valeur importée s'écarte de plus de 5 % de la valeur notée
     automatiquement : (date, importée, notée). Sert à refuser le fichier d'un autre indice
     (MASI à la place de MASI Rentabilité Net, par exemple)."""
-    for d in sorted(set(importees) & set(notees)):
-        if abs(importees[d] - notees[d]) > ECART_IMPORT_MAX * notees[d]:
-            return d, importees[d], notees[d]
-    return None
+    return bourse.premier_ecart(importees, notees, ECART_IMPORT_MAX)
 
 
 # ---------------------------------------------------------------- données

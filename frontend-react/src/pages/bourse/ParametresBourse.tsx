@@ -9,6 +9,7 @@ import { useEcriture, useJoursFeries, useTitres } from '../../lib/queries';
 import { IconBuildingSkyscraper, IconReceiptTax } from '@tabler/icons-react';
 import { ChampDate } from '../../components/champs';
 import { IndicesSuivis } from './Comparaison';
+import { CoursPassesTitres } from './CoursPasses';
 import { BoutonSuppr, Carte, Chargement, confirmer, Info, Pastille, Vide } from '../../components/ui';
 
 /** Jours où la Bourse est fermée : aucun cours de clôture n'est noté (les week-ends non plus) */
@@ -128,6 +129,8 @@ export function ParametresBourse() {
           </Info>
         </Stack>
       </Carte>
+
+      <CoursPassesTitres />
 
       <IndicesSuivis />
 

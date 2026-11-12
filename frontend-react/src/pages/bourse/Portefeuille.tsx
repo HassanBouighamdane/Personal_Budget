@@ -11,13 +11,14 @@ import { dateFr, decalerMois, fmt, jjmm, jjmmaa, libelleMois } from '../../lib/f
 import { C, regrouperAutres, signe, T } from '../../lib/palette';
 import type { CoursEnRetard, Position } from '../../lib/types';
 import {
-  useActualiserCours, useCibles, useCoursEnRetard, useDashboardBourse, useEcriture, useGains, useHistoriquePortefeuille, useHistoriqueTitre,
+  useActualiserCours, useCibles, useCoursEnRetard, useCouvertureCours, useDashboardBourse, useEcriture, useGains, useHistoriquePortefeuille, useHistoriqueTitre,
   usePositions,
 } from '../../lib/queries';
 import { Donut, Graphique, optionsSeries } from '../../components/Graphique';
 import { Carte, Chargement, Grille2, GrilleKpi, Info, Kpi, Tableau, ThTri, TitreSection, useTri, Vide } from '../../components/ui';
 import type { NavBourse, PeriodeBourse } from './Bourse';
 import { CarteComparaison } from './Comparaison';
+import { ouvrirImportCours } from './CoursPasses';
 
 const pctFr = (v: number) => (v * 100).toFixed(2) + ' %';
 
@@ -250,6 +251,8 @@ function HistoriqueCours({ titres }: { titres: string[] }) {
   const jours = periode === 'tout' ? null : Number(periode);
   const portefeuille = useHistoriquePortefeuille(jours);
   const unTitre = useHistoriqueTitre(titre ?? '', jours);
+  const { data: couverture } = useCouvertureCours();
+  const aImporter = (couverture ?? []).filter(t => t.detenu && !(t.debut && t.debut <= t.premier_achat));
   const enCours = titre ? unTitre : portefeuille;
   const points: { date: string; y: number; y2?: number }[] = titre
     ? (unTitre.data?.points ?? []).map(p => ({ date: p.date, y: p.cours }))
@@ -294,6 +297,16 @@ function HistoriqueCours({ titres }: { titres: string[] }) {
                                 borderDash: [5, 4], borderWidth: 1.5, tension: 0, pointRadius: 0 }]),
           ],
         } as ChartData} />
+      )}
+      {!enCours.isPending && aImporter.length > 0 && (
+        <Group justify="space-between" gap="xs" mt="sm">
+          <Text size="xs" c="dimmed" style={{ flex: '1 1 220px' }}>
+            Les cours d'avant le début de l'historique manquent pour {aImporter.map(t => t.titre).join(', ')} : importe-les pour remonter jusqu'au premier achat.
+          </Text>
+          <Button size="compact-sm" variant="light" onClick={() => ouvrirImportCours(titre && aImporter.some(t => t.titre === titre) ? titre : aImporter[0].titre, couverture ?? [])}>
+            Importer des cours passés
+          </Button>
+        </Group>
       )}
     </Carte>
   );

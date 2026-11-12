@@ -468,4 +468,7 @@ export type Comparaison = {
   toi: { valeur: number; rendement: number | null }; reference: { valeur: number; rendement: number | null } | null;
   ecart: number | null; points: { date: string; indice: number; toi: number }[];
 };
-export type ResultatImportIndice = { importees: number; deja_notees: number; debut: string; fin: string };
+/** Cours connus d'un titre déjà acheté (clôtures du soir et cours importés), et son premier achat à couvrir */
+export type CouvertureTitre = {
+  titre: string; premier_achat: string; detenu: boolean; nb: number; nb_import: number; debut: string | null; fin: string | null;
+};

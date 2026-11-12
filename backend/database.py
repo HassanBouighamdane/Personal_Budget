@@ -753,6 +753,10 @@ def init_db():
             manuel  BOOLEAN NOT NULL DEFAULT false,
             PRIMARY KEY (titre, date)
         );
+        -- 'import' : cours passé importé d'un fichier (historique de la Bourse de Casablanca) ; une
+        -- clôture notée le soir ('auto') n'est jamais remplacée par une valeur importée
+        ALTER TABLE bourse_prix_historique ADD COLUMN IF NOT EXISTS source VARCHAR(10) NOT NULL DEFAULT 'auto'
+            CHECK (source IN ('auto', 'import'));
         -- Jours fériés à date variable (fêtes religieuses, fixées à l'observation de la lune) : la
         -- Bourse est fermée, aucun cours n'est noté. Les fêtes à date fixe sont dans bourse.FERIES_FIXES.
         CREATE TABLE IF NOT EXISTS bourse_jours_feries (
