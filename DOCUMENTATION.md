@@ -4,7 +4,7 @@ Application web personnelle pour suivre son budget (dépenses, revenus, épargne
 
 - **Backend** : Python, FastAPI, PostgreSQL (driver `psycopg` v3, pool `psycopg_pool`)
 - **Frontend** : React 19 + TypeScript, compilé avec Vite. Interface Mantine, données via TanStack Query, graphiques Chart.js (react-chartjs-2)
-- **Déploiement** : un seul serveur. FastAPI sert à la fois l'API (`/api/...`) et le frontend compilé (`frontend-react/dist/`, sur `/`). Node.js ne sert qu'à développer et compiler, jamais en production.
+- **Déploiement** : un seul serveur. FastAPI sert à la fois l'API (`/api/...`) et le frontend compilé (`frontend-react/dist/`, sur `/`). Node.js ne sert qu'à développer et compiler, jamais à l'exécution : Vercel construit `dist/` à chaque déploiement.
 
 ---
 
@@ -65,7 +65,7 @@ Personal_Budget/
 ├── frontend-react/         Frontend React (voir §7)
 │   ├── src/                Code source TypeScript
 │   ├── public/             Favicons (copiés tels quels dans dist/)
-│   ├── dist/               Build de production servi par FastAPI (généré par npm run build)
+│   ├── dist/               Build de production servi par FastAPI (généré par npm run build, non versionné)
 │   ├── package.json        Dépendances et scripts npm
 │   └── vite.config.ts      Build + proxy /api vers FastAPI en développement
 ├── frontend/               Ancien frontend HTML/JS : servi seulement si frontend-react/dist/ n'existe pas
@@ -155,13 +155,13 @@ npm run dev          # http://localhost:5173, rechargement à chaud
 
 Le backend doit tourner en parallèle sur le port 8500 : Vite lui redirige les appels `/api` (même origine pour le navigateur, donc cookie de session et CORS inchangés).
 
-Après une modification, recompiler puis committer `frontend-react/dist/` :
+Pour voir une modification servie par le backend (port 8500) :
 
 ```bash
 npm run build        # vérifie les types (tsc) puis produit dist/
 ```
 
-`dist/` est versionné exprès : le serveur de production n'a ainsi besoin que de Python.
+`dist/` n'est pas versionné (`.gitignore`) : chaque build changeait le nom du bundle et créait des conflits de fusion. Vercel le construit à chaque déploiement : `[tool.vercel.scripts] build` dans `pyproject.toml` lance `backend/construire_frontend.py` (`npm ci --include=dev` puis `npm run build`), après l'installation des paquets Python. Le même script sert en local : `lancer_budget.bat` / `.sh` l'appellent si `dist/index.html` manque. Ne pas définir de « Build Command » dans Vercel (tableau de bord ou `vercel.json`) : elle remplacerait ce script (`tests/test_deploiement.py` vérifie `vercel.json`).
 
 ### Tests
 
@@ -215,13 +215,27 @@ with db() as c:
 | `creer_session(uid)` | Génère un jeton aléatoire, l'enregistre dans `sessions` avec sa date d'expiration et purge les sessions expirées. |
 | `supprimer_session(token)` | Déconnexion. |
 | `utilisateur_courant(session=Cookie)` | **Dépendance FastAPI** qui protège toutes les routes : vérifie le cookie `session` en base et renvoie `{id, nom}`, sinon erreur **401**. |
-| `LimiteurEchecs` / `limiteur_login` | Anti force brute : après **10 échecs en 15 minutes** pour un même nom d'utilisateur (casse et espaces ignorés), les tentatives sont refusées (**429**) pendant 15 minutes, même avec le bon mot de passe. Une réussite remet le compteur à zéro. Protège aussi la vérification du mot de passe actuel lors d'un changement. |
+| `LimiteurEchecs` / `limiteur_login` | Anti force brute : après **10 échecs en 15 minutes** pour un même nom d'utilisateur (casse et espaces ignorés), les tentatives sont refusées (**429**) pendant 15 minutes, même avec le bon mot de passe. Une réussite remet le compteur à zéro. Protège aussi la vérification du mot de passe actuel lors d'un changement. Les échecs sont gardés en base (`echecs_login`, seulement ceux de la fenêtre en cours) : le compteur est partagé par toutes les instances Vercel et survit aux redémarrages. |
 
 Le cookie de session est `HttpOnly` (inaccessible au JavaScript), `SameSite=Lax` (protection de base contre le CSRF), et `Secure` si `COOKIE_SECURE=true`.
+
+**En-têtes de sécurité** (middleware `entetes_securite` dans `app.py`, sur toutes les réponses) :
+
+| En-tête | Valeur | Rôle |
+|---|---|---|
+| `Content-Security-Policy` | `default-src 'self'` ; scripts : le bundle et le petit script de thème de `index.html`, autorisé par son empreinte sha256 calculée au démarrage ; styles en ligne (Mantine) et Google Fonts ; images `https:` (couvertures de livres) ; `frame-ancestors 'none'` | un script injecté ne s'exécute pas, l'application ne peut pas être affichée dans un cadre |
+| `X-Frame-Options` | `DENY` | même protection pour les anciens navigateurs |
+| `X-Content-Type-Options` | `nosniff` | le navigateur respecte le type annoncé d'un fichier |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | les adresses internes (`#/dashboard/...`) ne partent pas vers d'autres sites |
+| `Permissions-Policy` | caméra, micro, position et paiement coupés | |
+
+La documentation interactive (`/docs`, `/redoc`, `/openapi.json`) n'a pas de CSP : elle charge ses scripts depuis un CDN. Vercel ajoute lui-même `Strict-Transport-Security`. Si `index.html` reçoit un nouveau script en ligne, son empreinte est prise en compte au démarrage suivant, sans rien modifier.
 
 ### 3.4 `schemas.py` — modèles Pydantic
 
 Ces modèles valident automatiquement les données reçues. En cas d'échec, FastAPI renvoie une erreur 422.
+
+Limites communes (types `Nom`, `Libelle`, `Description`, `Montant`... en tête du fichier) : les espaces autour d'un texte sont retirés **avant** de vérifier sa longueur, donc un nom fait d'espaces est refusé. Noms : 100 caractères, codes de titre : 60, libellés : 200, descriptions : 500, notes et commentaires : 2 000 à 5 000. Montants : au plus 10 milliards de DH (`MONTANT_MAX`), cours d'un titre : 10 millions, 50 tags au plus avant nettoyage. Mot de passe : 200 caractères (jamais modifié, espaces compris).
 
 | Modèle | Utilisation | Contraintes |
 |---|---|---|
@@ -262,7 +276,7 @@ Ces modèles valident automatiquement les données reçues. En cas d'échec, Fas
 
 - `GET /api/categories` renvoie en une seule requête les catégories, les sources et l'objectif d'épargne.
 - Les `POST` réactivent un élément désactivé du même nom au lieu de provoquer une erreur d'unicité.
-- Les `PUT` (renommer) mettent à jour les lignes déjà saisies : `depenses.categorie` ou `revenus.source`.
+- Les `PUT` (renommer) mettent à jour les lignes déjà saisies (`depenses.categorie`, `revenus.source`) par la clé étrangère `ON UPDATE CASCADE`, sans code dans la route (voir « Clés étrangères » au §4).
 - Les `DELETE` désactivent l'élément (`actif=0`).
 - `PUT` et `DELETE` renvoient **404** si l'id n'existe pas.
 
@@ -314,8 +328,9 @@ Script manuel et **destructif** : supprime toutes les tables du module Bourse et
 | Table | Colonnes principales | Remarques |
 |---|---|---|
 | `categories` | `id`, `nom` UNIQUE, `budget`, `actif` | budget mensuel en DH |
-| `depenses` | `id`, `date` TEXT, `categorie` TEXT, `description`, `montant`, `paiement`, `cree_le` | catégorie stockée par son nom ; `paiement` n'est plus utilisée (conservée pour l'historique) |
-| `revenus` | `id`, `date` TEXT, `source`, `description`, `montant`, `cree_le` | source stockée par son nom |
+| `depenses` | `id`, `date` TEXT, `categorie` TEXT, `description`, `montant`, `paiement`, `cree_le` | catégorie stockée par son nom (clé étrangère vers `categories.nom`) ; `paiement` n'est plus utilisée (conservée pour l'historique) |
+| `revenus` | `id`, `date` TEXT, `source`, `description`, `montant`, `cree_le` | source stockée par son nom (clé étrangère vers `sources_revenus.nom`), NULL sans source ; une source libre (« Autre… ») est ajoutée aux sources comme retirée |
+| `echecs_login` | `id`, `cle`, `le` | échecs de mot de passe de la fenêtre en cours (anti force brute, §3.3) |
 | `sources_revenus` | `id`, `nom` UNIQUE, `actif` | |
 | `paiements` | `id`, `nom` UNIQUE, `actif` | n'est plus utilisée (conservée pour l'historique) |
 | `params` | `cle` PK, `valeur` | contient `objectif_epargne` |
@@ -331,7 +346,9 @@ Index : `depenses(date)`, `revenus(date)`.
 | `bourse_parametres` | `taux_tpcvm`, `cours_auto_le` | une seule ligne ; `cours_auto_le` date la dernière récupération automatique des cours |
 | `bourse_transactions` | `date_operation` DATE, `titre`, `isin`, `type_instrument`, `type_operation`, `quantite`, `cours_unitaire`, `autres_frais` | contraintes `CHECK` sur les types et les quantités |
 | `bourse_prix` | `titre` PK, `cours_actuel`, `maj_le`, `manuel` | un seul cours par titre, sans historique ; `manuel` = saisi à la main, non écrasé par les cours automatiques |
-| `bourse_titres` | `code` UNIQUE, `nom`, `secteur`, `isin`, `actif` | référentiel BVC ; l'ISIN rapproche le titre de la source de cours de secours |
+| `bourse_titres` | `code` UNIQUE, `nom`, `secteur`, `isin`, `actif` | référentiel BVC ; l'ISIN rapproche le titre de la source de cours de secours ; `titre` des transactions, dividendes, cours et cours passés y fait référence (clé étrangère) |
+
+**Clés étrangères** (`database.CLES_ETRANGERES`). `depenses.categorie` → `categories.nom`, `revenus.source` → `sources_revenus.nom`, et le `titre` de `bourse_transactions`, `bourse_dividendes`, `bourse_prix` et `bourse_cours_historique` → `bourse_titres.code`, toutes `ON UPDATE CASCADE` : renommer une catégorie, une source ou un code renomme les lignes qui y font référence, et la base refuse un nom inconnu, même écrit hors de l'application. Une catégorie, une source ou un titre n'est jamais supprimé, seulement retiré (`actif = 0`). La violation d'une clé devient une erreur **400** lisible (`references_valides()` dans les routes, et un gestionnaire global dans `app.py` en filet de sécurité). Lors de la pose des clés, chaque nom orphelin déjà saisi a été ajouté comme élément retiré, sans rien perdre.
 | `bourse_dividendes` | `date_operation`, `titre`, `montant` | montant net reçu |
 | `bourse_frais` | `date_operation`, `libelle`, `montant` | abonnement courtier, tenue de compte, droits de garde… |
 | `bourse_mouvements` | `date_operation`, `type_mouvement` (Apport / Retrait), `montant`, `libelle` | transferts banque ↔ compte Bourse |
@@ -612,10 +629,10 @@ Une migration toucherait toutes les requêtes de `rapports.py` et `transactions.
 La TPCVM saisie sur une vente est retirée du montant encaissé : l'application suppose que l'intermédiaire la retient à la source. Le prix de vente doit donc être saisi AVANT TPCVM, sinon elle est déduite deux fois et les espèces paraissent trop basses.
 
 **3. Couverture des tests**
-Les tests (`backend/tests/`, un fichier par module) couvrent les calculs Bourse et le TRI, les rapports du Budget (projection, charges fixes, comparaisons au mois précédent et à l'an dernier, statistiques annuelles), le Suivi, les objectifs d'épargne, le patrimoine, les rappels, les sauvegardes et le déploiement. L'authentification, la limitation des connexions et la vue Globale n'ont pas de tests automatisés. Ils tournent sur la base de `backend/.env` (données préfixées `ZZTEST` ou datées de 1901).
+Les tests (`backend/tests/`, un fichier par module) couvrent les calculs Bourse et le TRI, les rapports du Budget (projection, charges fixes, comparaisons au mois précédent et à l'an dernier, statistiques annuelles), le Suivi, les objectifs d'épargne, le patrimoine, les rappels, les sauvegardes et le déploiement. La limitation des connexions, les en-têtes de sécurité et les limites des saisies sont testés (`test_securite.py`) ; l'authentification et la vue Globale n'ont pas de tests automatisés. Ils tournent sur la base de `backend/.env` (données préfixées `ZZTEST` ou datées de 1901).
 
-**4. Limitation des connexions en mémoire**
-Le compteur d'échecs est remis à zéro au redémarrage et propre à chaque processus serveur. Le blocage se fait par nom d'utilisateur (l'adresse IP n'est pas fiable derrière le proxy de l'hébergeur) : quelqu'un qui connaît le nom d'utilisateur peut bloquer la connexion pendant 15 minutes.
+**4. Limitation des connexions par nom d'utilisateur**
+Le blocage se fait par nom d'utilisateur (l'adresse IP n'est pas fiable derrière le proxy de l'hébergeur) : quelqu'un qui connaît le nom d'utilisateur peut bloquer la connexion pendant 15 minutes.
 
 **5. Dossier `frontend-react/src/lib/`**
 La règle Python `lib/` du `.gitignore` excluait ce dossier, qui n'a jamais été versionné. Il a été reconstruit à partir du build de production, et une exception `!frontend-react/src/lib/` a été ajoutée au `.gitignore`.

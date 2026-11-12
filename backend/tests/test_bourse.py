@@ -42,7 +42,7 @@ def _nettoyer():
 @pytest.fixture(autouse=True)
 def isolation():
     _nettoyer()
-    # Le titre de test doit exister dans la liste des titres (cf. _valider_titre)
+    # Le titre de test doit exister dans la liste des titres (clé étrangère fk_bourse_transactions_titre)
     with db() as c:
         c.execute("INSERT INTO bourse_titres(code, nom) VALUES (%s, 'Titre de test')", (TITRE_TEST,))
     yield

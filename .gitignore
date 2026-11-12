@@ -11,8 +11,8 @@ __pycache__/
 build/
 develop-eggs/
 dist/
-# Build du frontend React : versionné exprès, le serveur de production n'a besoin que de Python
-!frontend-react/dist/
+# Le build du frontend React (frontend-react/dist) n'est plus versionné : Vercel le construit à
+# chaque déploiement (backend/construire_frontend.py), lancer_budget le construit s'il manque.
 downloads/
 eggs/
 .eggs/

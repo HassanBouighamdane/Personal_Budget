@@ -114,7 +114,7 @@ def resume_jour(date: str):
                           "GROUP BY categorie ORDER BY t DESC", (date,)).fetchall()
         dep = c.execute("SELECT id,categorie,description,montant FROM depenses "
                         "WHERE date=%s ORDER BY id DESC", (date,)).fetchall()
-        rev = c.execute("SELECT id,source,COALESCE(description,'') description,montant FROM revenus WHERE date=%s ORDER BY id DESC",
+        rev = c.execute("SELECT id,COALESCE(source,'') source,COALESCE(description,'') description,montant FROM revenus WHERE date=%s ORDER BY id DESC",
                         (date,)).fetchall()
 
         cats = _categories(c, date[:7])

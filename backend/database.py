@@ -2,7 +2,9 @@
 """Accès à la base PostgreSQL : connexion et initialisation du schéma."""
 from contextlib import contextmanager
 
+from fastapi import HTTPException
 from psycopg import sql
+from psycopg.errors import ForeignKeyViolation
 from psycopg.rows import dict_row
 from psycopg_pool import ConnectionPool
 
@@ -156,6 +158,32 @@ def db():
         yield conn
         conn.commit()
 
+# Message renvoyé quand une écriture vise un nom absent de la table parente (CLES_ETRANGERES)
+MESSAGES_CLES = {
+    "fk_depenses_categorie": "Catégorie inconnue : choisis-la dans la liste (Paramètres → Catégories).",
+    "fk_revenus_source": "Source de revenu inconnue.",
+    "fk_bourse_transactions_titre": "Titre inconnu. Ajoute-le d'abord dans Bourse > Paramètres > Titres.",
+    "fk_bourse_dividendes_titre": "Titre inconnu. Ajoute-le d'abord dans Bourse > Paramètres > Titres.",
+    "fk_bourse_prix_titre": "Titre inconnu. Ajoute-le d'abord dans Bourse > Paramètres > Titres.",
+    "fk_bourse_cours_historique_titre": "Titre inconnu. Ajoute-le d'abord dans Bourse > Paramètres > Titres.",
+}
+
+
+def message_cle_etrangere(e: ForeignKeyViolation) -> str:
+    nom = getattr(e.diag, "constraint_name", None) or ""
+    return MESSAGES_CLES.get(nom, "Référence inconnue ou encore utilisée ailleurs.")
+
+
+@contextmanager
+def references_valides():
+    """Traduit une clé étrangère violée en erreur 400 lisible. À placer AUTOUR de `db()` :
+    la connexion est d'abord remise en état (rollback), puis l'erreur est traduite."""
+    try:
+        yield
+    except ForeignKeyViolation as e:
+        raise HTTPException(400, message_cle_etrangere(e)) from None
+
+
 # Clé arbitraire du verrou PostgreSQL (pg_advisory_xact_lock) qui sérialise les migrations
 VERROU_MIGRATIONS = 4_815_162_342
 
@@ -229,6 +257,50 @@ def _colonnes_modifie_le(c):
         c.execute(sql.SQL("DROP TRIGGER IF EXISTS trg_modifie_le ON {}").format(table))
         c.execute(sql.SQL("CREATE TRIGGER trg_modifie_le BEFORE UPDATE ON {} "
                           "FOR EACH ROW EXECUTE FUNCTION maj_modifie_le()").format(table))
+
+
+# Noms utilisés comme référence (texte) dans d'autres tables : (table, colonne, table parente,
+# colonne parente, contrainte). ON UPDATE CASCADE : renommer une catégorie, une source ou un
+# code de titre renomme toutes les lignes qui y font référence, sans code dans les routes.
+CLES_ETRANGERES = (
+    ("depenses", "categorie", "categories", "nom", "fk_depenses_categorie"),
+    ("revenus", "source", "sources_revenus", "nom", "fk_revenus_source"),
+    ("bourse_transactions", "titre", "bourse_titres", "code", "fk_bourse_transactions_titre"),
+    ("bourse_dividendes", "titre", "bourse_titres", "code", "fk_bourse_dividendes_titre"),
+    ("bourse_prix", "titre", "bourse_titres", "code", "fk_bourse_prix_titre"),
+    ("bourse_cours_historique", "titre", "bourse_titres", "code", "fk_bourse_cours_historique_titre"),
+)
+
+
+def _cles_etrangeres(c):
+    """Pose les clés étrangères de CLES_ETRANGERES (une seule fois). Avant, chaque nom orphelin
+    (saisi avant ces contraintes : faute de frappe, source libre « Autre… », titre seulement présent
+    dans le journal) devient une ligne parente RETIRÉE (inactive), pour ne rien perdre."""
+    deja = {r["conname"] for r in c.execute("SELECT conname FROM pg_constraint WHERE contype = 'f'").fetchall()}
+    if all(fk[4] in deja for fk in CLES_ETRANGERES):
+        return
+    # Un code de titre doit pouvoir porter n'importe quel titre déjà saisi (VARCHAR(60) dans le journal)
+    c.execute("ALTER TABLE bourse_titres ALTER COLUMN code TYPE VARCHAR(60)")
+    # Revenu sans source : NULL (une clé étrangère n'accepte pas '' sans source '' en face)
+    c.execute("UPDATE revenus SET source = NULL WHERE trim(source) = ''")
+    c.execute("ALTER TABLE revenus ALTER COLUMN source DROP DEFAULT")
+    c.execute("""INSERT INTO categories(nom, budget, actif)
+                 SELECT DISTINCT categorie, 0, 0 FROM depenses ON CONFLICT (nom) DO NOTHING""")
+    # travail = false : une source libre ne comptait pas dans le taux horaire, elle n'y compte toujours pas
+    c.execute("""INSERT INTO sources_revenus(nom, actif, travail)
+                 SELECT DISTINCT source, 0, false FROM revenus WHERE source IS NOT NULL ON CONFLICT (nom) DO NOTHING""")
+    c.execute("""INSERT INTO bourse_titres(code, nom, actif)
+                 SELECT titre, titre, 0 FROM (SELECT titre FROM bourse_transactions UNION SELECT titre FROM bourse_dividendes
+                                              UNION SELECT titre FROM bourse_prix UNION SELECT titre FROM bourse_cours_historique) t
+                 ON CONFLICT (code) DO NOTHING""")
+    for table, colonne, parente, cle, nom in CLES_ETRANGERES:
+        if nom not in deja:
+            c.execute(sql.SQL("ALTER TABLE {} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({}) ON UPDATE CASCADE").format(
+                sql.Identifier(table), sql.Identifier(nom), sql.Identifier(colonne), sql.Identifier(parente), sql.Identifier(cle)))
+    # Index côté enfant : une cascade de renommage ne parcourt pas toute la table
+    c.execute("CREATE INDEX IF NOT EXISTS idx_depenses_categorie ON depenses (categorie)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_revenus_source ON revenus (source)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_bourse_tx_titre ON bourse_transactions (titre)")
 
 
 def init_db():
@@ -361,7 +433,7 @@ def init_db():
 
         CREATE TABLE IF NOT EXISTS bourse_titres (
             id      SERIAL PRIMARY KEY,
-            code    VARCHAR(15) UNIQUE NOT NULL,
+            code    VARCHAR(60) UNIQUE NOT NULL,
             nom     VARCHAR(100) NOT NULL,
             secteur VARCHAR(100) DEFAULT '',
             actif   INTEGER NOT NULL DEFAULT 1
@@ -598,6 +670,15 @@ def init_db():
         -- Un vrai point du jour le remplace toujours.
         ALTER TABLE patrimoine_historique ADD COLUMN IF NOT EXISTS estime BOOLEAN NOT NULL DEFAULT false;
 
+        -- Échecs de mot de passe récents (anti force brute, cf. securite.LimiteurEchecs) : en base,
+        -- pour être partagés par toutes les instances Vercel et survivre aux redémarrages
+        CREATE TABLE IF NOT EXISTS echecs_login (
+            id   SERIAL PRIMARY KEY,
+            cle  VARCHAR(200) NOT NULL,
+            le   TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_echecs_login_cle ON echecs_login (cle, le);
+
         -- Cours passés saisis à la main (relevés de fin de mois du courtier) : servent à la
         -- reconstitution de la courbe du patrimoine, à la place du dernier cours d'achat ou de vente.
         CREATE TABLE IF NOT EXISTS bourse_cours_historique (
@@ -688,6 +769,7 @@ def init_db():
                 cur.executemany("INSERT INTO categories(nom,budget,fixe) VALUES(%s,%s,%s)", CATEGORIES_DEFAUT)
             if c.execute("SELECT COUNT(*) n FROM sources_revenus").fetchone()["n"] == 0:
                 cur.executemany("INSERT INTO sources_revenus(nom, travail) VALUES(%s,%s)", SOURCES_DEFAUT)
+        _cles_etrangeres(c)
         # Historique des budgets : une catégorie sans historique (base antérieure) reçoit son budget
         # actuel « depuis toujours » ; une catégorie déjà désactivée, 0 (comme avant, elle ne compte plus).
         c.execute("""INSERT INTO budgets_historique(categorie_id, mois_debut, budget, fixe)

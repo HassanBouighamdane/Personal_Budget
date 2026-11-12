@@ -53,7 +53,7 @@ Application web personnelle pour gérer et suivre son budget au quotidien, avec 
 | Base de données | PostgreSQL (`psycopg` v3) |
 | Frontend | React 19, TypeScript, Vite, Mantine, TanStack Query, Chart.js |
 
-Le backend sert aussi le frontend compilé (`frontend-react/dist/`) : un seul serveur suffit, et Node.js n'est nécessaire que pour modifier le frontend.
+Le backend sert aussi le frontend compilé (`frontend-react/dist/`) : un seul serveur suffit. `dist/` n'est pas versionné : Node.js sert à le construire (Vercel le fait à chaque déploiement, `lancer_budget` au premier lancement local).
 
 ## Installation
 
@@ -98,14 +98,14 @@ Nécessite Node.js 20 ou plus récent.
 cd frontend-react
 npm install
 npm run dev      # http://localhost:5173 (le backend doit tourner sur le port 8500)
-npm run build    # à relancer après chaque modification, puis committer dist/
+npm run build    # pour voir une modification sur le port 8500 ; dist/ n'est pas versionné
 ```
 
 ## Déploiement
 
 L'application est hébergée sur Vercel (offre gratuite Hobby), avec une base PostgreSQL Neon : voir [DEPLOY_VERCEL.md](DEPLOY_VERCEL.md). Vercel lit `pyproject.toml` (dépendances et point d'entrée) et `vercel.json` (tâche planifiée du matin) à la racine ; `backend/requirements.txt` ne sert qu'en local et doit lister les mêmes paquets (vérifié par `tests/test_deploiement.py`).
 
-Pense à définir `COOKIE_SECURE=true` en production (HTTPS). Le frontend compilé (`frontend-react/dist/`) est versionné : relance `npm run build` et committe `dist/` avant de pousser une modification du frontend.
+Pense à définir `COOKIE_SECURE=true` en production (HTTPS). Le frontend est construit par Vercel à chaque déploiement (`[tool.vercel.scripts]` dans `pyproject.toml`, qui lance `backend/construire_frontend.py` : `npm ci` puis `npm run build`) : il suffit de pousser les sources.
 
 ## Structure du projet
 
@@ -119,7 +119,7 @@ backend/
   routes/           auth, configuration, transactions, rapports, bourse, lectures, carnet, objectifs, patrimoine, rappels
 frontend-react/
   src/              code React (pages, composants, appels API)
-  dist/             build de production servi par FastAPI
+  dist/             build de production servi par FastAPI (généré, non versionné)
 ```
 
 ## Documentation

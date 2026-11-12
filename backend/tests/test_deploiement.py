@@ -29,6 +29,16 @@ def test_point_d_entree_vercel():
     assert (RACINE / (module.replace(".", "/") + ".py")).exists() and variable == "app"
 
 
+def test_le_frontend_est_construit_au_deploiement():
+    """dist/ n'est plus versionné : Vercel doit le construire, par le script de pyproject.toml,
+    et aucune « buildCommand » de vercel.json ne doit le remplacer."""
+    import json
+    config = tomllib.loads((RACINE / "pyproject.toml").read_text(encoding="utf-8"))
+    script = config["tool"]["vercel"]["scripts"]["build"].split()
+    assert script[0] == "python" and (RACINE / script[1]).exists()
+    assert "buildCommand" not in json.loads((RACINE / "vercel.json").read_text(encoding="utf-8"))
+
+
 def test_demarrage_ne_consomme_pas_de_numeros_de_colonnes():
     """init_db tourne à chaque démarrage à froid : une colonne ajoutée puis supprimée à chaque
     passage garde son numéro, et la table finit bloquée à la limite PostgreSQL de 1600 colonnes."""

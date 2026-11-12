@@ -26,7 +26,7 @@ from routes.configuration import (
 )
 from routes.transactions import (
     ajouter_depense, modifier_depense, supprimer_depense,
-    ajouter_revenu, modifier_revenu, supprimer_revenu,
+    ajouter_revenu, modifier_revenu, supprimer_revenu, transactions,
 )
 
 PREFIXE = "ZZTEST"
@@ -373,3 +373,35 @@ def test_categorie_desactivee_garde_son_budget_dans_les_mois_passes():
 def test_nouvelle_categorie_sans_budget_dans_le_passe():
     cat = _categorie(budget=100)                                  # à partir du mois en cours
     assert not any(b["cat"] == cat for b in calculer_resume("1901-05", date(1902, 1, 1))["budget_vs_reel"])
+
+
+# ---------------------------------------------------------------------------
+# Clés étrangères (database.CLES_ETRANGERES)
+# ---------------------------------------------------------------------------
+def test_une_source_libre_devient_une_source_retiree():
+    """« Autre… » dans le formulaire : la source est créée retirée (hors listes et hors taux
+    horaire), pour respecter la clé étrangère des revenus."""
+    ajouter_revenu(RevenuIn(date="2026-01-15", source=PREFIXE + "Libre", montant=10))
+    with db() as c:
+        s = c.execute("SELECT actif, travail FROM sources_revenus WHERE nom=%s", (PREFIXE + "Libre",)).fetchone()
+    assert s["actif"] == 0 and s["travail"] is False
+
+
+def test_un_revenu_sans_source_est_enregistre_sans_source():
+    rid = ajouter_revenu(RevenuIn(date="1901-01-15", source="  ", description=PREFIXE, montant=10))["id"]
+    try:
+        with db() as c:
+            assert c.execute("SELECT source FROM revenus WHERE id=%s", (rid,)).fetchone()["source"] is None
+        lignes = transactions("1901-01")["revenus"]
+        assert [r["source"] for r in lignes if r["id"] == rid] == [""]   # l'API renvoie toujours un texte
+    finally:
+        with db() as c:
+            c.execute("DELETE FROM revenus WHERE id=%s", (rid,))
+
+
+def test_la_base_refuse_une_depense_sans_categorie_existante():
+    """Même en écrivant directement en base (hors de l'application)."""
+    from psycopg.errors import ForeignKeyViolation
+    with pytest.raises(ForeignKeyViolation):
+        with db() as c:
+            c.execute("INSERT INTO depenses(date, categorie, montant) VALUES('2026-01-15', %s, 1)", (PREFIXE + "Fantome",))

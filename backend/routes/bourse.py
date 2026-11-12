@@ -36,7 +36,7 @@ from psycopg.errors import UniqueViolation
 
 from config import aujourdhui
 from cours_bvc import telecharger_cours
-from database import db
+from database import db, references_valides
 from securite import utilisateur_courant
 from routes.carnet import ajouter_mois
 from schemas import (
@@ -174,13 +174,8 @@ def modifier_titre(titre_id: int, t: TitreBourseIn):
                    RETURNING id, code, nom, secteur, isin""",
                 (nouveau_code, t.nom.strip(), t.secteur.strip(), _isin(t.isin), titre_id),
             ).fetchone()
-            if nouveau_code != ancien["code"]:
-                # Le code sert de clé de rapprochement (texte libre) dans les transactions,
-                # dividendes et cours actuels — le renommer les détacherait sinon.
-                conn.execute("UPDATE bourse_transactions SET titre = %s WHERE titre = %s", (nouveau_code, ancien["code"]))
-                conn.execute("UPDATE bourse_dividendes SET titre = %s WHERE titre = %s", (nouveau_code, ancien["code"]))
-                conn.execute("UPDATE bourse_prix SET titre = %s WHERE titre = %s", (nouveau_code, ancien["code"]))
-                conn.execute("UPDATE bourse_cours_historique SET titre = %s WHERE titre = %s", (nouveau_code, ancien["code"]))
+            # Transactions, dividendes et cours suivent le nouveau code : clés étrangères
+            # ON UPDATE CASCADE (database.CLES_ETRANGERES)
     except UniqueViolation:
         # Code déjà pris par un autre titre (ou cours déjà enregistré sous ce code)
         raise HTTPException(409, f"Le code « {nouveau_code} » est déjà utilisé par un autre titre")
@@ -245,22 +240,10 @@ def _valider_vente(conn, titre: str, date_operation, quantite: Decimal, exclude_
         )
 
 
-def _valider_titre(conn, titre: str):
-    """Le code doit être un titre de la liste (Paramètres > Titres), même retiré depuis, ou un
-    titre déjà présent dans le journal : sinon une faute de frappe créerait une position à part,
-    sans cours ni secteur."""
-    if not conn.execute(
-        """SELECT 1 FROM bourse_titres WHERE code = %s
-           UNION ALL SELECT 1 FROM bourse_transactions WHERE titre = %s LIMIT 1""",
-        (titre, titre),
-    ).fetchone():
-        raise HTTPException(400, f"Titre inconnu : « {titre} ». Ajoute-le d'abord dans Bourse > Paramètres > Titres.")
-
-
 @router.post("/transactions", response_model=TransactionBourseOut, status_code=201)
 def creer_transaction(t: TransactionBourseCreate):
-    with db() as conn:
-        _valider_titre(conn, t.titre.strip().upper())
+    # Le code doit être un titre de la liste (Paramètres > Titres), même retiré : clé étrangère
+    with references_valides(), db() as conn:
         if t.type_operation == "Vente":
             _valider_vente(conn, t.titre.strip().upper(), t.date_operation, _d(t.quantite))
         row = conn.execute(
@@ -280,12 +263,11 @@ def modifier_transaction(transaction_id: int, t: TransactionBourseCreate):
     """Modifie une transaction, à condition que l'historique reste cohérent : ni l'ancien titre
     (si elle en change) ni le nouveau ne doivent avoir une quantité détenue négative."""
     titre = t.titre.strip().upper()
-    with db() as conn:
+    with references_valides(), db() as conn:
         ancienne = conn.execute("SELECT titre, type_operation FROM bourse_transactions WHERE id = %s",
                                 (transaction_id,)).fetchone()
         if not ancienne:
             raise HTTPException(status_code=404, detail="Transaction introuvable")
-        _valider_titre(conn, titre)
         if ancienne["titre"] != titre and _historique_negatif(conn, ancienne["titre"], exclude_id=transaction_id):
             raise HTTPException(400, f"Modification refusée : des ventes de {ancienne['titre']} reposent sur cet achat.")
         if _historique_negatif(conn, titre, exclude_id=transaction_id,
@@ -323,7 +305,7 @@ def supprimer_transaction(transaction_id: int):
 def maj_prix(titre: str, p: PrixMaj):
     """Saisie manuelle : le cours est verrouillé (les cours automatiques ne l'écrasent plus)
     jusqu'à sa remise en automatique."""
-    with db() as conn:
+    with references_valides(), db() as conn:
         conn.execute(
             """INSERT INTO bourse_prix (titre, cours_actuel, maj_le, manuel)
                VALUES (%s, %s, now(), true)
@@ -486,7 +468,7 @@ def _valider_dividende(conn, titre: str, date_operation):
 @router.post("/dividendes", response_model=DividendeOut, status_code=201)
 def creer_dividende(d: DividendeCreate):
     titre = d.titre.strip().upper()
-    with db() as conn:
+    with references_valides(), db() as conn:
         _valider_dividende(conn, titre, d.date_operation)
         row = conn.execute(
             f"""INSERT INTO bourse_dividendes (date_operation, titre, montant)
@@ -500,7 +482,7 @@ def creer_dividende(d: DividendeCreate):
 @router.put("/dividendes/{dividende_id}", response_model=DividendeOut)
 def modifier_dividende(dividende_id: int, d: DividendeCreate):
     titre = d.titre.strip().upper()
-    with db() as conn:
+    with references_valides(), db() as conn:
         _valider_dividende(conn, titre, d.date_operation)
         row = conn.execute(
             f"UPDATE bourse_dividendes SET date_operation=%s, titre=%s, montant=%s WHERE id=%s RETURNING {DIV_COLONNES}",

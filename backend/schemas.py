@@ -3,7 +3,7 @@
 
 from datetime import date, datetime
 from typing import Annotated, List, Literal, Optional
-from pydantic import AfterValidator, BaseModel, Field, model_validator
+from pydantic import AfterValidator, BaseModel, Field, StringConstraints, model_validator
 
 
 def _valider_date_iso(v: str) -> str:
@@ -46,30 +46,51 @@ def _valider_tags(v: List[str]) -> List[str]:
 
 
 MoisISO = Annotated[Optional[str], AfterValidator(_valider_mois)]
-Tags = Annotated[List[str], AfterValidator(_valider_tags)]
+Tags = Annotated[List[str], Field(max_length=50), AfterValidator(_valider_tags)]
+
+# ---------------------------------------------------------------- limites des saisies
+# Les espaces autour sont retirés AVANT de vérifier la longueur : un nom fait d'espaces est
+# refusé (au lieu d'être enregistré vide), et une saisie ne peut pas remplir la base.
+MONTANT_MAX = 1e10          # 10 milliards de DH : bien au-delà de tout montant réel
+
+
+def Texte(max_length: int, min_length: int = 0):
+    return Annotated[str, StringConstraints(strip_whitespace=True, min_length=min_length, max_length=max_length)]
+
+
+Nom = Texte(100, min_length=1)
+CodeTitre = Texte(60, min_length=1)
+Libelle = Texte(200)
+Description = Texte(500)
+TexteLong = Texte(5000)
+Montant = Annotated[float, Field(gt=0, le=MONTANT_MAX)]              # strictement positif
+MontantOuZero = Annotated[float, Field(ge=0, le=MONTANT_MAX)]
+Cours = Annotated[float, Field(ge=0, le=10_000_000)]                 # cours d'un titre, en DH
+# Mot de passe : jamais modifié (espaces compris), mais borné : PBKDF2 sur un texte énorme coûte cher
+MotDePasse = Annotated[str, Field(max_length=200)]
 
 
 class LoginIn(BaseModel):
-    utilisateur: str
-    mot_de_passe: str
+    utilisateur: Texte(100)
+    mot_de_passe: MotDePasse
     rester_connecte: bool = False   # session de 30 jours au lieu d'un seul
 
 class MdpIn(BaseModel):
-    actuel: str
-    nouveau: str = Field(min_length=6)
+    actuel: MotDePasse
+    nouveau: str = Field(min_length=6, max_length=200)
 
 class DepenseIn(BaseModel):
     date: DateISO
-    categorie: str
-    description: str = ""
-    montant: float = Field(gt=0)
+    categorie: Nom
+    description: Description = ""
+    montant: Montant
     tags: Tags = []
 
 class RevenuIn(BaseModel):
     date: DateISO
-    source: str = ""
-    description: str = ""
-    montant: float = Field(gt=0)
+    source: Texte(100) = ""          # vide : revenu sans source
+    description: Description = ""
+    montant: Montant
     tags: Tags = []
 
 class DepenseRestauree(DepenseIn):
@@ -83,9 +104,9 @@ class LigneImport(BaseModel):
     """Ligne d'un relevé importé : `nom` = catégorie (dépense) ou source (revenu)."""
     type: Literal["depense", "revenu"]
     date: DateISO
-    nom: str = ""
-    description: str = ""
-    montant: float = Field(gt=0)
+    nom: Texte(100) = ""
+    description: Description = ""
+    montant: Montant
     tags: Tags = []
 
 class ImportIn(BaseModel):
@@ -93,21 +114,21 @@ class ImportIn(BaseModel):
     simulation: bool = False    # true : statut de chaque ligne sans rien enregistrer (aperçu)
 
 class CategorieIn(BaseModel):
-    nom: str = Field(min_length=1)
-    budget: float = Field(ge=0)
+    nom: Nom
+    budget: MontantOuZero
     fixe: bool = False      # charge fixe (loyer, factures) : hors budget journalier/hebdo
     # Mois (AAAA-MM) à partir duquel le budget et « fixe » s'appliquent ; par défaut le mois en cours.
     # Les mois antérieurs gardent leur budget (cf. budgets_historique).
     a_partir_de: MoisISO = None
 
 class ObjectifIn(BaseModel):
-    objectif: float = Field(ge=0)
+    objectif: MontantOuZero
 
 class NomIn(BaseModel):
-    nom: str = Field(min_length=1)
+    nom: Nom
 
 class SourceIn(BaseModel):
-    nom: str = Field(min_length=1)
+    nom: Nom
     travail: Optional[bool] = None   # revenu du travail (taux horaire) ; None = inchangé
 
 class HeuresTravailIn(BaseModel):
@@ -125,15 +146,15 @@ class TransactionBourseCreate(BaseModel):
     """Achat/vente : prix déjà net (aucun frais n'est calculé automatiquement,
     saisis directement le prix auquel l'opération a réellement eu lieu)."""
     date_operation: date
-    titre: str
-    isin: Optional[str] = None
+    titre: CodeTitre
+    isin: Optional[str] = Field(default=None, max_length=20)
     type_instrument: TypeInstrument = "Action"
     type_operation: Literal["Achat", "Vente"]
-    quantite: float = Field(gt=0)
-    cours_unitaire: float = Field(ge=0)
-    autres_frais: float = Field(default=0, ge=0)   # frais ponctuel éventuel, saisi manuellement
-    tpcvm: float = Field(default=0, ge=0)          # TPCVM retenue sur une vente, saisie manuellement (ignorée pour un achat)
-    note: str = Field(default="", max_length=2000)  # pourquoi j'ai acheté / vendu
+    quantite: float = Field(gt=0, le=1e9)
+    cours_unitaire: Cours
+    autres_frais: MontantOuZero = 0   # frais ponctuel éventuel, saisi manuellement
+    tpcvm: MontantOuZero = 0          # TPCVM retenue sur une vente, saisie manuellement (ignorée pour un achat)
+    note: Texte(2000) = ""            # pourquoi j'ai acheté / vendu
 
 
 # Schéma de la partie Bourse pour l'API (sortie)
@@ -155,7 +176,7 @@ class TransactionBourseOut(BaseModel):
 
 
 class PrixMaj(BaseModel):
-    cours_actuel: float = Field(ge=0)
+    cours_actuel: Cours
 
 
 class TitreBourse(BaseModel):
@@ -167,12 +188,12 @@ class TitreBourse(BaseModel):
 
 
 class CibleSecteur(BaseModel):
-    secteur: str = Field(min_length=1, max_length=100)
+    secteur: Nom
     cible: float = Field(ge=0, le=1)      # part du portefeuille, 0,25 = 25 %
 
 
 class CiblesIn(BaseModel):
-    cibles: List[CibleSecteur]
+    cibles: List[CibleSecteur] = Field(max_length=100)
 
     @model_validator(mode="after")
     def _total(self):
@@ -184,10 +205,10 @@ class CiblesIn(BaseModel):
 
 
 class TitreBourseIn(BaseModel):
-    code: str = Field(min_length=1)
-    nom: str = Field(min_length=1)
-    secteur: str = ""
-    isin: Optional[str] = None      # rapproche le titre du flux de cours automatiques
+    code: CodeTitre
+    nom: Nom
+    secteur: Texte(100) = ""
+    isin: Optional[str] = Field(default=None, max_length=20)      # rapproche le titre du flux de cours automatiques
  
  
 class PositionBourse(BaseModel):
@@ -266,8 +287,8 @@ class DashboardBourse(BaseModel):
 class DividendeCreate(BaseModel):
     """Montant NET déjà reçu (après retenue à la source) — saisi directement, aucun calcul."""
     date_operation: date
-    titre: str
-    montant: float = Field(gt=0)
+    titre: CodeTitre
+    montant: Montant
 
 
 class DividendeOut(BaseModel):
@@ -281,8 +302,8 @@ class DividendeOut(BaseModel):
 class FraisBourseCreate(BaseModel):
     """Frais récurrents ou ponctuels indépendants d'une transaction (ex : abonnement courtier)."""
     date_operation: date
-    libelle: str = ""
-    montant: float = Field(gt=0)
+    libelle: Libelle = ""
+    montant: Montant
 
 
 class FraisBourseOut(BaseModel):
@@ -297,8 +318,8 @@ class MouvementBourseCreate(BaseModel):
     ni une dépense ni un revenu du Budget."""
     date_operation: date
     type_mouvement: Literal["Apport", "Retrait"]
-    montant: float = Field(gt=0)
-    libelle: str = ""
+    montant: Montant
+    libelle: Libelle = ""
 
 
 class MouvementBourseOut(BaseModel):
@@ -312,14 +333,14 @@ class MouvementBourseOut(BaseModel):
 # ---------------------------------------------------------------- Lectures
 class LivreIn(BaseModel):
     """Livre terminé. Seuls le titre et la date de fin sont obligatoires."""
-    titre: str = Field(min_length=1, max_length=200)
-    auteur: str = Field(default="", max_length=150)
-    genre: str = Field(default="", max_length=100)
+    titre: Texte(200, min_length=1)
+    auteur: Texte(150) = ""
+    genre: Texte(100) = ""
     date_debut: Optional[date] = None
     date_fin: date
-    pages: Optional[int] = Field(default=None, gt=0)
+    pages: Optional[int] = Field(default=None, gt=0, le=100_000)
     note: Optional[int] = Field(default=None, ge=1, le=5)
-    commentaire: str = ""
+    commentaire: TexteLong = ""
     isbn: str = Field(default="", max_length=20)
     couverture: str = Field(default="", max_length=500)    # URL de l'image (Open Library)
 
@@ -347,18 +368,19 @@ class LivreOut(BaseModel):
 
 class ALireIn(BaseModel):
     """Livre à lire ; `date_debut` renseignée = en cours de lecture."""
-    titre: str = Field(min_length=1, max_length=200)
-    auteur: str = Field(default="", max_length=150)
-    genre: str = Field(default="", max_length=100)
-    pages: Optional[int] = Field(default=None, gt=0)
+    titre: Texte(200, min_length=1)
+    auteur: Texte(150) = ""
+    genre: Texte(100) = ""
+    pages: Optional[int] = Field(default=None, gt=0, le=100_000)
     isbn: str = Field(default="", max_length=20)
     couverture: str = Field(default="", max_length=500)
-    commentaire: str = ""
+    commentaire: TexteLong = ""
     date_debut: Optional[date] = None
 
 
 class ALireOut(ALireIn):
     id: int
+    commentaire: str = ""     # sortie : pas de limite (un ancien commentaire plus long reste lisible)
     nb_notes: int = 0
     # Suivi de la lecture en cours (None tant qu'aucune page n'est notée)
     page_actuelle: Optional[int] = None
@@ -368,7 +390,7 @@ class ALireOut(ALireIn):
 
 
 class ProgressionIn(BaseModel):
-    page: int = Field(ge=0)
+    page: int = Field(ge=0, le=100_000)
 
 
 class PretLivreIn(BaseModel):
@@ -403,8 +425,8 @@ class NoteIn(BaseModel):
     livre_id: Optional[int] = None
     a_lire_id: Optional[int] = None
     type: Literal["note", "citation"] = "note"
-    texte: str = Field(min_length=1, max_length=5000)
-    page: Optional[int] = Field(default=None, gt=0)
+    texte: Texte(5000, min_length=1)
+    page: Optional[int] = Field(default=None, gt=0, le=100_000)
 
     @model_validator(mode="after")
     def _un_seul_livre(self):
@@ -429,8 +451,8 @@ class GenreOut(BaseModel):
 
 
 class ObjectifsLecture(BaseModel):
-    annuel: int = Field(ge=0)
-    mensuel: int = Field(ge=0)
+    annuel: int = Field(ge=0, le=10_000)
+    mensuel: int = Field(ge=0, le=1_000)
 
 
 # ---------------------------------------------------------------- Carnet : dettes et prêts
@@ -438,7 +460,7 @@ class DetteIn(BaseModel):
     """`pret` : j'ai prêté (on me doit) ; `emprunt` : j'ai emprunté (je dois)."""
     sens: Literal["pret", "emprunt"]
     personne: str = Field(min_length=1, max_length=100)
-    montant: float = Field(gt=0)
+    montant: Montant
     date_operation: date
     echeance: Optional[date] = None
     libelle: str = Field(default="", max_length=200)
@@ -455,7 +477,7 @@ class DetteIn(BaseModel):
 
 class RemboursementIn(BaseModel):
     date_operation: date
-    montant: float = Field(gt=0)
+    montant: Montant
     libelle: str = Field(default="", max_length=200)
 
 
@@ -569,8 +591,8 @@ class ActifIn(BaseModel):
     """Actif hors Bourse, à valeur saisie à la main."""
     nom: str = Field(min_length=1, max_length=100)
     type: str = Field(default="Autre", max_length=30)
-    valeur: float = Field(ge=0)
-    verse: float = Field(default=0, ge=0)
+    valeur: MontantOuZero
+    verse: MontantOuZero = 0
     zakat: bool = False
     maj_le: date
     note: str = Field(default="", max_length=1000)
@@ -584,8 +606,8 @@ class ActifIn(BaseModel):
 
 
 class ReglagesPatrimoine(BaseModel):
-    solde_depart: float = 0                 # argent détenu avant la première saisie (peut être négatif)
-    prix_or_gramme: float = Field(default=0, ge=0)
+    solde_depart: float = Field(default=0, ge=-MONTANT_MAX, le=MONTANT_MAX)   # argent détenu avant la première saisie (peut être négatif)
+    prix_or_gramme: float = Field(default=0, ge=0, le=100_000)
     debut_hawl: Optional[date] = None       # début de l'année lunaire en cours pour la zakat
     # Liberté financière ; None = inchangé
     taux_retrait: Optional[float] = Field(default=None, gt=0, le=0.2)   # 4 % → objectif = 25 × dépenses annuelles
@@ -593,8 +615,8 @@ class ReglagesPatrimoine(BaseModel):
 
 
 class CoursPasseIn(BaseModel):
-    titre: str = Field(min_length=1, max_length=60)
-    cours: Optional[float] = Field(default=None, gt=0, le=1_000_000)   # None : retirer le cours saisi
+    titre: CodeTitre
+    cours: Optional[float] = Field(default=None, gt=0, le=10_000_000)   # None : retirer le cours saisi
 
 
 class CoursPassesIn(BaseModel):

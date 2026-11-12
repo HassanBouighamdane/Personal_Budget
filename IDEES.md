@@ -16,15 +16,9 @@ From a review of the code on 2026-10-05, updated on 2026-10-10 and 2026-11-11. E
 
 - **Numbered migrations** (M): since 2026-11-03, `init_db()` runs once per deployed version, under a lock (`migrations_appliquees`). It still replays *all* the DDL each time, and data migrations are hidden `if` blocks in it (the `modifie_le` columns added on 2026-11-11 are one more). That is how one of them added and dropped a column on every start until the table nearly hit PostgreSQL's 1600-column limit. Numbered SQL files in `backend/migrations/`, each applied once and recorded, make data migrations like the `TEXT` dates safe. `migrations_appliquees` can become that record.
 - **`DATE` and `NUMERIC` in the Budget tables** (M): Bourse already uses them. `DOUBLE PRECISION` amounts accumulate rounding errors. Do it as the first real migration; `rapports.py` has tests for the month, week and year views, extend them to the day and global views before.
-- **Foreign keys instead of manual cascades** (M): `depenses.categorie`, `revenus.source` and Bourse `titre` reference names without constraints, and renames are cascaded by hand. `FOREIGN KEY ... ON UPDATE CASCADE` on the name would replace the `_verifier_categorie` and `_valider_titre` checks and the rename code. (`budgets_historique` already uses the category id.)
+- **Lectures references** (S): `lectures_livres.genre` and `lectures_a_lire.genre` still reference `lectures_genres.nom` by name without a constraint; the same foreign key as the Budget and Bourse tables would cascade genre renames (an empty genre would become NULL, as for revenue sources).
 - **Logging** (S): no logging is configured, and Vercel keeps logs for one hour only. Log unhandled exceptions with the route, and the start-up migrations; `cron_journal` shows that a table in the database is a simple way to keep what matters longer.
 - **Health check** (S, low value on Vercel): `GET /api/health` doing `SELECT 1`, for an external uptime monitor. The home page already warns when the morning task stops.
-
-## 6. Security
-
-- **Security headers** (S): add `Content-Security-Policy`, `X-Frame-Options: DENY` (or `frame-ancestors`), `X-Content-Type-Options: nosniff` and `Referrer-Policy` with a small middleware.
-- **Rate limiter in the database** (S): the login limiter is in memory, reset on restart and per process (DOCUMENTATION.md §8). On Vercel each instance has its own, so it barely limits anything. A small `echecs_login` table fixes both.
-- **Input limits** (S): Budget descriptions and names have no max length, and amounts no upper bound (the newer Suivi and goal models have them). Add `max_length` and `le=` to the remaining Pydantic models. Also strip names before validating: a category or source named `"  "` passes `min_length=1` and is saved as `""`.
 
 ## 7. Tests and tooling
 
@@ -33,7 +27,6 @@ From a review of the code on 2026-10-05, updated on 2026-10-10 and 2026-11-11. E
 - **Pinned dependencies** (S): `requirements.txt` and `pyproject.toml` have no versions, so a deploy can pull a breaking FastAPI or psycopg release. Pin them (or use `uv` with a lock file). `package-lock.json` already covers the frontend.
 - **CI** (S): a GitHub Actions workflow running `pytest` against a Postgres service container, `npm run typecheck`, and `ruff check`.
 - **Frontend tests** (S to start): Vitest for `lib/format.ts`, `lib/csv.ts` (date and amount parsing of bank statements), the budget alert of the expense form and `alerteTache` on the home page.
-- **Build `dist/` on deploy** (S): committing `dist/` creates a new hashed bundle in every diff and merge conflicts. Vercel can run `npm ci && npm run build` in `frontend-react/` at deploy time (a build command in `vercel.json`); the committed `dist/` then only serves local runs.
 
 ## Suggested order
 
@@ -44,6 +37,15 @@ From a review of the code on 2026-10-05, updated on 2026-10-10 and 2026-11-11. E
 5. Then the smaller extras: goals fed by a tag (2), out-of-date prices (6).
 
 ## Done
+
+**Built on 2026-11-12, third batch** (the build script was run locally; the first Vercel deployment confirms it there)
+- **Build `dist/` on deploy**: `dist/` is no longer committed. Vercel runs `backend/construire_frontend.py` (`npm ci --include=dev`, `npm run build`) through `[tool.vercel.scripts] build` in `pyproject.toml`; `lancer_budget` runs it when `dist/` is missing.
+
+**Built on 2026-11-12, second batch** (backend only; the database tests were written but not run here)
+- **Foreign keys instead of manual cascades**: `depenses.categorie`, `revenus.source` and the Bourse `titre` columns reference their parent name with `ON UPDATE CASCADE` (`CLES_ETRANGERES` in `database.py`). The rename code and `_valider_titre` are gone; `_verifier_categorie` only keeps the "active category" rule. Orphan names were added as retired parents before the constraints. A free revenue source ("Autre…") becomes a retired source; an empty one is stored as NULL.
+- **Security headers**: CSP (inline theme script allowed by its sha256), `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, from a middleware in `app.py`.
+- **Rate limiter in the database**: `echecs_login` table, shared by every Vercel instance.
+- **Input limits**: names stripped then 1–100 characters, descriptions 500, amounts up to 10 billion, passwords 200, on every Pydantic input model.
 
 **Built on 2026-11-12** (type-checked and built; the database tests were written but not run here)
 - **Backfill the net-worth curve**: "Reconstituer les mois passés" on the Évolution card adds one estimated point per month-end, from the first entry to the first real daily point (`estime` in `patrimoine_historique`, dashed on the chart). Everything dated is replayed; each stock is valued at its last transaction price, unless a month-end price is typed from the broker statement ("Cours de fin de mois", table `bourse_cours_historique`). Manual assets count at their current value from their date. Recomputed every morning once enabled.

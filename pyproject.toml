@@ -18,3 +18,9 @@ dependencies = [
 [tool.vercel]
 # L'application FastAPI : variable `app` du fichier backend/app.py
 entrypoint = "backend.app:app"
+
+[tool.vercel.scripts]
+# Construit le frontend (frontend-react/dist, non versionné) à chaque déploiement, après
+# l'installation des paquets Python. Ne pas définir de « Build Command » dans le tableau de bord
+# Vercel ni dans vercel.json : elle remplacerait ce script.
+build = "python backend/construire_frontend.py"

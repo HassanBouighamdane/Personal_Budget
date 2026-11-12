@@ -23,6 +23,9 @@ Installation :  pip install -r requirements.txt   (en local ; Vercel lit pyproje
 Lancement    :  python app.py
 Hébergement  :  Vercel (pyproject.toml + vercel.json, cf. DEPLOY_VERCEL.md)
 """
+import base64
+import hashlib
+import re
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -31,12 +34,14 @@ from pathlib import Path
 # quel que soit le dossier depuis lequel on lance l'application
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
+from psycopg.errors import ForeignKeyViolation
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from config import FRONT_DIR, DATABASE_URL, PORT, CORS_ORIGINS
-from database import init_db, migrations_a_faire, _pool
+from database import init_db, message_cle_etrangere, migrations_a_faire, _pool
 from routes import auth, configuration, transactions, rapports, bourse, lectures, carnet, objectifs, patrimoine, rappels, sauvegarde
 
 @asynccontextmanager
@@ -64,6 +69,61 @@ if CORS_ORIGINS:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+def _empreintes_scripts_en_ligne() -> str:
+    """Empreintes sha256 des <script> écrits dans index.html (le thème appliqué avant le premier
+    affichage) : la CSP n'autorise que ceux-là, sans ouvrir 'unsafe-inline' à tout script."""
+    try:
+        html = (FRONT_DIR / "index.html").read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    corps = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", html, flags=re.S)
+    return " ".join(f"'sha256-{base64.b64encode(hashlib.sha256(c.encode()).digest()).decode()}'" for c in corps)
+
+
+# Couvertures de livres : images venues d'autres sites (https:). Styles en ligne : Mantine en écrit
+# dans l'attribut style. Polices : Google Fonts.
+CSP = "; ".join([
+    "default-src 'self'",
+    f"script-src 'self' {_empreintes_scripts_en_ligne()}".strip(),
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com data:",
+    "img-src 'self' data: blob: https:",
+    # Le service worker (PWA) met les polices en cache : il les télécharge lui-même
+    "connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com",
+    "worker-src 'self'",
+    "manifest-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+])
+ENTETES_SECURITE = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+}
+# La documentation interactive de FastAPI charge ses scripts depuis un CDN : pas de CSP pour elle
+SANS_CSP = ("/docs", "/redoc", "/openapi.json")
+
+
+@app.exception_handler(ForeignKeyViolation)
+async def cle_etrangere(_request: Request, e: ForeignKeyViolation):
+    """Filet de sécurité : une route qui n'a pas traduit l'erreur elle-même (references_valides)
+    renvoie quand même une 400 lisible, pas une 500."""
+    return JSONResponse({"detail": message_cle_etrangere(e)}, status_code=400)
+
+
+@app.middleware("http")
+async def entetes_securite(request: Request, call_next):
+    reponse = await call_next(request)
+    for nom, valeur in ENTETES_SECURITE.items():
+        reponse.headers.setdefault(nom, valeur)
+    if not request.url.path.startswith(SANS_CSP):
+        reponse.headers.setdefault("Content-Security-Policy", CSP)
+    return reponse
+
 
 app.include_router(auth.router)
 app.include_router(configuration.router)

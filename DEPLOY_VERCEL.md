@@ -10,12 +10,13 @@ You don't need to write any code. These files are already there:
 
 | File | Role |
 |---|---|
-| `pyproject.toml` | Tells Vercel where the app is (`backend.app:app`) and which Python packages to install. |
+| `pyproject.toml` | Tells Vercel where the app is (`backend.app:app`), which Python packages to install, and how to build the frontend (`[tool.vercel.scripts]`). |
 | `vercel.json` | Schedules the morning task (`/api/cron/quotidien`) and keeps tests, the React sources and the docs out of the deployed bundle. |
 | `backend/app.py` | Database setup runs when the server starts, once per deployed version, not when the file is imported. |
-| `backend/tests/test_deploiement.py` | Fails if `pyproject.toml` and `backend/requirements.txt` stop listing the same packages. |
+| `backend/tests/test_deploiement.py` | Fails if `pyproject.toml` and `backend/requirements.txt` stop listing the same packages, or if a Build Command would bypass the frontend build. |
+| `backend/construire_frontend.py` | Builds the React frontend (`npm ci`, then `npm run build`) into `frontend-react/dist/`. Vercel runs it on every deployment, after installing the Python packages. |
 
-The React frontend is served from the committed `frontend-react/dist/` folder. Run `npm run build` in `frontend-react/` and commit `dist/` before pushing frontend changes.
+`frontend-react/dist/` is not committed: Vercel builds it on each deployment, so pushing the sources is enough.
 
 > **When you add a Python package**, add it to both `backend/requirements.txt` (local install and tests) and the `dependencies` list in `pyproject.toml` (Vercel). The test above reminds you if you forget.
 
@@ -23,7 +24,7 @@ The React frontend is served from the committed `frontend-react/dist/` folder. R
 
 ## Step 1 — Push the code to GitHub
 
-Vercel deploys from a GitHub repository: push the project (with `frontend-react/dist/` built and committed) to a repository on your account.
+Vercel deploys from a GitHub repository: push the project to a repository on your account.
 
 ## Step 2 — Collect what you need
 
@@ -46,7 +47,7 @@ Keep them in a note for step 4.
 3. On the configuration screen:
    - **Framework Preset**: Vercel should detect **FastAPI** by itself. If it shows "Other", leave it; the `pyproject.toml` file is enough.
    - **Root Directory**: leave `./`, the repository root.
-   - **Build and Output Settings**: leave everything empty or default. There is nothing to build: the frontend is already built in `frontend-react/dist/`.
+   - **Build and Output Settings**: leave everything empty or default. In particular, don't set a **Build Command**: it would replace the frontend build script from `pyproject.toml`.
 4. Open **Environment Variables** and add:
 
    | Name | Value |
@@ -110,7 +111,7 @@ Even without Telegram or e-mail, keep `CRON_SECRET`: the morning task also refre
 
 ## Step 7 — Deploying changes
 
-- `git push` to the main branch redeploys automatically. For frontend changes, run `npm run build` in `frontend-react/` and commit `dist/` first.
+- `git push` to the main branch redeploys automatically, frontend included: the build log shows `[frontend] npm ci`, `[frontend] npm run build`, then `[frontend] dist/ prêt`.
 - The first start of a new version runs the database migrations once (`migrations_appliquees`), so the first page after a deploy can take a few seconds more.
 - Don't add a keep-alive monitor on the Vercel address. It isn't needed, and it would use your free allowance for nothing.
 
@@ -120,6 +121,8 @@ Even without Telegram or e-mail, keep `CRON_SECRET`: the morning task also refre
 
 | Symptom | Cause and fix |
 |---|---|
+| Build fails at `[frontend]` (for example "npm introuvable" or a TypeScript error) | The frontend build failed, so nothing is deployed and the previous version stays online. Run `npm run build` in `frontend-react/` locally to see the same error. |
+| The site shows `{"detail":"Not Found"}` on `/` | `frontend-react/dist/` is missing from the deployment: check that the build log contains `[frontend] dist/ prêt`, and that no Build Command is set in Settings → Build and Deployment. |
 | Build fails with "No entrypoint found" or "No FastAPI app" | `pyproject.toml` must be at the repository root, and **Root Directory** must be `./` (Settings → Build and Deployment). |
 | Every page shows an error, logs say `DATABASE_URL manquant` | The variable is missing for **Production**. Add it (Settings → Environment Variables), then **Redeploy**. |
 | Login seems to work but you're sent back to the login page | Check `COOKIE_SECURE` is exactly `true`, and that you use the `https://` address. |

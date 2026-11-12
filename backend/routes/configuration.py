@@ -76,12 +76,9 @@ def modifier_categorie(cid: int, cat: CategorieIn):
             ancien = c.execute("SELECT nom FROM categories WHERE id=%s", (cid,)).fetchone()
             if not ancien:
                 raise HTTPException(404, "Catégorie introuvable")
+            # Les dépenses suivent le nouveau nom : clé étrangère ON UPDATE CASCADE (database.CLES_ETRANGERES)
             c.execute("UPDATE categories SET nom=%s WHERE id=%s", (nouveau_nom, cid))
             _fixer_budget(c, cid, cat.a_partir_de or _mois_courant(), cat.budget, cat.fixe)
-            if nouveau_nom != ancien["nom"]:
-                # Sans cette mise à jour, les dépenses déjà saisies resteraient rattachées à
-                # l'ancien nom et apparaîtraient comme une catégorie « fantôme » (budget 0).
-                c.execute("UPDATE depenses SET categorie=%s WHERE categorie=%s", (nouveau_nom, ancien["nom"]))
     except UniqueViolation:
         # Le nom peut aussi être celui d'une catégorie désactivée (invisible dans la liste)
         raise HTTPException(409, f"La catégorie « {nouveau_nom} » existe déjà (éventuellement désactivée)")
@@ -147,10 +144,9 @@ def modifier_source(sid: int, s: SourceIn):
             ancien = c.execute("SELECT nom FROM sources_revenus WHERE id=%s", (sid,)).fetchone()
             if not ancien:
                 raise HTTPException(404, "Source introuvable")
+            # Les revenus suivent le nouveau nom : clé étrangère ON UPDATE CASCADE
             c.execute("UPDATE sources_revenus SET nom=%s, travail=COALESCE(%s, travail) WHERE id=%s",
                       (nouveau_nom, s.travail, sid))
-            if nouveau_nom != ancien["nom"]:
-                c.execute("UPDATE revenus SET source=%s WHERE source=%s", (nouveau_nom, ancien["nom"]))
     except UniqueViolation:
         raise HTTPException(409, f"La source « {nouveau_nom} » existe déjà (éventuellement retirée)")
     return {"ok": True}

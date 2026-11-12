@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from psycopg.errors import UniqueViolation
 
-from database import db
+from database import db, references_valides
 from securite import utilisateur_courant
 from schemas import DepenseIn, DepenseRestauree, ImportIn, RevenuIn, RevenuRestaure
 
@@ -19,18 +19,28 @@ router = APIRouter(prefix="/api", tags=["transactions"],
                    dependencies=[Depends(utilisateur_courant)])
 
 COLS_DEP = "id,date,categorie,description,montant,tags"
-COLS_REV = "id,date,source,COALESCE(description,'') description,montant,tags"
+COLS_REV = "id,date,COALESCE(source,'') source,COALESCE(description,'') description,montant,tags"
 
 
-def _verifier_categorie(c, nom: str, actuelle: str | None = None, actives_seulement: bool = True):
-    """Refuse une catégorie inconnue ou désactivée : sinon une faute de frappe créerait une
-    catégorie « fantôme » sans budget. Une dépense modifiée peut garder sa catégorie actuelle,
-    même désactivée depuis ; une dépense restaurée aussi (`actives_seulement=False`)."""
+def _verifier_categorie(c, nom: str, actuelle: str | None = None):
+    """Refuse une catégorie désactivée (une catégorie inexistante, la clé étrangère la refuse
+    déjà). Une dépense modifiée peut garder sa catégorie actuelle, même désactivée depuis."""
     if nom == actuelle:
         return
-    actif = " AND actif=1" if actives_seulement else ""
-    if not c.execute("SELECT 1 FROM categories WHERE nom=%s" + actif, (nom,)).fetchone():
+    if not c.execute("SELECT 1 FROM categories WHERE nom=%s AND actif=1", (nom,)).fetchone():
         raise HTTPException(400, f"Catégorie inconnue ou désactivée : « {nom} »")
+
+
+def _source(c, nom: str) -> str | None:
+    """Source d'un revenu : None si vide. Une source libre (« Autre… » dans le formulaire) est
+    ajoutée aux sources comme RETIRÉE (absente des listes, hors taux horaire) : la clé étrangère
+    est respectée et la renommer plus tard renommera aussi ses revenus."""
+    nom = nom.strip()
+    if not nom:
+        return None
+    c.execute("""INSERT INTO sources_revenus(nom, actif, travail) VALUES(%s, 0, false)
+                 ON CONFLICT (nom) DO NOTHING""", (nom,))
+    return nom
 
 @router.post("/depenses")
 def ajouter_depense(d: DepenseIn):
@@ -66,10 +76,10 @@ def supprimer_depense(did: int):
 @router.post("/depenses/restaurer")
 def restaurer_depense(d: DepenseRestauree):
     """Annule une suppression : la dépense revient sous son identifiant d'origine. Sa catégorie
-    peut avoir été désactivée depuis (cas d'une ancienne dépense), elle doit seulement exister."""
+    peut avoir été désactivée depuis (cas d'une ancienne dépense), elle doit seulement exister
+    (clé étrangère)."""
     try:
-        with db() as c:
-            _verifier_categorie(c, d.categorie, actives_seulement=False)
+        with references_valides(), db() as c:
             c.execute("INSERT INTO depenses(id,date,categorie,description,montant,tags) VALUES(%s,%s,%s,%s,%s,%s)",
                       (d.id, d.date, d.categorie, d.description, d.montant, d.tags))
     except UniqueViolation:
@@ -80,14 +90,14 @@ def restaurer_depense(d: DepenseRestauree):
 def ajouter_revenu(r: RevenuIn):
     with db() as c:
         row = c.execute("INSERT INTO revenus(date,source,description,montant,tags) VALUES(%s,%s,%s,%s,%s) RETURNING id",
-                        (r.date, r.source.strip(), r.description.strip(), r.montant, r.tags)).fetchone()
+                        (r.date, _source(c, r.source), r.description.strip(), r.montant, r.tags)).fetchone()
     return {"id": row["id"]}
 
 @router.put("/revenus/{rid}")
 def modifier_revenu(rid: int, r: RevenuIn):
     with db() as c:
         res = c.execute("UPDATE revenus SET date=%s, source=%s, description=%s, montant=%s, tags=%s WHERE id=%s",
-                        (r.date, r.source.strip(), r.description.strip(), r.montant, r.tags, rid))
+                        (r.date, _source(c, r.source), r.description.strip(), r.montant, r.tags, rid))
         if res.rowcount == 0:
             raise HTTPException(404, "Revenu introuvable")
     return {"ok": True}
@@ -105,7 +115,7 @@ def restaurer_revenu(r: RevenuRestaure):
     try:
         with db() as c:
             c.execute("INSERT INTO revenus(id,date,source,description,montant,tags) VALUES(%s,%s,%s,%s,%s,%s)",
-                      (r.id, r.date, r.source, r.description, r.montant, r.tags))
+                      (r.id, r.date, _source(c, r.source), r.description, r.montant, r.tags))
     except UniqueViolation:
         raise HTTPException(409, "Ce revenu existe déjà")
     return {"id": r.id}
@@ -160,7 +170,7 @@ def rechercher(q: str = "", limite: int = 50, decalage: int = 0):
     toutes = f"""SELECT * FROM (
         SELECT 'depenses' type, id, date, categorie nom, description, montant, tags FROM depenses
         UNION ALL
-        SELECT 'revenus', id, date, source, COALESCE(description,''), montant, tags FROM revenus
+        SELECT 'revenus', id, date, COALESCE(source,''), COALESCE(description,''), montant, tags FROM revenus
     ) x WHERE {' AND '.join(conditions)}"""
     limite = max(1, min(limite, 200))
     with db() as c:
@@ -219,7 +229,7 @@ def exporter_csv(debut: Optional[str] = None, fin: Optional[str] = None):
     with db() as c:
         lignes = c.execute(f"""SELECT 'depense' type, date, categorie nom, description, montant, tags FROM depenses {ou}
                                UNION ALL
-                               SELECT 'revenu', date, source, COALESCE(description,''), montant, tags FROM revenus {ou}
+                               SELECT 'revenu', date, COALESCE(source,''), COALESCE(description,''), montant, tags FROM revenus {ou}
                                ORDER BY date, type""", params * 2).fetchall()
     sortie = io.StringIO()
     sortie.write("﻿")
@@ -255,6 +265,8 @@ def importer(donnees: ImportIn):
             a_inserer.append((table, colonne, (l.date, nom, description, l.montant, l.tags)))
         if not donnees.simulation:
             for table, colonne, valeurs in a_inserer:
+                if table == "revenus":
+                    valeurs = (valeurs[0], _source(c, valeurs[1]), *valeurs[2:])
                 c.execute(f"INSERT INTO {table}(date,{colonne},description,montant,tags) VALUES(%s,%s,%s,%s,%s)", valeurs)
     return {"statuts": statuts,
             "nb_ajoutees": len(a_inserer), "nb_doublons": sum(s["statut"] == "doublon" for s in statuts),

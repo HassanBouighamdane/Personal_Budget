@@ -24,7 +24,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 
 from config import aujourdhui
-from database import db
+from database import db, references_valides
 from securite import utilisateur_courant
 from schemas import ActifIn, CoursPassesIn, ReglagesPatrimoine
 from routes import bourse
@@ -390,7 +390,7 @@ def enregistrer_cours_passes(e: CoursPassesIn):
     auj = aujourdhui()
     if e.jour >= auj:
         raise HTTPException(400, "Choisis une date passée : le cours du jour se met à jour dans Bourse → Positions")
-    with db() as c:
+    with references_valides(), db() as c:
         for x in e.cours:
             titre = x.titre.strip().upper()
             if x.cours is None:

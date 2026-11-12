@@ -35,6 +35,7 @@ def _nettoyer():
         c.execute("DELETE FROM depenses WHERE categorie LIKE %s", (PREFIXE + "%",))
         c.execute("DELETE FROM revenus WHERE source LIKE %s", (PREFIXE + "%",))
         c.execute("DELETE FROM categories WHERE nom LIKE %s", (PREFIXE + "%",))
+        c.execute("DELETE FROM sources_revenus WHERE nom LIKE %s", (PREFIXE + "%",))   # source libre créée par ajouter_revenu
 
 
 @pytest.fixture(autouse=True)
