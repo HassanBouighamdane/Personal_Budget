@@ -201,6 +201,7 @@ TABLES_MODIFIE_LE = (
     "bourse_mouvements", "bourse_cibles_secteur",
     "lectures_livres", "lectures_genres", "lectures_a_lire", "lectures_notes", "lectures_prets",
     "dettes", "dettes_remboursements", "echeances", "actifs", "objectifs", "objectifs_versements",
+    "bourse_cours_historique",
 )
 
 
@@ -592,6 +593,19 @@ def init_db():
             creances      NUMERIC(14,2) NOT NULL,
             dettes        NUMERIC(14,2) NOT NULL,
             maj_le        TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        -- estime : point de fin de mois recalculé après coup (reconstitution), et non noté le jour même.
+        -- Un vrai point du jour le remplace toujours.
+        ALTER TABLE patrimoine_historique ADD COLUMN IF NOT EXISTS estime BOOLEAN NOT NULL DEFAULT false;
+
+        -- Cours passés saisis à la main (relevés de fin de mois du courtier) : servent à la
+        -- reconstitution de la courbe du patrimoine, à la place du dernier cours d'achat ou de vente.
+        CREATE TABLE IF NOT EXISTS bourse_cours_historique (
+            titre    VARCHAR(60) NOT NULL,
+            date     DATE NOT NULL,
+            cours    NUMERIC(14,4) NOT NULL CHECK (cours > 0),
+            cree_le  TIMESTAMP NOT NULL DEFAULT now(),
+            PRIMARY KEY (titre, date)
         );
 
         """)

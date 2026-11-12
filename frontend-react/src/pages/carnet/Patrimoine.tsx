@@ -14,8 +14,9 @@ import {
 import { toast } from '../../lib/api';
 import { auj, dateFr, fmt, jjmm, jjmmaa, libelleMois, lireMontant } from '../../lib/format';
 import { C, T, signe } from '../../lib/palette';
-import type { Actif, Patrimoine } from '../../lib/types';
-import { useEcriture, useHistoriquePatrimoine, usePatrimoine } from '../../lib/queries';
+import type { ChartData } from 'chart.js';
+import type { Actif, Patrimoine, Reconstitution } from '../../lib/types';
+import { useCoursPasses, useEcriture, useHistoriquePatrimoine, usePatrimoine } from '../../lib/queries';
 import { Graphique, optionsSeries } from '../../components/Graphique';
 import { ChampDate, ChampMontant } from '../../components/champs';
 import { BoutonSuppr, Carte, Chargement, confirmer, Info, Kpi, Pastille, Vide } from '../../components/ui';
@@ -337,16 +338,108 @@ function Liberte({ p }: { p: Patrimoine }) {
 /* ---------- Évolution (patrimoine noté chaque jour) ---------- */
 const PERIODES_COURBE = [{ value: '90', label: '3 mois' }, { value: '365', label: '1 an' }, { value: 'tout', label: 'Tout' }];
 
+/** Date AAAA-MM-JJ ↔ abscisse en millisecondes (UTC) : l'axe respecte ainsi le temps réel entre des
+ *  fins de mois reconstituées et des points quotidiens */
+const abscisse = (d: string) => Date.UTC(+d.slice(0, 4), +d.slice(5, 7) - 1, +d.slice(8, 10));
+const dateAbscisse = (x: number) => new Date(x).toISOString().slice(0, 10);
+
+/** Cours relevés sur les relevés du courtier, pour une fin de mois reconstituée */
+function TableCoursPasses({ jour, fermer }: { jour: string; fermer: () => void }) {
+  const { data, isPending } = useCoursPasses(jour);
+  const ecrire = useEcriture('patrimoine');
+  const [valeurs, setValeurs] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (data) setValeurs(Object.fromEntries(data.map(c => [c.titre, c.saisi === null ? '' : texte(c.saisi)])));
+  }, [data]);
+  if (isPending || !data) return <Chargement lignes={3} />;
+  if (!data.length) return <Info>Aucun titre détenu le {dateFr(jour)} : la Bourse de ce jour-là n'est faite que d'espèces.</Info>;
+
+  function enregistrer() {
+    const cours = data!.map(c => ({ titre: c.titre, v: (valeurs[c.titre] ?? '').trim() }))
+      .map(({ titre, v }) => ({ titre, cours: v ? lireMontant(v) : null }));
+    if (cours.some(c => c.cours !== null && (isNaN(c.cours) || c.cours <= 0))) return toast('Cours invalide', false);
+    ecrire.mutate({ path: '/api/patrimoine/cours-passes', method: 'PUT', body: { jour, cours }, succes: 'Cours enregistrés, courbe recalculée ✓' },
+                  { onSuccess: fermer });
+  }
+
+  return (
+    <Stack gap="sm">
+      {data.map(c => (
+        <ChampMontant key={c.titre} label={`${c.titre} · ${nombre(c.quantite)} titre${c.quantite > 1 ? 's' : ''}`}
+                      value={valeurs[c.titre] ?? ''} onChange={v => setValeurs(s => ({ ...s, [c.titre]: v }))}
+                      placeholder={c.estime === null ? '' : texte(c.estime)}
+                      description={c.estime === null ? 'Aucun cours connu à cette date'
+                        : `Sans saisie : ${fmt(c.estime)} (${c.source === 'actuel' ? 'cours relevé' : 'dernière transaction'} du ${dateFr(c.source_date!)})`} />
+      ))}
+      <Text size="xs" c="dimmed">Laisse vide pour garder le cours de la dernière transaction.</Text>
+      <Button mt="xs" onClick={enregistrer} loading={ecrire.isPending}>Enregistrer et recalculer</Button>
+    </Stack>
+  );
+}
+
+function CoursFinDeMois({ jours, fermer }: { jours: string[]; fermer: () => void }) {
+  const [jour, setJour] = useState(jours[0]);
+  return (
+    <Stack gap="md">
+      <Text size="sm" c="dimmed">
+        Sans saisie, chaque titre est compté au prix de ta dernière transaction. Le relevé de portefeuille de fin de mois
+        de ton courtier donne le vrai cours : il remplace l'estimation pour ce mois.
+      </Text>
+      <Select label="Fin de mois" data={jours.map(j => ({ value: j, label: `${libelleMois(j)} (${dateFr(j)})` }))}
+              value={jour} allowDeselect={false} searchable onChange={v => v && setJour(v)} />
+      <TableCoursPasses key={jour} jour={jour} fermer={fermer} />
+    </Stack>
+  );
+}
+
 function Evolution() {
   const [periode, setPeriode] = useState('365');
   const { data, isPending } = useHistoriquePatrimoine(periode === 'tout' ? null : Number(periode));
+  const tout = useHistoriquePatrimoine(null);   // pour savoir s'il existe des mois reconstitués hors de la période
+  const ecrire = useEcriture('patrimoine');
   const choix = <SegmentedControl size="xs" value={periode} onChange={setPeriode} data={PERIODES_COURBE} />;
   const points = data ?? [];
+  const estimes = (tout.data ?? []).filter(p => p.estime).map(p => p.date).reverse();
   const premier = points[0], dernier = points.at(-1);
   const ecart = premier && dernier ? dernier.total - premier.total : 0;
   // Plus d'un an affiché : l'année devient utile sous chaque date
   const format = premier && dernier && dernier.date.slice(0, 4) !== premier.date.slice(0, 4) ? jjmmaa : jjmm;
+  const enPointilles = points.some(p => p.estime);
 
+  function reconstituer() {
+    ecrire.mutate({ path: '/api/patrimoine/historique/reconstituer', method: 'POST' }, {
+      onSuccess: r => {
+        const n = (r as Reconstitution).points;
+        toast(n ? `${n} fin${n > 1 ? 's' : ''} de mois reconstituée${n > 1 ? 's' : ''} ✓` : 'Aucun mois passé à reconstituer');
+        if (n) setPeriode('tout');
+      },
+    });
+  }
+  function ouvrirCours() {
+    const id = modals.open({ title: <Text fw={650}>Cours de fin de mois</Text>, centered: true,
+                             children: <CoursFinDeMois jours={estimes} fermer={() => modals.close(id)} /> });
+  }
+
+  const actions = estimes.length ? (
+    <Group justify="space-between" gap="xs" mt="sm">
+      <Text size="xs" c="dimmed" style={{ flex: '1 1 220px' }}>
+        Pointillés : fins de mois reconstituées, titres au cours de la dernière transaction sauf cours saisi. Recalculées chaque matin.
+      </Text>
+      <Group gap="xs">
+        <Button size="compact-sm" variant="light" onClick={ouvrirCours}>Cours de fin de mois</Button>
+        <Button size="compact-sm" variant="subtle" onClick={reconstituer} loading={ecrire.isPending}>Recalculer</Button>
+      </Group>
+    </Group>
+  ) : (
+    <Group justify="space-between" gap="xs" mt="sm">
+      <Text size="xs" c="dimmed" style={{ flex: '1 1 220px' }}>
+        Les mois d'avant peuvent être estimés à partir de tes saisies : un point par fin de mois.
+      </Text>
+      <Button size="compact-sm" variant="light" onClick={reconstituer} loading={ecrire.isPending}>Reconstituer les mois passés</Button>
+    </Group>
+  );
+
+  const base = optionsSeries();
   return (
     <Carte titre="Évolution" icone={<Pastille icone={IconChartLine} couleur="emeraude" />} droite={choix}
            description={points.length >= 2
@@ -355,21 +448,32 @@ function Evolution() {
       {isPending ? <Chargement lignes={3} /> : points.length < 2 ? (
         <Info>
           {points.length
-            ? <>La courbe se construit jour après jour depuis le {dateFr(points[0].date)} : ton patrimoine est noté chaque matin et à chaque ouverture de cet écran. Reviens demain pour voir le premier trait.</>
-            : <>Ton patrimoine sera noté chaque jour à partir d'aujourd'hui (les cours passés ne sont pas conservés, les jours d'avant ne peuvent pas être recalculés).</>}
+            ? <>La courbe se construit jour après jour depuis le {dateFr(points[0].date)} : ton patrimoine est noté chaque matin et à chaque ouverture de cet écran.</>
+            : <>Ton patrimoine sera noté chaque jour à partir d'aujourd'hui.</>}
         </Info>
       ) : (
-        <Graphique type="line" hauteur={240} options={{ ...optionsSeries(), plugins: { legend: { position: 'top', align: 'end' },
-          tooltip: { callbacks: { label: ctx => `${ctx.dataset.label} : ${fmt(ctx.parsed.y ?? 0)}` } } } }} data={{
-          labels: points.map(p => format(p.date)),
+        <Graphique type="line" hauteur={240} options={{
+          ...base,
+          scales: { ...base.scales, x: { type: 'linear', border: { display: false }, grid: { display: false },
+            min: abscisse(premier!.date), max: abscisse(dernier!.date),
+            ticks: { maxTicksLimit: 7, callback: v => format(dateAbscisse(Number(v))) } } },
+          plugins: { legend: { position: 'top', align: 'end' }, tooltip: { callbacks: {
+            title: items => items.length ? (p => dateFr(p.date) + (p.estime ? ' · estimé' : ''))(points[items[0].dataIndex]) : '',
+            label: ctx => `${ctx.dataset.label} : ${fmt(ctx.parsed.y ?? 0)}`,
+          } } },
+        }} data={{
           datasets: [
-            { label: 'Patrimoine net', data: points.map(p => p.total), borderColor: C.ep, backgroundColor: 'rgba(16,185,129,.12)',
-              fill: true, tension: .25, pointRadius: points.length > 60 ? 0 : 2 },
-            ...(points.some(p => p.bourse) ? [{ label: 'dont Bourse', data: points.map(p => p.bourse), borderColor: C.rev,
-              borderDash: [5, 4], tension: .25, pointRadius: 0 }] : []),
+            { label: 'Patrimoine net', data: points.map(p => ({ x: abscisse(p.date), y: p.total })), borderColor: C.ep,
+              backgroundColor: 'rgba(16,185,129,.12)', fill: true, tension: .25,
+              pointRadius: points.map(p => p.estime || points.length > 60 ? 0 : 2),
+              segment: enPointilles ? { borderDash: (ctx: { p1DataIndex: number }) => points[ctx.p1DataIndex]?.estime ? [6, 4] : undefined } : undefined },
+            ...(points.some(p => p.bourse) ? [{ label: 'dont Bourse', data: points.map(p => ({ x: abscisse(p.date), y: p.bourse })),
+              borderColor: C.rev, borderWidth: 1.5, tension: .25, pointRadius: 0 }] : []),
           ],
-        }} />
+        } as ChartData}
+        />
       )}
+      {!isPending && actions}
     </Carte>
   );
 }

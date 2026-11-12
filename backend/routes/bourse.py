@@ -180,6 +180,7 @@ def modifier_titre(titre_id: int, t: TitreBourseIn):
                 conn.execute("UPDATE bourse_transactions SET titre = %s WHERE titre = %s", (nouveau_code, ancien["code"]))
                 conn.execute("UPDATE bourse_dividendes SET titre = %s WHERE titre = %s", (nouveau_code, ancien["code"]))
                 conn.execute("UPDATE bourse_prix SET titre = %s WHERE titre = %s", (nouveau_code, ancien["code"]))
+                conn.execute("UPDATE bourse_cours_historique SET titre = %s WHERE titre = %s", (nouveau_code, ancien["code"]))
     except UniqueViolation:
         # Code déjà pris par un autre titre (ou cours déjà enregistré sous ce code)
         raise HTTPException(409, f"Le code « {nouveau_code} » est déjà utilisé par un autre titre")

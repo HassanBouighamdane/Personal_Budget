@@ -46,6 +46,7 @@ def isolation(monkeypatch):
     # Ni la courbe du patrimoine (une ligne datée de 1901 y apparaîtrait)
     notes = []
     monkeypatch.setattr(rappels.patrimoine, "noter_patrimoine", lambda auj, p=None: notes.append(auj))
+    monkeypatch.setattr(rappels.patrimoine, "a_des_estimations", lambda: False)
     _nettoyer()
     yield
     _nettoyer()
@@ -474,6 +475,15 @@ def test_patrimoine_du_jour_note_meme_sans_canal(monkeypatch):
     monkeypatch.setattr(rappels.bourse, "_actualiser_cours", lambda force: None)
     assert tache_quotidienne(authorization="Bearer secret-de-test") == {"etat": "aucun_canal"}
     assert notes == [AUJ]
+
+
+def test_fins_de_mois_recalculees_chaque_matin_une_fois_activees(monkeypatch):
+    recalculs = []
+    monkeypatch.setattr(rappels.patrimoine, "a_des_estimations", lambda: True)
+    monkeypatch.setattr(rappels.patrimoine, "reconstituer_historique", lambda auj: recalculs.append(auj))
+    _cron(monkeypatch, AUJ, {})
+    tache_quotidienne(authorization="Bearer secret-de-test")
+    assert recalculs == [AUJ]
 
 
 def test_un_echec_de_la_courbe_n_empeche_pas_les_envois(monkeypatch):

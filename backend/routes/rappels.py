@@ -432,6 +432,9 @@ def _tache_quotidienne(force: bool, authorization: Optional[str]) -> dict:
         print(f"[rappels] cours non actualisés — {e!r}", flush=True)
     try:
         patrimoine.noter_patrimoine(auj)
+        # Fins de mois reconstituées : recalculées chaque matin pour suivre les corrections d'anciennes saisies
+        if patrimoine.a_des_estimations():
+            patrimoine.reconstituer_historique(auj)
     except Exception as e:
         print(f"[rappels] patrimoine du jour non noté — {e!r}", flush=True)
     if not canaux():

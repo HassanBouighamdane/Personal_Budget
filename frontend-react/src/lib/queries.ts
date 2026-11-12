@@ -5,7 +5,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 
 import { api, apiSilencieux, toast } from './api';
 import type {
-  ALire, ApercuRappels, BilanLecture, CalendrierDividendes, NoteDuJour, Patrimoine, PointPatrimoine, PretLivre, Projet, SerieLecture, BudgetHistorique, CibleSecteur, Config, CoursActualisation, DashboardBourse, Dette, Dividende, Echeance, EtatRappels, Fiscalite, FraisBourse, Gain, Genre,
+  ALire, ApercuRappels, BilanLecture, CalendrierDividendes, NoteDuJour, Patrimoine, PointPatrimoine, CoursPasse, PretLivre, Projet, SerieLecture, BudgetHistorique, CibleSecteur, Config, CoursActualisation, DashboardBourse, Dette, Dividende, Echeance, EtatRappels, Fiscalite, FraisBourse, Gain, Genre,
   Livre, Mouvement, NoteLecture, ObjectifsLecture, Position, Recherche, ResumeAnnee, ResumeGlobal, ResumeJour, ResumeMois, ResumeSemaine, ResumeTag,
   Suggestion, Titre, TransactionBourse, TransactionsMois,
 } from './types';
@@ -121,6 +121,8 @@ export const usePatrimoineSilencieux = () => useQuery({
 /** Courbe du patrimoine ; `jours` null = tout l'historique */
 export const useHistoriquePatrimoine = (jours: number | null) =>
   lire<PointPatrimoine[]>(['patrimoine', 'historique', jours], '/api/patrimoine/historique' + (jours ? '?jours=' + jours : ''));
+export const useCoursPasses = (jour: string) =>
+  lire<CoursPasse[]>(['patrimoine', 'cours-passes', jour], '/api/patrimoine/cours-passes?jour=' + jour);
 
 /* ---------- Rappels et résumé hebdomadaire ---------- */
 export const useEtatRappels = () => lire<EtatRappels>(['rappels', 'etat'], '/api/rappels/etat');

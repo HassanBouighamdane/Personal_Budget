@@ -350,9 +350,17 @@ export type Projet = {
 
 /* ---------- Patrimoine ---------- */
 /** Patrimoine noté un jour donné (courbe) */
+/** `estime` : fin de mois reconstituée après coup (Évolution → « Reconstituer les mois passés ») */
 export type PointPatrimoine = {
-  date: string; total: number; liquidites: number; bourse: number; autres_actifs: number; creances: number; dettes: number;
+  date: string; estime: boolean; total: number; liquidites: number; bourse: number; autres_actifs: number; creances: number; dettes: number;
 };
+/** Cours d'un titre détenu à une date passée : `estime` est celui utilisé sans saisie (source : dernière
+ *  transaction ou cours actuel, à `source_date`), `saisi` celui relevé à la main pour cette date */
+export type CoursPasse = {
+  titre: string; quantite: number; saisi: number | null; estime: number | null;
+  source: 'transaction' | 'actuel' | 'saisi' | null; source_date: string | null;
+};
+export type Reconstitution = { points: number; debut: string | null; fin: string | null };
 /** `verse` : argent sorti de l'épargne pour cet actif sans être saisi en dépense */
 export type Actif = { id: number; nom: string; type: string; valeur: number; verse: number; zakat: boolean; maj_le: string; note: string };
 export type Patrimoine = {

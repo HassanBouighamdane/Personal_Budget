@@ -365,7 +365,8 @@ Deux clés de `params` servent à la tâche planifiée : `cron_dernier_jour` (de
 
 | `objectifs` | `nom`, `cible`, `date_limite` (optionnelle), `note`, `archive` | objectifs d'épargne par projet (voir §11) |
 | `objectifs_versements` | `objectif_id`, `date_operation`, `montant` (négatif = argent repris), `libelle` | supprimés avec leur objectif (`ON DELETE CASCADE`) |
-| `patrimoine_historique` | `date` PK, `total`, `liquidites`, `bourse`, `autres_actifs`, `creances`, `dettes`, `maj_le` | patrimoine noté une fois par jour, pour sa courbe (voir §11) |
+| `patrimoine_historique` | `date` PK, `total`, `liquidites`, `bourse`, `autres_actifs`, `creances`, `dettes`, `estime`, `maj_le` | patrimoine noté une fois par jour, pour sa courbe (voir §11) ; `estime` = fin de mois reconstituée après coup |
+| `bourse_cours_historique` | (`titre`, `date`) PK, `cours`, `cree_le` | cours passés saisis à la main (relevés de fin de mois du courtier), pour la reconstitution de la courbe |
 
 Les modules Bourse et Suivi utilisent les types `DATE` et `NUMERIC`. Le module Budget utilise `TEXT` pour les dates et `DOUBLE PRECISION` pour les montants.
 
@@ -436,7 +437,10 @@ Toutes les routes sauf `/api/login`, `/api/logout` et `/api/cron/quotidien` (pro
 | GET / POST / PUT / DELETE | `/api/lectures/prets[/{id}]` | `PretLivreIn` | `[PretLivreOut]` (avec `jours`) / `PretLivreOut` / 204 |
 | GET | `/api/bourse/dividendes/calendrier` | — | `{total, lignes}` : dividendes attendus sur 12 mois |
 | GET | `/api/patrimoine` | — | composition, actifs, réserve de sécurité, zakat (voir §11) ; note aussi le patrimoine du jour dans `patrimoine_historique` |
-| GET | `/api/patrimoine/historique` | `?jours=` (facultatif) | `[{date, total, liquidites, bourse, autres_actifs, creances, dettes}]`, du plus ancien au plus récent |
+| GET | `/api/patrimoine/historique` | `?jours=` (facultatif) | `[{date, estime, total, liquidites, bourse, autres_actifs, creances, dettes}]`, du plus ancien au plus récent |
+| POST | `/api/patrimoine/historique/reconstituer` | — | recalcule les fins de mois passées (`{points, debut, fin}`) |
+| GET | `/api/patrimoine/cours-passes` | `?jour=AAAA-MM-JJ` | titres détenus ce jour-là : `{titre, quantite, saisi, estime, source, source_date}` |
+| PUT | `/api/patrimoine/cours-passes` | `{jour, cours: [{titre, cours\|null}]}` | enregistre (ou retire, `null`) des cours passés, puis recalcule les fins de mois |
 | GET / POST / PUT / DELETE | `/api/objectifs[/{id}]` | `{nom, cible, date_limite, note, archive}` | `[ProjetOut]` / `ProjetOut` (avec `verse`, `reste`, `progression`, `mois_restants`, `par_mois`, `en_retard`, `versements`) / 204 |
 | POST | `/api/objectifs/{id}/versements` | `{date_operation, montant, libelle}` (montant négatif = argent repris) | `ProjetOut` ; 400 si l'on reprend plus que ce qui est de côté |
 | DELETE | `/api/objectifs/versements/{id}` | — | 204 ; 400 si le total mis de côté deviendrait négatif |
@@ -784,7 +788,15 @@ patrimoine = liquidités + compte Bourse + autres actifs + ce qu'on me doit − 
 
 ### Évolution du patrimoine
 
-Le patrimoine n'est connu qu'au jour le jour : les cours passés ne sont pas conservés, la valeur passée des actifs non plus. `noter_patrimoine()` écrit donc chaque jour une ligne dans `patrimoine_historique` (une par date, remplacée par le dernier calcul de la journée) : à chaque matin par la tâche planifiée, et à chaque lecture de `/api/patrimoine` (écran Patrimoine, accueil, vue Globale). La carte « Évolution » trace cette courbe sur 3 mois, 1 an ou tout l'historique, avec la part Bourse en pointillé et l'écart depuis le premier point affiché. Elle commence le jour où la fonction a été déployée.
+Le patrimoine n'est connu qu'au jour le jour : les cours passés ne sont pas conservés, la valeur passée des actifs non plus. `noter_patrimoine()` écrit donc chaque jour une ligne dans `patrimoine_historique` (une par date, remplacée par le dernier calcul de la journée) : à chaque matin par la tâche planifiée, et à chaque lecture de `/api/patrimoine` (écran Patrimoine, accueil, vue Globale). La carte « Évolution » trace cette courbe sur 3 mois, 1 an ou tout l'historique, avec la part Bourse et l'écart depuis le premier point affiché. L'axe horizontal est en temps réel (un mois de points mensuels prend autant de place qu'un mois de points quotidiens).
+
+**Mois passés reconstitués.** « Reconstituer les mois passés » (`reconstituer_historique()`) ajoute un point par fin de mois, de la plus ancienne opération jusqu'au premier vrai point noté, marqué `estime` et tracé en pointillé. Chaque point rejoue les opérations datées jusqu'à ce jour avec les formules de `calculer_patrimoine` (`patrimoine_aux_dates()`, fonction pure) :
+
+- exacts : épargne du Budget, apports et retraits Bourse, espèces du compte Bourse (achats, ventes moins TPCVM, dividendes, frais), quantités détenues, prêts et emprunts avec leurs remboursements ;
+- estimés : la valeur des titres, au dernier cours connu ce jour-là. Par ordre de priorité à date égale : cours saisi à la main pour cette date (`bourse_cours_historique`, bouton « Cours de fin de mois »), cours actuel (`bourse_prix`, à sa date de relevé), prix de la dernière transaction ;
+- approximatifs : un autre actif compte à sa valeur actuelle à partir de la plus ancienne de sa date de création et de sa date de relevé.
+
+Un vrai point du jour remplace toujours un point estimé, jamais l'inverse. Une fois des points estimés présents, la tâche du matin les recalcule chaque jour : corriger une ancienne saisie met la courbe à jour.
 
 ### Objectifs d'épargne par projet
 

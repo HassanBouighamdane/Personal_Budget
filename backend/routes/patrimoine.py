@@ -11,6 +11,11 @@ Les autres actifs (or, compte épargne, immobilier...) ont une valeur saisie à 
 indicateurs en découlent : la réserve de sécurité (mois de dépenses couverts par l'argent
 disponible), une estimation de la zakat (assiette comparée au nisab, échéance du hawl) et la
 liberté financière (patrimoine comparé à 25 × les dépenses annuelles, date estimée pour l'atteindre).
+
+La courbe d'évolution (patrimoine_historique) reçoit un point par jour depuis sa mise en place. Les
+mois d'avant peuvent être reconstitués (un point par fin de mois, marqué `estime`) à partir des
+opérations datées ; seuls les cours passés manquent : chaque titre prend son dernier cours connu
+(cours saisi à la main pour cette date, sinon prix de la dernière transaction).
 """
 from datetime import date, timedelta
 from decimal import Decimal
@@ -21,7 +26,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from config import aujourdhui
 from database import db
 from securite import utilisateur_courant
-from schemas import ActifIn, ReglagesPatrimoine
+from schemas import ActifIn, CoursPassesIn, ReglagesPatrimoine
 from routes import bourse
 from routes.carnet import lire_dettes
 
@@ -183,7 +188,7 @@ def noter_patrimoine(auj: date, p: Optional[dict] = None) -> dict:
         c.execute(f"""INSERT INTO patrimoine_historique (date, {", ".join(COLONNES_HISTORIQUE)})
                       VALUES (%s, {", ".join(["%s"] * len(COLONNES_HISTORIQUE))})
                       ON CONFLICT (date) DO UPDATE SET {", ".join(f"{k}=EXCLUDED.{k}" for k in COLONNES_HISTORIQUE)},
-                                                       maj_le=now()""",
+                                                       estime=false, maj_le=now()""",
                   (auj, *(p[k] for k in COLONNES_HISTORIQUE)))
     return p
 
@@ -204,9 +209,196 @@ def historique_patrimoine(jours: Optional[int] = None):
     """Patrimoine noté jour après jour, du plus ancien au plus récent ; `jours` : seulement les N derniers jours."""
     clause, params = ("WHERE date > %s", (aujourdhui() - timedelta(days=jours),)) if jours else ("", ())
     with db() as c:
-        rows = c.execute(f"SELECT date, {', '.join(COLONNES_HISTORIQUE)} FROM patrimoine_historique {clause} ORDER BY date",
+        rows = c.execute(f"SELECT date, estime, {', '.join(COLONNES_HISTORIQUE)} FROM patrimoine_historique {clause} ORDER BY date",
                          params).fetchall()
-    return [{"date": r["date"], **{k: float(r[k]) for k in COLONNES_HISTORIQUE}} for r in rows]
+    return [{"date": r["date"], "estime": r["estime"], **{k: float(r[k]) for k in COLONNES_HISTORIQUE}} for r in rows]
+
+
+# ---------------------------------------------------------------- courbe : mois passés reconstitués
+# Priorité d'un cours à date égale : le cours saisi à la main l'emporte sur le cours actuel,
+# qui l'emporte sur le prix d'une transaction
+COURS_TRANSACTION, COURS_ACTUEL, COURS_SAISI = 0, 1, 2
+SOURCES_COURS = {COURS_TRANSACTION: "transaction", COURS_ACTUEL: "actuel", COURS_SAISI: "saisi"}
+
+
+def fins_de_mois(debut: date, avant: date) -> list:
+    """Derniers jours des mois, du mois de `debut` jusqu'au dernier qui tombe strictement avant `avant`."""
+    jours, annee, mois = [], debut.year, debut.month
+    while True:
+        suivant = date(annee + mois // 12, mois % 12 + 1, 1)
+        fin = suivant - timedelta(days=1)
+        if fin >= avant:
+            return jours
+        jours.append(fin)
+        annee, mois = suivant.year, suivant.month
+
+
+def dernier_cours(cours: list, jour: date) -> Optional[tuple]:
+    """`cours` : [(date, priorité, cours)] triée. Renvoie le plus récent jusqu'à `jour` inclus
+    (à date égale, la plus haute priorité), None si aucun."""
+    meilleur = None
+    for c in cours:
+        if c[0] > jour:
+            break
+        meilleur = c
+    return meilleur
+
+
+def quantites_le(transactions: list, jour: date) -> dict:
+    """Quantité détenue de chaque titre à la fin de `jour` (titres encore détenus seulement)."""
+    q = {}
+    for t in transactions:
+        if t["date"] <= jour:
+            q[t["titre"]] = q.get(t["titre"], 0.0) + t["quantite"]
+    return {titre: n for titre, n in q.items() if n > 1e-9}
+
+
+def patrimoine_aux_dates(jours: list, d: dict) -> list:
+    """Patrimoine à la fin de chaque jour de `jours`, avec les seules opérations datées jusqu'à ce
+    jour (mêmes formules que calculer_patrimoine). `d` vient de charger_operations() : la fonction
+    ne lit pas la base. Limites : un autre actif compte à sa valeur ACTUELLE dès sa date, et un
+    titre à son dernier cours connu ce jour-là."""
+    points = []
+    for jour in jours:
+        iso = jour.isoformat()
+        epargne = sum(m for j, m in d["budget"] if j <= iso)
+        actifs = [a for a in d["actifs"] if a["depuis"] <= jour]
+        autres, verse = sum(a["valeur"] for a in actifs), sum(a["verse"] for a in actifs)
+        pret = emprunt = 0.0
+        for x in d["dettes"]:
+            if x["date"] > jour:
+                continue
+            reste = x["montant"] - sum(m for j, m in x["remboursements"] if j <= jour)
+            if reste > 0:
+                if x["sens"] == "pret":
+                    pret += reste
+                else:
+                    emprunt += reste
+        apports = sum(m for j, m in d["mouvements"] if j <= jour)
+        especes = apports + sum(m for j, m in d["flux_bourse"] if j <= jour)
+        titres = 0.0
+        for titre, n in quantites_le(d["transactions"], jour).items():
+            c = dernier_cours(d["cours"].get(titre, []), jour)
+            titres += n * (c[2] if c else 0.0)
+        bourse_total = titres + especes
+        liquidites = d["solde_depart"] + epargne - apports - verse - pret + emprunt
+        total = liquidites + bourse_total + autres + pret - emprunt
+        points.append({"date": jour, "total": round(total, 2), "liquidites": round(liquidites, 2),
+                       "bourse": round(bourse_total, 2), "autres_actifs": round(autres, 2),
+                       "creances": round(pret, 2), "dettes": round(emprunt, 2)})
+    return points
+
+
+def charger_operations() -> dict:
+    """Toutes les opérations datées utiles à patrimoine_aux_dates, en nombres Python simples.
+    `debut` : date de la plus ancienne opération (None si l'application est vide)."""
+    _, gains, calc = bourse._positions_et_gains()
+    tpcvm = {g.id: g.tpcvm for g in gains}
+    mouvements = bourse._mouvements()
+    dividendes, frais = bourse._dividendes(), bourse._frais_compte()
+    with db() as c:
+        solde_depart = _params(c).get("solde_depart", 0.0)
+        budget = [(r["date"], float(r["m"])) for r in c.execute(
+            """SELECT date, SUM(montant) m FROM revenus GROUP BY date
+               UNION ALL SELECT date, -SUM(montant) FROM depenses GROUP BY date""").fetchall()]
+        actifs = [{"depuis": min(r["cree_le"].date(), r["maj_le"]), "valeur": float(r["valeur"]), "verse": float(r["verse"])}
+                  for r in c.execute("SELECT valeur, verse, maj_le, cree_le FROM actifs").fetchall()]
+        dettes = [{"sens": x["sens"], "date": x["date_operation"], "montant": float(x["montant"]),
+                   "remboursements": [(r["date_operation"], float(r["montant"])) for r in x["remboursements"]]}
+                  for x in lire_dettes(c)]
+        prix = c.execute("SELECT titre, cours_actuel, maj_le FROM bourse_prix WHERE cours_actuel > 0").fetchall()
+        saisis = c.execute("SELECT titre, date, cours FROM bourse_cours_historique").fetchall()
+
+    cours = {}
+    for t in calc:
+        cours.setdefault(t["titre"], []).append((t["date_operation"], COURS_TRANSACTION, float(t["cours_unitaire"])))
+    for r in prix:
+        cours.setdefault(r["titre"], []).append((r["maj_le"].date(), COURS_ACTUEL, float(r["cours_actuel"])))
+    for r in saisis:
+        cours.setdefault(r["titre"], []).append((r["date"], COURS_SAISI, float(r["cours"])))
+    for liste in cours.values():
+        liste.sort()
+
+    transactions = [{"date": t["date_operation"], "titre": t["titre"],
+                     "quantite": float(t["quantite"]) * (1 if t["type_operation"] == "Achat" else -1)} for t in calc]
+    flux_bourse = [(t["date_operation"], -float(t["_net_decimal"]) if t["type_operation"] == "Achat"
+                    else float(t["_net_decimal"]) - float(tpcvm.get(t["id"], 0))) for t in calc]
+    flux_bourse += [(x["date_operation"], float(x["montant"])) for x in dividendes]
+    flux_bourse += [(x["date_operation"], -float(x["montant"])) for x in frais]
+    mvts = [(m["date_operation"], float(m["montant"]) * (1 if m["type_mouvement"] == "Apport" else -1)) for m in mouvements]
+
+    dates = [a["depuis"] for a in actifs] + [x["date"] for x in dettes] + [j for j, _ in mvts + flux_bourse]
+    for j, _ in budget:
+        try:
+            dates.append(date.fromisoformat(j[:10]))
+        except (TypeError, ValueError):
+            pass
+    return {"solde_depart": solde_depart, "budget": budget, "actifs": actifs, "dettes": dettes, "mouvements": mvts,
+            "flux_bourse": flux_bourse, "transactions": transactions, "cours": cours,
+            "debut": min(dates) if dates else None}
+
+
+def a_des_estimations() -> bool:
+    with db() as c:
+        return c.execute("SELECT EXISTS (SELECT 1 FROM patrimoine_historique WHERE estime) e").fetchone()["e"]
+
+
+def reconstituer_historique(auj: date) -> dict:
+    """Recalcule un point par fin de mois, de la première opération jusqu'au premier vrai point
+    noté (ou jusqu'à aujourd'hui s'il n'y en a pas). Les anciens points estimés sont remplacés ;
+    un vrai point n'est jamais touché. Relancée chaque matin une fois activée : corriger une
+    ancienne saisie met donc la courbe à jour le lendemain (ou tout de suite avec le bouton)."""
+    d = charger_operations()
+    with db() as c:
+        premier_vrai = c.execute("SELECT MIN(date) m FROM patrimoine_historique WHERE NOT estime").fetchone()["m"]
+    jours = fins_de_mois(d["debut"], min(premier_vrai or auj, auj)) if d["debut"] else []
+    points = patrimoine_aux_dates(jours, d)
+    with db() as c:
+        c.execute("DELETE FROM patrimoine_historique WHERE estime")
+        with c.cursor() as cur:
+            cur.executemany(f"""INSERT INTO patrimoine_historique (date, {", ".join(COLONNES_HISTORIQUE)}, estime)
+                                VALUES (%s, {", ".join(["%s"] * len(COLONNES_HISTORIQUE))}, true)
+                                ON CONFLICT (date) DO NOTHING""",
+                            [(p["date"], *(p[k] for k in COLONNES_HISTORIQUE)) for p in points])
+    return {"points": len(points), "debut": jours[0] if jours else None, "fin": jours[-1] if jours else None}
+
+
+@router.post("/historique/reconstituer")
+def reconstituer():
+    return reconstituer_historique(aujourdhui())
+
+
+@router.get("/cours-passes")
+def lire_cours_passes(jour: date):
+    """Titres détenus à la fin de `jour`, avec le cours qu'utilise la reconstitution sans saisie
+    (`estime`, et d'où il vient) et celui saisi à la main pour ce jour (`saisi`)."""
+    d = charger_operations()
+    resultat = []
+    for titre, n in sorted(quantites_le(d["transactions"], jour).items()):
+        liste = d["cours"].get(titre, [])
+        saisi = next((c[2] for c in liste if c[0] == jour and c[1] == COURS_SAISI), None)
+        estime = dernier_cours([c for c in liste if not (c[0] == jour and c[1] == COURS_SAISI)], jour)
+        resultat.append({"titre": titre, "quantite": round(n, 4), "saisi": saisi,
+                         "estime": estime[2] if estime else None,
+                         "source": SOURCES_COURS[estime[1]] if estime else None,
+                         "source_date": estime[0] if estime else None})
+    return resultat
+
+
+@router.put("/cours-passes")
+def enregistrer_cours_passes(e: CoursPassesIn):
+    auj = aujourdhui()
+    if e.jour >= auj:
+        raise HTTPException(400, "Choisis une date passée : le cours du jour se met à jour dans Bourse → Positions")
+    with db() as c:
+        for x in e.cours:
+            titre = x.titre.strip().upper()
+            if x.cours is None:
+                c.execute("DELETE FROM bourse_cours_historique WHERE titre=%s AND date=%s", (titre, e.jour))
+            else:
+                c.execute("""INSERT INTO bourse_cours_historique (titre, date, cours) VALUES (%s,%s,%s)
+                             ON CONFLICT (titre, date) DO UPDATE SET cours=EXCLUDED.cours""", (titre, e.jour, x.cours))
+    return reconstituer_historique(auj)
 
 
 @router.put("/reglages")

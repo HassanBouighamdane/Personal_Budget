@@ -21,9 +21,10 @@ from config import aujourdhui
 from database import db
 from schemas import ActifIn, DetteIn, ReglagesPatrimoine
 from routes.carnet import ajouter_dette
-from routes.patrimoine import (JOURS_HAWL, PARAMS, ajouter_actif, calculer_patrimoine, historique_patrimoine,
+from routes.patrimoine import (COURS_SAISI, COURS_TRANSACTION, JOURS_HAWL, PARAMS, ajouter_actif, calculer_patrimoine,
+                               charger_operations, dernier_cours, fins_de_mois, historique_patrimoine,
                                liberte_financiere, mois_avant_liberte, modifier_actif, modifier_reglages,
-                               noter_patrimoine, supprimer_actif)
+                               noter_patrimoine, patrimoine_aux_dates, supprimer_actif)
 
 PREFIXE = "ZZTEST"
 AUJ = aujourdhui()
@@ -187,3 +188,51 @@ def test_patrimoine_note_une_fois_par_jour():
     finally:
         with db() as c:
             c.execute("DELETE FROM patrimoine_historique WHERE date = %s", (jour,))
+
+
+# ---------------------------------------------------------------- mois passés reconstitués
+def test_fins_de_mois():
+    assert fins_de_mois(date(2025, 11, 15), date(2026, 2, 28)) == [date(2025, 11, 30), date(2025, 12, 31), date(2026, 1, 31)]
+    assert fins_de_mois(date(2024, 2, 3), date(2024, 3, 1)) == [date(2024, 2, 29)]      # année bissextile
+    assert fins_de_mois(date(2026, 11, 2), date(2026, 11, 11)) == []                     # mois pas encore fini
+
+
+def test_dernier_cours_prefere_le_cours_saisi_a_date_egale():
+    cours = sorted([(date(2025, 1, 10), COURS_TRANSACTION, 100.0), (date(2025, 1, 31), COURS_TRANSACTION, 110.0),
+                    (date(2025, 1, 31), COURS_SAISI, 120.0)])
+    assert dernier_cours(cours, date(2025, 1, 9)) is None
+    assert dernier_cours(cours, date(2025, 1, 20))[2] == 100.0
+    assert dernier_cours(cours, date(2025, 1, 31))[2] == 120.0
+
+
+def test_patrimoine_aux_dates_ne_compte_que_les_operations_passees():
+    j1, j2 = date(2025, 1, 31), date(2025, 2, 28)
+    d = {
+        "solde_depart": 1000.0,
+        "budget": [("2025-01-05", 5000.0), ("2025-01-20", -1500.0), ("2025-02-03", 4000.0)],
+        "actifs": [{"depuis": date(2025, 2, 10), "valeur": 2000.0, "verse": 500.0}],
+        "dettes": [{"sens": "pret", "date": date(2025, 1, 15), "montant": 300.0,
+                    "remboursements": [(date(2025, 2, 1), 100.0)]}],
+        "mouvements": [(date(2025, 1, 10), 2000.0)],                          # apport au compte Bourse
+        "flux_bourse": [(date(2025, 1, 12), -1000.0), (date(2025, 2, 20), 50.0)],   # achat, dividende
+        "transactions": [{"date": date(2025, 1, 12), "titre": "ZZT", "quantite": 10.0}],
+        "cours": {"ZZT": [(date(2025, 1, 12), COURS_TRANSACTION, 100.0), (date(2025, 2, 28), COURS_SAISI, 130.0)]},
+    }
+    p1, p2 = patrimoine_aux_dates([j1, j2], d)
+    # Fin janvier : 1000 + 3500 épargnés − 2000 apportés − 300 prêtés ; Bourse = 10 × 100 + 1000 d'espèces
+    assert p1["liquidites"] == 2200 and p1["bourse"] == 2000 and p1["creances"] == 300 and p1["autres_actifs"] == 0
+    assert p1["total"] == 2200 + 2000 + 300
+    # Fin février : +4000 de revenu, 500 versés dans l'actif, 100 remboursés ; cours saisi 130, dividende 50
+    assert p2["liquidites"] == 1000 + 7500 - 2000 - 500 - 200
+    assert p2["bourse"] == 10 * 130 + 1000 + 50 and p2["creances"] == 200 and p2["autres_actifs"] == 2000
+    assert p2["total"] == p2["liquidites"] + p2["bourse"] + 2000 + 200
+
+
+def test_reconstitution_d_aujourd_hui_retrouve_le_patrimoine_hors_cours():
+    """Recalculé pour aujourd'hui à partir des seules opérations datées, le patrimoine retombe sur
+    calculer_patrimoine (sauf la valeur des titres, qui dépend des cours)."""
+    d = charger_operations()
+    p = calculer_patrimoine(AUJ)
+    r = patrimoine_aux_dates([AUJ], d)[0]
+    for k in ("liquidites", "creances", "dettes", "autres_actifs"):
+        assert abs(r[k] - p[k]) < 0.05, k

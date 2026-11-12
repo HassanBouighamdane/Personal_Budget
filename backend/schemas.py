@@ -592,6 +592,17 @@ class ReglagesPatrimoine(BaseModel):
     rendement: Optional[float] = Field(default=None, ge=-0.1, le=0.3)   # rendement annuel après inflation
 
 
+class CoursPasseIn(BaseModel):
+    titre: str = Field(min_length=1, max_length=60)
+    cours: Optional[float] = Field(default=None, gt=0, le=1_000_000)   # None : retirer le cours saisi
+
+
+class CoursPassesIn(BaseModel):
+    """Cours de fin de mois relevés sur un relevé du courtier, pour la courbe du patrimoine."""
+    jour: date
+    cours: List[CoursPasseIn] = Field(max_length=200)
+
+
 class EnvoiIn(BaseModel):
     """Un envoi automatique activé ou coupé sur un canal : la note du jour (avec le message du matin),
     le résumé de la semaine, le bilan du mois ou celui de l'année."""

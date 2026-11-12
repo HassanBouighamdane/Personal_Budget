@@ -9,12 +9,8 @@ From a review of the code on 2026-10-05, updated on 2026-10-10 and 2026-11-11. E
 
 ## 2. Bourse
 
-5. **Price history** (S to start, M for the chart): `bourse_prix` keeps one price per stock. Insert a row into `bourse_prix_historique(titre, date, cours)` in `maj_prix` and `_actualiser_cours`, so a portfolio-value chart per stock becomes possible. The daily task already calls `_actualiser_cours` every morning, so this fills itself with no extra request (one row per stock and day: `ON CONFLICT (titre, date) DO UPDATE`). Holdings at a past date can already be rebuilt from transactions. Like the net-worth curve, the history only exists from the day it is enabled.
+5. **Price history** (S to start, M for the chart): `bourse_prix` keeps one price per stock. Insert a row into `bourse_prix_historique(titre, date, cours)` in `maj_prix` and `_actualiser_cours`, so a portfolio-value chart per stock becomes possible. The daily task already calls `_actualiser_cours` every morning, so this fills itself with no extra request (one row per stock and day: `ON CONFLICT (titre, date) DO UPDATE`). Holdings at a past date can already be rebuilt from transactions. Like the net-worth curve, the history only exists from the day it is enabled. Rows written there could also feed the month-end rebuild of the net-worth curve (today it uses `bourse_cours_historique`, typed by hand, then the last transaction price).
 6. **Bulk price update** (S, now low value): prices are fetched automatically every morning and when the app opens, so a bulk screen only helps for stocks set to manual or when the sources fail. A smaller version is an "out-of-date prices" list: held stocks whose price is more than 3 days old.
-
-## 3. Across modules
-
-10. **Backfill the net-worth curve** (L): the curve (Suivi → Patrimoine → Évolution) starts on 2026-11-11 because past prices and past asset values were not kept. With the price history (5), the Bourse part of earlier days could be rebuilt from transactions; the manual assets would still be flat at their current value. Only worth it if a long curve matters.
 
 ## 5. Backend best practices
 
@@ -48,6 +44,9 @@ From a review of the code on 2026-10-05, updated on 2026-10-10 and 2026-11-11. E
 5. Then the smaller extras: goals fed by a tag (2), out-of-date prices (6).
 
 ## Done
+
+**Built on 2026-11-12** (type-checked and built; the database tests were written but not run here)
+- **Backfill the net-worth curve**: "Reconstituer les mois passés" on the Évolution card adds one estimated point per month-end, from the first entry to the first real daily point (`estime` in `patrimoine_historique`, dashed on the chart). Everything dated is replayed; each stock is valued at its last transaction price, unless a month-end price is typed from the broker statement ("Cours de fin de mois", table `bourse_cours_historique`). Manual assets count at their current value from their date. Recomputed every morning once enabled.
 
 **Built on 2026-11-11** (type-checked and built; the backend tests below need a database and were written but not run here)
 - **Budget alert at entry time** (Saisie): under the category, how much of its monthly budget is already spent (for the month of the expense's date) and the % with the amount typed. After saving, an amber notification from 80 %, red above 100 %. Computed in the browser from `/api/resume`.
