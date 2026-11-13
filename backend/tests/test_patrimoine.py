@@ -22,12 +22,13 @@ from fastapi import HTTPException
 
 from config import aujourdhui
 from database import db
-from schemas import ActifIn, DetteIn, ReglagesPatrimoine
+from schemas import ActifIn, DetteIn, ReglagesPatrimoine, VersementIn
 from routes.carnet import ajouter_dette
-from routes.patrimoine import (COURS_SAISI, COURS_TRANSACTION, JOURS_HAWL, PARAMS, ajouter_actif, calculer_patrimoine,
-                               charger_operations, dernier_cours, fins_de_mois, historique_patrimoine,
-                               liberte_financiere, mois_avant_liberte, modifier_actif, modifier_reglages,
-                               noter_patrimoine, patrimoine_aux_dates, supprimer_actif)
+from routes.patrimoine import (COURS_SAISI, COURS_TRANSACTION, JOURS_HAWL, LIBELLE_OUVERTURE, PARAMS, ajouter_actif,
+                               ajouter_mouvement_actif, calculer_patrimoine, charger_operations, dernier_cours,
+                               fins_de_mois, historique_patrimoine, liberte_financiere, mois_avant_liberte,
+                               modifier_actif, modifier_reglages, noter_patrimoine, patrimoine_aux_dates,
+                               supprimer_actif, supprimer_mouvement_actif)
 
 PREFIXE = "ZZTEST"
 AUJ = aujourdhui()
@@ -135,6 +136,78 @@ def test_modifier_et_supprimer_un_actif():
         with pytest.raises(HTTPException) as exc:
             appel()
         assert exc.value.status_code == 404
+
+
+# ---------------------------------------------------------------- versements et retraits d'un actif
+def _mouvement(actif_id, montant, jour=AUJ, libelle=""):
+    return ajouter_mouvement_actif(actif_id, VersementIn(date_operation=jour, montant=montant, libelle=libelle))
+
+
+def _lire(actif_id):
+    return next(a for a in calculer_patrimoine(AUJ)["actifs"] if a["id"] == actif_id)
+
+
+def test_le_montant_verse_a_la_creation_ouvre_l_historique():
+    a = _actif(valeur=3000, verse=3000, type="Compte épargne", nom="Livret")
+    (m,) = _lire(a["id"])["mouvements"]
+    assert m["montant"] == 3000 and m["date_operation"] == AUJ and m["libelle"] == LIBELLE_OUVERTURE
+    assert _lire(_actif(valeur=5000, nom="Bijoux")["id"])["mouvements"] == []     # rien de versé : pas d'historique
+
+
+def test_verser_deplace_l_argent_sans_changer_le_patrimoine():
+    modifier_reglages(ReglagesPatrimoine(solde_depart=1_000_000))   # liquidités positives, comptées dans la réserve
+    a = _actif(valeur=3000, verse=3000, type="Compte épargne", nom="Livret")
+    avant = calculer_patrimoine(AUJ)
+    r = _mouvement(a["id"], 1000, libelle="Virement de novembre")
+    assert float(r["valeur"]) == 4000 and float(r["verse"]) == 4000
+    apres = calculer_patrimoine(AUJ)
+    assert _ecart(avant, apres, "liquidites") == -1000 and _ecart(avant, apres, "autres_actifs") == 1000
+    assert _ecart(avant, apres, "total") == 0
+    assert round(apres["reserve"]["disponible"] - avant["reserve"]["disponible"], 2) == 0   # toujours dans la réserve
+    assert [m["montant"] for m in _lire(a["id"])["mouvements"]] == [1000, 3000]             # le plus récent d'abord
+
+
+def test_retirer_les_interets_rend_le_verse_negatif():
+    a = _actif(valeur=3000, verse=3000, type="Compte épargne", nom="Livret")
+    modifier_actif(a["id"], ActifIn(nom=f"{PREFIXE} Livret", type="Compte épargne", valeur=3050, verse=3000, maj_le=AUJ))
+    avant = calculer_patrimoine(AUJ)
+    r = _mouvement(a["id"], -3050, libelle="Clôture")
+    assert float(r["valeur"]) == 0 and float(r["verse"]) == -50
+    apres = calculer_patrimoine(AUJ)
+    assert _ecart(avant, apres, "liquidites") == 3050 and _ecart(avant, apres, "total") == 0
+
+
+def test_mouvements_refuses():
+    a = _actif(valeur=1000, verse=1000, nom="Livret")
+    for appel, code in ((lambda: _mouvement(a["id"], -1500), 400),                       # plus que la valeur
+                        (lambda: _mouvement(a["id"], 100, AUJ + timedelta(days=1)), 400),   # date future
+                        (lambda: _mouvement(10**9, 100), 404),
+                        (lambda: supprimer_mouvement_actif(10**9), 404)):
+        with pytest.raises(HTTPException) as exc:
+            appel()
+        assert exc.value.status_code == code
+
+
+def test_supprimer_un_mouvement_l_annule():
+    a = _actif(valeur=3000, verse=3000, nom="Livret")
+    _mouvement(a["id"], 1000)
+    m = _lire(a["id"])["mouvements"][0]
+    supprimer_mouvement_actif(m["id"])
+    apres = _lire(a["id"])
+    assert apres["valeur"] == 3000 and apres["verse"] == 3000 and len(apres["mouvements"]) == 1
+
+
+def test_courbe_suit_les_versements_dans_le_temps():
+    """Livret ouvert fin janvier avec 3000, +1000 versés le 10 février, intérêts saisis à la main."""
+    d = {"solde_depart": 10000.0, "budget": [], "dettes": [], "mouvements": [], "flux_bourse": [],
+         "transactions": [], "cours": {},
+         "actifs": [{"depuis": date(2025, 1, 20), "valeur": 4050.0, "verse": 4000.0,
+                     "mouvements": [(date(2025, 2, 10), 1000.0), (date(2025, 1, 20), 3000.0)]}]}
+    p0, p1, p2 = patrimoine_aux_dates([date(2025, 1, 10), date(2025, 1, 31), date(2025, 2, 28)], d)
+    assert p0["autres_actifs"] == 0 and p0["liquidites"] == 10000
+    assert p1["autres_actifs"] == 3050 and p1["liquidites"] == 7000      # avant le versement de février
+    assert p2["autres_actifs"] == 4050 and p2["liquidites"] == 6000
+    assert p1["total"] == p2["total"] == 10050
 
 
 # ---------------------------------------------------------------- liberté financière
