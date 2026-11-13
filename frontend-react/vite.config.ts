@@ -12,7 +12,7 @@ export default defineConfig({
     // elle s'ouvre donc instantanément et même hors connexion. Les données (/api) ne sont
     // jamais mises en cache : elles viennent toujours du serveur.
     VitePWA({
-      registerType: 'prompt', // nouvelle version → l'utilisateur choisit quand recharger (pas de saisie perdue)
+      registerType: 'autoUpdate', // nouvelle version → l'utilisateur choisit quand recharger (pas de saisie perdue)
       manifest: false,        // public/manifest.json reste la source du manifeste
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,woff2}'],

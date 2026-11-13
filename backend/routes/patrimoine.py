@@ -46,7 +46,7 @@ TYPES_ACTIFS = [
 ]
 # Argent disponible tout de suite en cas de coup dur : compte dans la réserve de sécurité
 TYPE_DISPONIBLE = "Compte épargne"
-MOIS_RESERVE = 6          # dépense moyenne calculée sur les derniers mois terminés
+MOIS_RESERVE = 12          # dépense moyenne calculée sur les derniers mois terminés
 NISAB_GRAMMES_OR = 85     # seuil de la zakat : valeur de 85 g d'or
 TAUX_ZAKAT = 0.025
 JOURS_HAWL = 354          # une année lunaire
