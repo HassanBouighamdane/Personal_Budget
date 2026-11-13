@@ -17,9 +17,16 @@ Lancement :
     pytest -q -m "not base"     # seulement les calculs sans base
 """
 import os
+import sys
 from pathlib import Path
 
 import pytest
+
+# backend/ dans le chemin des imports, quelle que soit la façon de lancer pytest
+# (`pytest` ne l'ajoute pas, contrairement à `python -m pytest` lancé depuis backend/)
+_BACKEND = str(Path(__file__).resolve().parent.parent)
+if _BACKEND not in sys.path:
+    sys.path.insert(0, _BACKEND)
 
 try:
     from dotenv import dotenv_values
