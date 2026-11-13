@@ -5,7 +5,7 @@ name: Tests
 
 on:
   push:
-    branches: [preview, master]
+    branches: [preview]
   pull_request:
     branches: [master]
 
