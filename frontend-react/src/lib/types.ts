@@ -187,6 +187,7 @@ export type Position = {
 };
 
 export type CibleSecteur = { secteur: string; cible: number };   // cible : ratio (0,25 = 25 %)
+export type CibleTitre = { titre: string; cible: number };       // cible : ratio (0,25 = 25 %)
 
 export type Fiscalite = {
   annee: number;
@@ -462,8 +463,10 @@ export type IndiceSuivi = {
 };
 export type Indices = { defaut: string; premier_mouvement: string | null; indices: IndiceSuivi[] };
 /** `etat` : ok, vide (aucune valeur), incomplet (un apport précède l'historique : `manque_avant`), sans_apport */
+/** « compte » : apports placés dans l'indice, contre titres + espèces ; « titres » : achats placés dans l'indice, contre la valeur de marché */
+export type ModeComparaison = 'compte' | 'titres';
 export type Comparaison = {
-  indice: string; nom: string; dividendes: boolean; etat: 'ok' | 'vide' | 'incomplet' | 'sans_apport';
+  indice: string; nom: string; dividendes: boolean; mode: ModeComparaison; etat: 'ok' | 'vide' | 'incomplet' | 'sans_apport';
   manque_avant: string | null; date_valeur: string | null; apports_nets: number; debut_cours: string | null;
   toi: { valeur: number; rendement: number | null }; reference: { valeur: number; rendement: number | null } | null;
   ecart: number | null; points: { date: string; indice: number; toi: number }[];

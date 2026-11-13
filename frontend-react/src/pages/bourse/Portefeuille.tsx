@@ -11,7 +11,7 @@ import { dateFr, decalerMois, fmt, jjmm, jjmmaa, libelleMois } from '../../lib/f
 import { C, regrouperAutres, signe, T } from '../../lib/palette';
 import type { CoursEnRetard, Position } from '../../lib/types';
 import {
-  useActualiserCours, useCibles, useCoursEnRetard, useCouvertureCours, useDashboardBourse, useEcriture, useGains, useHistoriquePortefeuille, useHistoriqueTitre,
+  useActualiserCours, useCibles, useCiblesTitres, useCoursEnRetard, useCouvertureCours, useDashboardBourse, useEcriture, useGains, useHistoriquePortefeuille, useHistoriqueTitre,
   usePositions,
 } from '../../lib/queries';
 import { Donut, Graphique, optionsSeries } from '../../components/Graphique';
@@ -100,41 +100,63 @@ function Repartitions({ liste }: { liste: Position[] }) {
   );
 }
 
-/* ---------- Allocation par secteur : poids actuel comparé à une cible ---------- */
+/* ---------- Allocation par secteur et par titre : poids actuel comparé à une cible ---------- */
 function Allocation({ liste }: { liste: Position[] }) {
   const { data: cibles } = useCibles();
+  const valeurs: Record<string, number> = {};
+  liste.forEach(p => { valeurs[p.secteur || 'Non classé'] = (valeurs[p.secteur || 'Non classé'] ?? 0) + p.valeur_marche; });
+  return (
+    <TableauAllocation titre="Allocation par secteur" colonne="Secteur" valeurs={valeurs}
+                       cibles={cibles?.map(c => ({ nom: c.secteur, cible: c.cible }))}
+                       enregistrer={c => ({ path: '/api/bourse/cibles', body: { cibles: c.map(x => ({ secteur: x.nom, cible: x.cible })) } })} />
+  );
+}
+
+function AllocationTitres({ liste }: { liste: Position[] }) {
+  const { data: cibles } = useCiblesTitres();
+  const valeurs = Object.fromEntries(liste.map(p => [p.titre, p.valeur_marche]));
+  return (
+    <TableauAllocation titre="Allocation par titre" colonne="Titre" valeurs={valeurs}
+                       cibles={cibles?.map(c => ({ nom: c.titre, cible: c.cible }))}
+                       enregistrer={c => ({ path: '/api/bourse/cibles-titres', body: { cibles: c.map(x => ({ titre: x.nom, cible: x.cible })) } })} />
+  );
+}
+
+/** Poids de chaque ligne (valeur de marché) comparé à sa cible ; une ligne avec une cible mais plus détenue reste affichée */
+function TableauAllocation({ titre, colonne, valeurs, cibles, enregistrer }: {
+  titre: string; colonne: string; valeurs: Record<string, number>; cibles: { nom: string; cible: number }[] | undefined;
+  enregistrer: (cibles: { nom: string; cible: number }[]) => { path: string; body: unknown };
+}) {
   const ecrire = useEcriture('bourse');
   const [saisies, setSaisies] = useState<Record<string, string | number>>({});
   useEffect(() => {
-    if (cibles) setSaisies(Object.fromEntries(cibles.map(c => [c.secteur, Math.round(c.cible * 10000) / 100])));
+    if (cibles) setSaisies(Object.fromEntries(cibles.map(c => [c.nom, Math.round(c.cible * 10000) / 100])));
   }, [cibles]);
 
-  const valeurs: Record<string, number> = {};
-  liste.forEach(p => { valeurs[p.secteur || 'Non classé'] = (valeurs[p.secteur || 'Non classé'] ?? 0) + p.valeur_marche; });
   const total = Object.values(valeurs).reduce((a, b) => a + b, 0);
-  const secteurs = [...new Set([...Object.keys(valeurs), ...(cibles ?? []).map(c => c.secteur)])]
+  const lignes = [...new Set([...Object.keys(valeurs), ...(cibles ?? []).map(c => c.nom)])]
     .sort((a, b) => (valeurs[b] ?? 0) - (valeurs[a] ?? 0));
   const pct = (s: string) => { const v = saisies[s]; return typeof v === 'number' ? v : parseFloat(v ?? '') || 0; };
-  const sommeCibles = secteurs.reduce((a, s) => a + pct(s), 0);
-  const modifie = secteurs.some(s => pct(s) !== Math.round((cibles?.find(c => c.secteur === s)?.cible ?? 0) * 10000) / 100);
+  const sommeCibles = lignes.reduce((a, s) => a + pct(s), 0);
+  const modifie = lignes.some(s => pct(s) !== Math.round((cibles?.find(c => c.nom === s)?.cible ?? 0) * 10000) / 100);
 
-  if (!secteurs.length) return null;
+  if (!lignes.length) return null;
   return (
-    <Carte titre="Allocation par secteur" description="Poids actuel (valeur de marché) comparé à ta cible ; le dernier chiffre indique combien acheter (+) ou alléger (−) pour l'atteindre"
+    <Carte titre={titre} description="Poids actuel (valeur de marché) comparé à ta cible ; le dernier chiffre indique combien acheter (+) ou alléger (−) pour l'atteindre"
            droite={<Button size="xs" variant={modifie ? 'filled' : 'default'} loading={ecrire.isPending} disabled={sommeCibles > 100.001}
-                           onClick={() => ecrire.mutate({ path: '/api/bourse/cibles', method: 'PUT', succes: 'Cibles enregistrées ✓',
-                             body: { cibles: secteurs.filter(s => pct(s) > 0).map(s => ({ secteur: s, cible: pct(s) / 100 })) } })}>
+                           onClick={() => ecrire.mutate({ method: 'PUT', succes: 'Cibles enregistrées ✓',
+                             ...enregistrer(lignes.filter(s => pct(s) > 0).map(s => ({ nom: s, cible: pct(s) / 100 }))) })}>
                      Enregistrer les cibles
                    </Button>}>
       <Tableau minWidth={640}>
         <Table.Thead>
           <Table.Tr>
-            <Table.Th>Secteur</Table.Th><Table.Th className="num">Valeur</Table.Th><Table.Th className="num">Poids</Table.Th>
+            <Table.Th>{colonne}</Table.Th><Table.Th className="num">Valeur</Table.Th><Table.Th className="num">Poids</Table.Th>
             <Table.Th className="num">Cible</Table.Th><Table.Th className="num">Écart</Table.Th><Table.Th className="num">Pour atteindre la cible</Table.Th>
           </Table.Tr>
         </Table.Thead>
         <Table.Tbody>
-          {secteurs.map(s => {
+          {lignes.map(s => {
             const valeur = valeurs[s] ?? 0;
             const poids = total ? valeur / total * 100 : 0;
             const cible = pct(s);
@@ -237,6 +259,7 @@ export function Positions() {
       </Carte>
       {liste.length > 0 && <HistoriqueCours titres={liste.map(p => p.titre).sort()} />}
       <Allocation liste={liste} />
+      <AllocationTitres liste={liste} />
     </>
   );
 }

@@ -43,7 +43,7 @@ from schemas import (
     ParametresBourse, TransactionBourseCreate, TransactionBourseOut,
     PrixMaj, PositionBourse, GainRealise, DashboardBourse, TitreBourse, TitreBourseIn, CoursActualisation,
     DividendeCreate, DividendeOut, FraisBourseCreate, FraisBourseOut,
-    MouvementBourseCreate, MouvementBourseOut, CiblesIn, JourFerieIn, ImportIndiceIn,
+    MouvementBourseCreate, MouvementBourseOut, CiblesIn, CiblesTitresIn, JourFerieIn, ImportIndiceIn,
 )
 
 router = APIRouter(prefix="/api/bourse", tags=["bourse"],
@@ -578,16 +578,45 @@ def historique_cours(titre: Optional[str] = None, jours: Optional[int] = None):
     _, _, calc = _positions_et_gains()
     # Pas de point avant le premier achat : des cours importés peuvent remonter plus loin
     premier_achat = min((t["date_operation"] for t in calc), default=date.max)
-    cours, dates = {}, set()
+    dates = {r["date"] for r in releves if r["date"] > depuis and r["date"] >= premier_achat}
+    titres = sorted({r["titre"] for r in releves})
+    return {"titres": titres, "points": valeur_aux_dates(_transactions_courbe(calc), _cours_notes(releves), sorted(dates))}
+
+
+def _cours_notes(releves: list) -> dict:
+    """{titre: [(date, cours)] triée} à partir des lignes de bourse_prix_historique triées par date."""
+    cours = {}
     for r in releves:
         cours.setdefault(r["titre"], []).append((r["date"], float(r["cours"])))
-        if r["date"] > depuis and r["date"] >= premier_achat:
-            dates.add(r["date"])
-    transactions = [{"date": t["date_operation"], "titre": t["titre"], "achat": t["type_operation"] == "Achat",
-                     "quantite": float(t["quantite"]), "net": float(t["_net_decimal"]), "cours": float(t["cours_unitaire"])}
-                    for t in calc]
-    titres = sorted({r["titre"] for r in releves})
-    return {"titres": titres, "points": valeur_aux_dates(transactions, cours, sorted(dates))}
+    return cours
+
+
+def _transactions_courbe(calc: list) -> list:
+    return [{"date": t["date_operation"], "titre": t["titre"], "achat": t["type_operation"] == "Achat",
+             "quantite": float(t["quantite"]), "net": float(t["_net_decimal"]), "cours": float(t["cours_unitaire"])}
+            for t in calc]
+
+
+def valeur_marche_aux_dates(jours: list) -> list:
+    """Valeur de marché des titres détenus à la fin de chaque jour de `jours` (triés), au dernier
+    cours noté ou importé, sinon au prix de leur dernière transaction."""
+    with db() as conn:
+        releves = conn.execute("SELECT titre, date, cours FROM bourse_prix_historique ORDER BY date").fetchall()
+    _, _, calc = _positions_et_gains()
+    return [p["valeur"] for p in valeur_aux_dates(_transactions_courbe(calc), _cours_notes(releves), jours)]
+
+
+def flux_titres() -> list:
+    """L'argent qui entre dans les titres et qui en sort, vu des titres : [(date, montant)], achat
+    positif (prix net, frais compris), vente négative (montant crédité, TPCVM retenue) et dividende
+    négatif (net reçu). Sert à comparer le seul choix des titres à l'indice : les espèces du compte
+    et les frais de tenue de compte n'y entrent pas."""
+    _, gains, calc = _positions_et_gains()
+    tpcvm = {g.id: float(g.tpcvm) for g in gains}
+    flux = [(t["date_operation"], float(t["_net_decimal"]) if t["type_operation"] == "Achat"
+             else -(float(t["_net_decimal"]) - tpcvm.get(t["id"], 0.0))) for t in calc]
+    flux += [(x["date_operation"], -float(x["montant"])) for x in _dividendes()]
+    return flux
 
 
 # ---------------------------------------------------------------- cours passés importés
@@ -1035,6 +1064,25 @@ def remplacer_cibles(c: CiblesIn):
             if x.cible > 0:
                 conn.execute("INSERT INTO bourse_cibles_secteur(secteur, cible) VALUES(%s,%s)", (x.secteur.strip(), x.cible))
     return lister_cibles()
+
+
+# ---------------------------------------------------------------- allocation cible par titre
+@router.get("/cibles-titres")
+def lister_cibles_titres():
+    with db() as conn:
+        return [{"titre": r["titre"], "cible": float(r["cible"])}
+                for r in conn.execute("SELECT titre, cible FROM bourse_cibles_titre ORDER BY titre").fetchall()]
+
+
+@router.put("/cibles-titres")
+def remplacer_cibles_titres(c: CiblesTitresIn):
+    """Remplace toutes les cibles par titre (une cible à 0 est simplement retirée)."""
+    with references_valides(), db() as conn:
+        conn.execute("DELETE FROM bourse_cibles_titre")
+        for x in c.cibles:
+            if x.cible > 0:
+                conn.execute("INSERT INTO bourse_cibles_titre(titre, cible) VALUES(%s,%s)", (x.titre.strip().upper(), x.cible))
+    return lister_cibles_titres()
 
 
 # ---------------------------------------------------------------- récapitulatif fiscal

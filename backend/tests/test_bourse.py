@@ -358,6 +358,29 @@ def test_cibles_par_secteur():
         remplacer_cibles(CiblesIn(cibles=[CibleSecteur(**x) for x in avant]))
 
 
+def test_cibles_par_titre():
+    from fastapi import HTTPException
+    from routes.bourse import lister_cibles_titres, remplacer_cibles_titres
+    from schemas import CibleTitre, CiblesTitresIn
+    avant = lister_cibles_titres()
+    try:
+        r = remplacer_cibles_titres(CiblesTitresIn(cibles=[CibleTitre(titre=TITRE_TEST.lower(), cible=0.25)]))
+        assert {"titre": TITRE_TEST, "cible": 0.25} in r and len(r) == 1      # code mis en majuscules
+        with pytest.raises(HTTPException):                                    # titre absent de la liste des titres
+            remplacer_cibles_titres(CiblesTitresIn(cibles=[CibleTitre(titre="ZZTEST_INCONNU", cible=0.1)]))
+        with pytest.raises(ValueError):
+            CiblesTitresIn(cibles=[CibleTitre(titre="A", cible=0.7), CibleTitre(titre="B", cible=0.4)])
+        # Le titre renommé emporte sa cible ; supprimé, il la retire
+        with db() as c:
+            c.execute("UPDATE bourse_titres SET code = %s WHERE code = %s", (TITRE_TEST + "B", TITRE_TEST))
+        assert {"titre": TITRE_TEST + "B", "cible": 0.25} in lister_cibles_titres()
+        with db() as c:
+            c.execute("DELETE FROM bourse_titres WHERE code = %s", (TITRE_TEST + "B",))
+        assert lister_cibles_titres() == []
+    finally:
+        remplacer_cibles_titres(CiblesTitresIn(cibles=[CibleTitre(**x) for x in avant]))
+
+
 # ---------------------------------------------------------------------------
 # Journal des décisions et calendrier des dividendes
 # ---------------------------------------------------------------------------

@@ -5,8 +5,8 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 
 import { api, apiSilencieux, toast } from './api';
 import type {
-  Alerte, ALire, ApercuRappels, EtatTelegram, Rapprochements, BilanLecture, CalendrierDividendes, NoteDuJour, Patrimoine, PointPatrimoine, CoursPasse, PretLivre, Projet, SerieLecture, BudgetHistorique, CibleSecteur, Config, CoursActualisation, DashboardBourse, Dette, Dividende, Echeance, EtatRappels, Fiscalite, FraisBourse, Gain, Genre,
-  Livre, Mouvement, NoteLecture, ObjectifsLecture, Position, Recherche, ResumeAnnee, ResumeGlobal, ResumeJour, ResumeMois, ResumeSemaine, ResumeTag,
+  Alerte, ALire, ApercuRappels, EtatTelegram, Rapprochements, BilanLecture, CalendrierDividendes, NoteDuJour, Patrimoine, PointPatrimoine, CoursPasse, PretLivre, Projet, SerieLecture, BudgetHistorique, CibleSecteur, CibleTitre, Config, CoursActualisation, DashboardBourse, Dette, Dividende, Echeance, EtatRappels, Fiscalite, FraisBourse, Gain, Genre,
+  Livre, ModeComparaison, Mouvement, NoteLecture, ObjectifsLecture, Position, Recherche, ResumeAnnee, ResumeGlobal, ResumeJour, ResumeMois, ResumeSemaine, ResumeTag,
   Suggestion, Titre, TransactionBourse, TransactionsMois, Recurrence, RecurrenceAGenerer, SuggestionRecurrence, Previsions,
   HistoriquePortefeuille, HistoriqueTitre, JoursFeries, CoursEnRetard, Indices, Comparaison, CouvertureTitre,
 } from './types';
@@ -62,6 +62,7 @@ export const useMouvements = () => lire<Mouvement[]>(['bourse', 'mouvements'], '
 export const useTitres = () => lire<Titre[]>(['bourse', 'titres'], '/api/bourse/titres');
 export const useCalendrierDividendes = () => lire<CalendrierDividendes>(['bourse', 'calendrier'], '/api/bourse/dividendes/calendrier');
 export const useCibles = () => lire<CibleSecteur[]>(['bourse', 'cibles'], '/api/bourse/cibles');
+export const useCiblesTitres = () => lire<CibleTitre[]>(['bourse', 'cibles-titres'], '/api/bourse/cibles-titres');
 export const useFiscalite = (annee: number) => lire<Fiscalite>(['bourse', 'fiscalite', annee], '/api/bourse/fiscalite?annee=' + annee);
 /** Valeur du portefeuille jour après jour (titre null), ou cours noté d'un titre ; `jours` null = tout */
 export const useHistoriquePortefeuille = (jours: number | null) =>
@@ -74,8 +75,8 @@ export const useCoursEnRetard = () => useQuery({
 });
 /** Indices de référence suivis (MASI...) et comparaison du compte Bourse avec l'un d'eux */
 export const useIndices = () => lire<Indices>(['bourse', 'indices'], '/api/bourse/indices');
-export const useComparaison = (indice: string) =>
-  lire<Comparaison>(['bourse', 'comparaison', indice], '/api/bourse/indices/comparaison?indice=' + encodeURIComponent(indice));
+export const useComparaison = (indice: string, mode: ModeComparaison) =>
+  lire<Comparaison>(['bourse', 'comparaison', indice, mode], `/api/bourse/indices/comparaison?indice=${encodeURIComponent(indice)}&mode=${mode}`);
 export const useCouvertureCours = () => lire<CouvertureTitre[]>(['bourse', 'couverture'], '/api/bourse/historique/couverture');
 export const useJoursFeries = () => lire<JoursFeries>(['bourse', 'jours-feries'], '/api/bourse/jours-feries');
 export const useDashboardBourse = (requete: string) =>

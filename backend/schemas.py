@@ -192,6 +192,23 @@ class CibleSecteur(BaseModel):
     cible: float = Field(ge=0, le=1)      # part du portefeuille, 0,25 = 25 %
 
 
+class CibleTitre(BaseModel):
+    titre: CodeTitre
+    cible: float = Field(ge=0, le=1)      # part du portefeuille, 0,25 = 25 %
+
+
+class CiblesTitresIn(BaseModel):
+    cibles: List[CibleTitre] = Field(max_length=200)
+
+    @model_validator(mode="after")
+    def _total(self):
+        if sum(c.cible for c in self.cibles) > 1.0001:
+            raise ValueError("La somme des cibles dépasse 100 %")
+        if len({c.titre.strip().upper() for c in self.cibles}) != len(self.cibles):
+            raise ValueError("Titre en double")
+        return self
+
+
 class CiblesIn(BaseModel):
     cibles: List[CibleSecteur] = Field(max_length=100)
 

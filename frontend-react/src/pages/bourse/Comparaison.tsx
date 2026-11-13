@@ -2,13 +2,13 @@
  * Les versions « Rentabilité Net » réinvestissent les dividendes : ce sont elles qui se comparent honnêtement au compte.
  * Import des valeurs passées d'un indice (fichier CSV), pour couvrir les apports antérieurs à l'historique. */
 import { useState } from 'react';
-import { Alert, Badge, Box, Button, Group, Select, SimpleGrid, Stack, Table, Text, Tooltip } from '@mantine/core';
+import { Alert, Badge, Box, Button, Group, SegmentedControl, Select, SimpleGrid, Stack, Table, Text, Tooltip } from '@mantine/core';
 import { IconChartArrowsVertical, IconFileImport, IconInfoCircle } from '@tabler/icons-react';
 import type { ChartData } from 'chart.js';
 
 import { dateFr, fmt, jjmm, jjmmaa } from '../../lib/format';
 import { C, signe } from '../../lib/palette';
-import type { Indices, IndiceSuivi } from '../../lib/types';
+import type { Indices, IndiceSuivi, ModeComparaison } from '../../lib/types';
 import { useComparaison, useEcriture, useIndices } from '../../lib/queries';
 import { Graphique, optionsSeries } from '../../components/Graphique';
 import { ouvrirImportSerie } from '../../components/ImportSerie';
@@ -51,11 +51,17 @@ function Colonne({ titre, valeur, rendement }: { titre: string; valeur: number; 
 export function CarteComparaison() {
   const { data: indices } = useIndices();
   const [code, setCode] = useState<string | null>(null);
+  const [mode, setMode] = useState<ModeComparaison>('compte');
   const actif = code ?? indices?.defaut ?? 'MASRN';
-  const { data: c, isPending } = useComparaison(actif);
+  const { data: c, isPending } = useComparaison(actif, mode);
+  const titres = mode === 'titres';
   const choix = (
-    <Select size="xs" w={240} data={(indices?.indices ?? []).map(i => ({ value: i.code, label: libelleIndice(i) }))} value={actif}
-            onChange={v => v && setCode(v)} allowDeselect={false} aria-label="Indice de référence" comboboxProps={{ withinPortal: true }} />
+    <Group gap="xs" wrap="wrap">
+      <SegmentedControl size="xs" value={mode} onChange={v => setMode(v as ModeComparaison)} aria-label="Ce qui est comparé"
+                        data={[{ value: 'compte', label: 'Tout le compte' }, { value: 'titres', label: 'Choix des titres' }]} />
+      <Select size="xs" w={240} data={(indices?.indices ?? []).map(i => ({ value: i.code, label: libelleIndice(i) }))} value={actif}
+              onChange={v => v && setCode(v)} allowDeselect={false} aria-label="Indice de référence" comboboxProps={{ withinPortal: true }} />
+    </Group>
   );
   const points = c?.points ?? [];
   const format = points.length && points[0].date.slice(0, 4) !== points.at(-1)!.date.slice(0, 4) ? jjmmaa : jjmm;
@@ -63,16 +69,20 @@ export function CarteComparaison() {
 
   return (
     <Carte titre="Comparaison avec l'indice" icone={<Pastille icone={IconChartArrowsVertical} couleur="marque" />} droite={choix}
-           description="Tes apports et retraits, aux mêmes dates, placés dans l'indice">
+           description={titres
+             ? "Chaque achat de titre placé le même jour dans l'indice, chaque vente et dividende repris : tes titres contre l'indice, sans les espèces"
+             : "Tes apports et retraits, aux mêmes dates, placés dans l'indice : tout le compte, espèces comprises"}>
       {isPending || !c ? <Chargement lignes={3} /> : c.etat === 'sans_apport' ? (
-        <Info>Saisis tes apports au compte Bourse (onglet Mouvements) : la comparaison place les mêmes sommes dans l'indice.</Info>
+        <Info>{titres
+          ? "Aucun achat de titre pour l'instant : la comparaison place chaque achat dans l'indice."
+          : "Saisis tes apports au compte Bourse (onglet Mouvements) : la comparaison place les mêmes sommes dans l'indice."}</Info>
       ) : c.etat !== 'ok' ? (
         <Stack gap="sm">
           <Info>
             {c.etat === 'vide'
               ? <>Aucune valeur de {c.nom} pour l'instant : elle est notée chaque soir de bourse à partir d'aujourd'hui.</>
-              : <>Ton premier apport date du {dateFr(c.manque_avant!)}, avant les valeurs connues de {c.nom}.</>}
-            {' '}Importe son historique depuis ce jour-là pour comparer tout ton compte.
+              : <>Ton premier {titres ? 'achat' : 'apport'} date du {dateFr(c.manque_avant!)}, avant les valeurs connues de {c.nom}.</>}
+            {' '}Importe son historique depuis ce jour-là pour comparer {titres ? 'tous tes achats' : 'tout ton compte'}.
           </Info>
           <Button variant="light" leftSection={<IconFileImport size={16} />} onClick={() => indices && ouvrirImportIndice(c.indice, indices)} style={{ alignSelf: 'flex-start' }}>
             Importer l'historique de {c.nom}
@@ -82,11 +92,11 @@ export function CarteComparaison() {
         <Stack gap="md">
           {!c.dividendes && (
             <Alert variant="light" color="ambre" radius="md" p="xs" icon={<IconInfoCircle size={16} />}>
-              <Text fz="xs">Indice hors dividendes : il oublie les 3 à 4 % par an de dividendes de ses sociétés, alors que ton compte les compte. La comparaison te flatte.</Text>
+              <Text fz="xs">Indice hors dividendes : il oublie les 3 à 4 % par an de dividendes de ses sociétés, alors que {titres ? 'tes titres les comptent' : 'ton compte les compte'}. La comparaison te flatte.</Text>
             </Alert>
           )}
           <SimpleGrid cols={{ base: 1, xs: 3 }} spacing="md">
-            <Colonne titre="Ton compte Bourse" valeur={c.toi.valeur} rendement={c.toi.rendement} />
+            <Colonne titre={titres ? 'Tes titres (valeur de marché)' : 'Ton compte Bourse'} valeur={c.toi.valeur} rendement={c.toi.rendement} />
             <Colonne titre={`Dans ${c.nom}`} valeur={c.reference!.valeur} rendement={c.reference!.rendement} />
             <Box>
               <Text fz="xs" c="dimmed">Écart</Text>
@@ -104,7 +114,7 @@ export function CarteComparaison() {
             }} data={{
               labels: points.map(p => format(p.date)),
               datasets: [
-                { label: 'Ton compte', data: points.map(p => p.toi), borderColor: C.ep, backgroundColor: C.ep, tension: .2, pointRadius: 0 },
+                { label: titres ? 'Tes titres' : 'Ton compte', data: points.map(p => p.toi), borderColor: C.ep, backgroundColor: C.ep, tension: .2, pointRadius: 0 },
                 { label: c.nom, data: points.map(p => p.indice), borderColor: C.rev, backgroundColor: C.rev, borderDash: [5, 4], tension: .2, pointRadius: 0 },
               ],
             } as ChartData} />
@@ -113,6 +123,7 @@ export function CarteComparaison() {
             Valeur de l'indice au {dateFr(c.date_valeur!)}.
             {c.debut_cours && points.length && points[0].date < c.debut_cours
               ? ` Avant le ${dateFr(c.debut_cours)}, tes titres sont estimés au prix de leur dernière transaction (pas de cours de clôture noté).` : ''}
+            {titres ? " Les ventes et les dividendes sortent des deux côtés : les espèces qui attendent ne comptent pas." : ''}
             {' '}L'indice n'a pas de frais : un fonds indiciel réel ferait un peu moins bien.
           </Text>
         </Stack>

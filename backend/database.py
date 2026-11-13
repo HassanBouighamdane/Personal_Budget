@@ -170,6 +170,7 @@ MESSAGES_CLES = {
     "fk_lectures_a_lire_genre": "Genre inconnu : ajoute-le d'abord dans Lectures > Paramètres.",
     "fk_recurrences_categorie": "Catégorie inconnue : choisis-la dans la liste (Paramètres → Catégories).",
     "fk_recurrences_source": "Source de revenu inconnue.",
+    "fk_bourse_cibles_titre": "Titre inconnu. Ajoute-le d'abord dans Bourse > Paramètres > Titres.",
 }
 
 
@@ -230,7 +231,7 @@ def migrations_a_faire():
 TABLES_MODIFIE_LE = (
     "categories", "depenses", "revenus", "sources_revenus", "budgets_historique", "params", "utilisateurs",
     "bourse_parametres", "bourse_transactions", "bourse_titres", "bourse_dividendes", "bourse_frais",
-    "bourse_mouvements", "bourse_cibles_secteur",
+    "bourse_mouvements", "bourse_cibles_secteur", "bourse_cibles_titre",
     "lectures_livres", "lectures_genres", "lectures_a_lire", "lectures_notes", "lectures_prets",
     "dettes", "dettes_remboursements", "echeances", "actifs", "objectifs", "objectifs_versements",
     "bourse_cours_historique", "rapprochements", "recurrences",
@@ -565,6 +566,13 @@ def init_db():
         CREATE TABLE IF NOT EXISTS bourse_cibles_secteur (
             secteur VARCHAR(100) PRIMARY KEY,
             cible   NUMERIC(6,4) NOT NULL CHECK (cible >= 0 AND cible <= 1)
+        );
+
+        -- Bourse : poids cible de chaque titre dans le portefeuille (0 à 1) ; suit le renommage d'un code
+        CREATE TABLE IF NOT EXISTS bourse_cibles_titre (
+            titre VARCHAR(60) PRIMARY KEY CONSTRAINT fk_bourse_cibles_titre REFERENCES bourse_titres(code)
+                  ON UPDATE CASCADE ON DELETE CASCADE,
+            cible NUMERIC(6,4) NOT NULL CHECK (cible >= 0 AND cible <= 1)
         );
 
         -- ================================================================

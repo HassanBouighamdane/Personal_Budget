@@ -93,3 +93,36 @@ def test_import_garde_les_valeurs_notees():
     finally:
         with db() as c:
             c.execute("DELETE FROM indices_historique WHERE indice='MASIMS' AND date = ANY(%s)", (jours,))
+
+
+# ---------------------------------------------------------------------------
+# Mode « titres » : achats placés dans l'indice, ventes et dividendes repris
+# ---------------------------------------------------------------------------
+def test_mode_titres_ventes_et_dividendes_reprennent_des_parts():
+    # Achat de 9 600 le 02/02 (0,2 part), dividende de 500 le 01/06 (−0,01), vente créditée 2 600 le 01/09 (−0,05)
+    flux = [(date(2026, 2, 2), 9600.0), (date(2026, 6, 1), -500.0), (date(2026, 9, 1), -2600.0)]
+    v = portefeuille_virtuel(flux, VALEURS)
+    assert v["etat"] == "ok" and abs(v["parts"] - 0.14) < 1e-12
+    assert [p["valeur"] for p in v["points"]] == [9600.0, 9500.0, 7280.0, 7131.6]
+
+
+def test_rendement_vu_du_placement():
+    from routes.indices import _rendement
+    # 10 000 placés il y a un an, valent 11 000 : +10 % par an
+    auj = date(2026, 11, 12)
+    assert abs(_rendement([(date(2025, 11, 12), 10000.0)], 11000.0, auj) - 0.10) < 1e-3
+    assert _rendement([], 0.0, auj) is None
+
+
+@pytest.mark.base
+def test_les_deux_modes_coexistent():
+    from routes import bourse
+    from routes.indices import comparer
+    compte, titres = comparer(mode="compte"), comparer(mode="titres")
+    assert compte["mode"] == "compte" and titres["mode"] == "titres"
+    d = bourse.obtenir_dashboard()
+    assert compte["toi"]["valeur"] == d.patrimoine_total
+    assert titres["toi"]["valeur"] == d.valeur_marche
+    for r in (compte, titres):
+        if r["etat"] == "ok":
+            assert r["ecart"] == round(r["toi"]["valeur"] - r["reference"]["valeur"], 2)

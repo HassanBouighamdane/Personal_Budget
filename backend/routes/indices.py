@@ -12,14 +12,18 @@ Valeurs notées chaque soir de bourse par la tâche du soir (avec les cours de c
 d'un fichier pour les jours d'avant : sans elles, les apports antérieurs à l'historique ne peuvent
 pas être comparés.
 
-Portefeuille virtuel : chaque apport au compte Bourse achète des parts d'indice à sa valeur du jour
-(la dernière connue si c'est un week-end ou un jour férié), chaque retrait en revend. Comparer les
-APPORTS (et non chaque achat de titre) mesure toute la décision : choix des titres, espèces laissées
-sans placement et frais.
+Deux comparaisons, côte à côte :
+- « compte » : chaque apport au compte Bourse achète des parts d'indice à sa valeur du jour (la
+  dernière connue si c'est un week-end ou un jour férié), chaque retrait en revend ; comparé au compte
+  entier (titres + espèces). Mesure toute la décision : choix des titres, espèces laissées sans
+  placement et frais.
+- « titres » : chaque achat de titre achète des parts d'indice pour le même montant, chaque vente et
+  chaque dividende en revend pour ce qui est encaissé ; comparé à la seule valeur de marché des titres.
+  Mesure le choix des titres (et le moment des achats), sans les espèces qui attendent.
 """
 from bisect import bisect_right
 from datetime import date, timedelta
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
@@ -157,38 +161,50 @@ def lister_indices():
                         for code, info in INDICES.items()]}
 
 
+def _rendement(flux: list, valeur: float, auj: date) -> Optional[float]:
+    """Rendement annuel (XIRR) : `flux` vus du placement (entrée positive), valeur finale en sortie."""
+    r = bourse.taux_rendement_annualise([(d, -m) for d, m in flux] + [(auj, valeur)], auj)
+    return round(r, 4) if r is not None else None
+
+
 @router.get("/comparaison")
-def comparer(indice: str = Query(INDICE_DEFAUT)):
-    """Le compte Bourse comparé au même argent placé dans l'indice : valeur, rendement annuel (même
-    calcul que « Performance globale »), écart, et les deux courbes."""
+def comparer(indice: str = Query(INDICE_DEFAUT), mode: Literal["compte", "titres"] = "compte"):
+    """Le compte Bourse (mode « compte ») ou les seuls titres (mode « titres ») comparés au même argent
+    placé dans l'indice : valeur, rendement annuel, écart, et les deux courbes."""
     from routes import patrimoine          # import local : patrimoine importe déjà bourse
     code = _indice(indice)
     auj = aujourdhui()
     with db() as c:
         valeurs = _valeurs(c, code)
         debut_cours = c.execute("SELECT MIN(date) d FROM bourse_prix_historique").fetchone()["d"]
-    flux = _flux_compte()
-    virtuel = portefeuille_virtuel(flux, valeurs)
     compte = bourse.obtenir_dashboard()
-    resultat = {"indice": code, **INDICES[code], "etat": virtuel["etat"] if flux else "sans_apport",
+    if mode == "titres":
+        flux = bourse.flux_titres()
+        toi = {"valeur": compte.valeur_marche, "rendement": _rendement(flux, compte.valeur_marche, auj)}
+    else:
+        flux = _flux_compte()
+        toi = {"valeur": compte.patrimoine_total, "rendement": compte.rendement_annualise}
+    virtuel = portefeuille_virtuel(flux, valeurs)
+    resultat = {"indice": code, **INDICES[code], "mode": mode, "etat": virtuel["etat"] if flux else "sans_apport",
                 "manque_avant": virtuel["manque_avant"], "date_valeur": virtuel["date_valeur"],
                 "apports_nets": compte.apports_nets, "debut_cours": debut_cours,
-                "toi": {"valeur": compte.patrimoine_total, "rendement": compte.rendement_annualise},
-                "reference": None, "ecart": None, "points": []}
+                "toi": toi, "reference": None, "ecart": None, "points": []}
     if resultat["etat"] != "ok":
         return resultat
 
-    # Même calcul que le rendement du compte : apports en sortie de poche, valeur finale en entrée
-    poche = [(d, -m) for d, m in flux]
-    rendement = bourse.taux_rendement_annualise(poche + [(auj, virtuel["valeur"])], auj)
-    resultat["reference"] = {"valeur": virtuel["valeur"], "rendement": round(rendement, 4) if rendement is not None else None}
-    resultat["ecart"] = round(compte.patrimoine_total - virtuel["valeur"], 2)
+    resultat["reference"] = {"valeur": virtuel["valeur"], "rendement": _rendement(flux, virtuel["valeur"], auj)}
+    resultat["ecart"] = round(toi["valeur"] - virtuel["valeur"], 2)
 
-    # Courbes : le compte (titres + espèces) aux dates connues de l'indice, reconstitué comme la courbe du patrimoine
+    # Courbes aux dates connues de l'indice : le compte (titres + espèces) reconstitué comme la courbe du
+    # patrimoine, ou la valeur de marché des titres
     points = echantillonner(virtuel["points"])
     if points:
-        compte_aux = patrimoine.patrimoine_aux_dates([p["date"] for p in points], patrimoine.charger_operations())
-        resultat["points"] = [{"date": p["date"], "indice": p["valeur"], "toi": c["bourse"]} for p, c in zip(points, compte_aux)]
+        jours = [p["date"] for p in points]
+        if mode == "titres":
+            toi_aux = bourse.valeur_marche_aux_dates(jours)
+        else:
+            toi_aux = [c["bourse"] for c in patrimoine.patrimoine_aux_dates(jours, patrimoine.charger_operations())]
+        resultat["points"] = [{"date": p["date"], "indice": p["valeur"], "toi": t} for p, t in zip(points, toi_aux)]
     return resultat
 
 
