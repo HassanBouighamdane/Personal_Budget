@@ -8,7 +8,7 @@ import {
 import { DatePickerInput } from '@mantine/dates';
 import { modals } from '@mantine/modals';
 import {
-  IconBuildingBank, IconChartLine, IconCheck, IconCoin, IconInfoCircle, IconMoonStars, IconPencil, IconPlus, IconScale, IconShieldCheck,
+  IconArrowsExchange, IconBuildingBank, IconChartLine, IconCheck, IconCoin, IconInfoCircle, IconMoonStars, IconPencil, IconPlus, IconScale, IconShieldCheck,
   IconSunrise, IconWallet, IconX,
 } from '@tabler/icons-react';
 
@@ -43,7 +43,8 @@ function FormActif({ p, existant, onTermine }: { p: Patrimoine; existant?: Actif
     const s = verse.trim() ? lireMontant(verse) : 0;
     if (!nom.trim()) return toast('Indique le nom', false);
     if (isNaN(v) || v < 0) return toast('Valeur invalide', false);
-    if (isNaN(s) || s < 0) return toast('Montant versé invalide', false);
+    // Négatif possible sur un actif existant : plus retiré que versé (intérêts, plus-value)
+    if (isNaN(s) || (s < 0 && !existant)) return toast('Montant versé invalide', false);
     const body = { nom: nom.trim(), type, valeur: v, verse: s, zakat, maj_le: date, note: note.trim() };
     ecrire.mutate(
       existant ? { path: `/api/patrimoine/actifs/${existant.id}`, method: 'PUT', body, succes: 'Actif mis à jour ✓' }
@@ -62,7 +63,9 @@ function FormActif({ p, existant, onTermine }: { p: Patrimoine; existant?: Actif
         <ChampDate label="Valeur relevée le" value={date} onChange={setDate} />
       </SimpleGrid>
       <ChampMontant label="Argent versé depuis ton épargne" placeholder="0" value={verse} onChange={setVerse}
-                    description="Ce que tu y as mis sans le saisir en dépense. Laisse vide s'il date d'avant l'application, ou si tu l'as saisi en dépense." />
+                    description={existant
+                      ? 'Total de tes versements moins tes retraits. Pour un nouveau virement, utilise plutôt « Verser / Retirer » : il garde l\'historique.'
+                      : "Ce que tu y as mis sans le saisir en dépense. Laisse vide s'il date d'avant l'application, ou si tu l'as saisi en dépense."} />
       <Checkbox label="Compte pour la zakat" checked={zakat} onChange={e => setZakat(e.currentTarget.checked)} />
       <TextInput label="Note (optionnel)" value={note} onChange={e => setNote(e.currentTarget.value)} maxLength={1000} />
       <Button mt="xs" onClick={enregistrer} loading={ecrire.isPending}>{existant ? 'Enregistrer' : "Ajouter l'actif"}</Button>
@@ -93,6 +96,12 @@ function LigneActif({ a, p }: { a: Actif; p: Patrimoine }) {
         )}
       </Box>
       <Group gap={0} wrap="nowrap">
+        <Tooltip label="Verser / Retirer" withArrow>
+          <ActionIcon variant="subtle" color="marque" aria-label="Verser / Retirer"
+                      onClick={() => ouvrir(a.nom, () => <MouvementsActif id={a.id} />)}>
+            <IconArrowsExchange size={16} stroke={1.7} />
+          </ActionIcon>
+        </Tooltip>
         <Tooltip label="Mettre à jour" withArrow>
           <ActionIcon variant="subtle" color="gray" className="suppr" aria-label="Mettre à jour"
                       onClick={() => ouvrir(a.nom, fermer => <FormActif p={p} existant={a} onTermine={fermer} />)}>
@@ -103,6 +112,77 @@ function LigneActif({ a, p }: { a: Actif; p: Patrimoine }) {
           ecrire.mutate({ path: `/api/patrimoine/actifs/${a.id}`, method: 'DELETE', succes: 'Actif supprimé' }))} />
       </Group>
     </Group>
+  );
+}
+
+/** Versements et retraits d'un actif : historique, annulation et ajout. Chaque mouvement change la
+ *  valeur ET le total versé du même montant : l'argent passe des liquidités à l'actif (ou l'inverse). */
+function MouvementsActif({ id }: { id: number }) {
+  const { data } = usePatrimoine();
+  const ecrire = useEcriture('patrimoine');
+  const a = data?.actifs.find(x => x.id === id);
+  const [sens, setSens] = useState<'verser' | 'retirer'>('verser');
+  const [date, setDate] = useState(auj());
+  const [montant, setMontant] = useState('');
+  const [libelle, setLibelle] = useState('');
+  if (!a) return <Chargement lignes={2} />;
+
+  function enregistrer() {
+    const m = lireMontant(montant);
+    if (isNaN(m) || m <= 0) return toast('Montant invalide', false);
+    if (date > auj()) return toast("Choisis une date passée ou aujourd'hui", false);
+    if (sens === 'retirer' && m > a!.valeur) return toast(`L'actif ne vaut que ${fmt(a!.valeur)}`, false);
+    ecrire.mutate({ path: `/api/patrimoine/actifs/${id}/mouvements`, method: 'POST',
+                    body: { date_operation: date, montant: sens === 'verser' ? m : -m, libelle: libelle.trim() },
+                    succes: sens === 'verser' ? 'Versement enregistré ✓' : 'Retrait enregistré ✓' },
+                  { onSuccess: () => { setMontant(''); setLibelle(''); } });
+  }
+
+  return (
+    <Stack gap="md">
+      <SimpleGrid cols={2} spacing="sm">
+        <Box>
+          <Text fz="xs" c="dimmed">Valeur actuelle</Text>
+          <Text className="chiffre" fz={20} fw={700}>{fmt(a.valeur)}</Text>
+        </Box>
+        <Box>
+          <Text fz="xs" c="dimmed">Versé au total</Text>
+          <Text className="chiffre" fz={20} fw={700}>{fmt(a.verse)}</Text>
+        </Box>
+      </SimpleGrid>
+      {a.mouvements.length > 0 && (
+        <Stack gap={2}>
+          {a.mouvements.map(v => (
+            <Group key={v.id} className="ligne-op" wrap="nowrap" gap="sm" px={6} py={6}>
+              <Text fz="sm" c="dimmed" style={{ whiteSpace: 'nowrap' }}>{dateFr(v.date_operation)}</Text>
+              <Text fz="sm" truncate style={{ flex: 1, minWidth: 0 }}>{v.libelle || (v.montant < 0 ? 'Retrait' : 'Versement')}</Text>
+              <Text fz="sm" fw={600} className="chiffre" c={v.montant < 0 ? T.dep : undefined}>
+                {v.montant < 0 ? '−' : '+'}{fmt(Math.abs(v.montant))}
+              </Text>
+              <BoutonSuppr label="Annuler ce mouvement" onClick={() => confirmer(
+                `Annuler ce ${v.montant < 0 ? 'retrait' : 'versement'} de ${fmt(Math.abs(v.montant))} ? La valeur et le total versé reprennent ce montant.`,
+                () => ecrire.mutate({ path: `/api/patrimoine/actifs/mouvements/${v.id}`, method: 'DELETE', succes: 'Mouvement annulé' }))} />
+            </Group>
+          ))}
+        </Stack>
+      )}
+      <Stack gap="sm">
+        <SegmentedControl fullWidth value={sens} onChange={v => setSens(v as typeof sens)}
+                          data={[{ value: 'verser', label: 'Verser' }, { value: 'retirer', label: 'Retirer', disabled: a.valeur <= 0 }]} />
+        <SimpleGrid cols={{ base: 1, xs: 2 }} spacing="sm">
+          <ChampDate value={date} onChange={setDate} />
+          <ChampMontant label="Montant" value={montant} onChange={setMontant} />
+        </SimpleGrid>
+        <TextInput label="Libellé (optionnel)" placeholder={sens === 'verser' ? 'ex : virement de novembre' : 'ex : retour sur le compte courant'}
+                   value={libelle} onChange={e => setLibelle(e.currentTarget.value)} maxLength={200} />
+        <Text fz="xs" c="dimmed">
+          {sens === 'verser'
+            ? "L'argent quitte tes liquidités pour l'actif : ne le saisis pas aussi en dépense."
+            : "L'argent revient dans tes liquidités : ne le saisis pas aussi en revenu."}
+        </Text>
+        <Button onClick={enregistrer} loading={ecrire.isPending}>{sens === 'verser' ? 'Verser' : 'Retirer'}</Button>
+      </Stack>
+    </Stack>
   );
 }
 

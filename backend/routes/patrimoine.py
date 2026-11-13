@@ -31,7 +31,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from config import aujourdhui
 from database import db, references_valides
 from securite import utilisateur_courant
-from schemas import ActifIn, CoursPassesIn, RapprochementIn, ReglagesPatrimoine
+from schemas import ActifIn, CoursPassesIn, RapprochementIn, ReglagesPatrimoine, VersementIn
 from routes import bourse
 from routes.carnet import lire_dettes
 
@@ -123,6 +123,7 @@ def calculer_patrimoine(auj: date) -> dict:
         epargne = c.execute("""SELECT (SELECT COALESCE(SUM(montant),0) FROM revenus)
                                     - (SELECT COALESCE(SUM(montant),0) FROM depenses) t""").fetchone()["t"]
         actifs = c.execute(f"SELECT {ACTIF_COLONNES} FROM actifs ORDER BY valeur DESC, id").fetchall()
+        mouvements = lire_mouvements_actifs(c)
         dettes = [d for d in lire_dettes(c) if d["reste"] > 0]
         params = _params(c)
         moyenne, nb_mois = depense_moyenne(c, auj)
@@ -137,6 +138,7 @@ def calculer_patrimoine(auj: date) -> dict:
 
     for a in actifs:
         a["valeur"], a["verse"] = float(a["valeur"]), float(a["verse"])
+        a["mouvements"] = mouvements.get(a["id"], [])
     on_me_doit = float(sum((d["reste"] for d in dettes if d["sens"] == "pret"), Decimal(0)))
     je_dois = float(sum((d["reste"] for d in dettes if d["sens"] == "emprunt"), Decimal(0)))
     solde_depart = params.get("solde_depart", 0.0)
@@ -366,14 +368,20 @@ def quantites_le(transactions: list, jour: date) -> dict:
 def patrimoine_aux_dates(jours: list, d: dict) -> list:
     """Patrimoine à la fin de chaque jour de `jours`, avec les seules opérations datées jusqu'à ce
     jour (mêmes formules que calculer_patrimoine). `d` vient de charger_operations() : la fonction
-    ne lit pas la base. Limites : un autre actif compte à sa valeur ACTUELLE dès sa date, et un
-    titre à son dernier cours connu ce jour-là."""
+    ne lit pas la base. Un autre actif compte dès sa date, à sa valeur actuelle moins les versements
+    (plus les retraits) faits après ce jour. Limites : une valeur changée à la main (crayon) compte
+    dès la date de l'actif, et un titre à son dernier cours connu ce jour-là."""
     points = []
     for jour in jours:
         iso = jour.isoformat()
         epargne = sum(m for j, m in d["budget"] if j <= iso)
-        actifs = [a for a in d["actifs"] if a["depuis"] <= jour]
-        autres, verse = sum(a["valeur"] for a in actifs), sum(a["verse"] for a in actifs)
+        autres = verse = 0.0
+        for a in d["actifs"]:
+            if a["depuis"] > jour:
+                continue
+            apres = sum(m for j, m in a.get("mouvements", ()) if j > jour)
+            autres += max(a["valeur"] - apres, 0.0)
+            verse += a["verse"] - apres
         pret = emprunt = 0.0
         for x in d["dettes"]:
             if x["date"] > jour:
@@ -411,8 +419,11 @@ def charger_operations() -> dict:
         budget = [(r["date"], float(r["m"])) for r in c.execute(
             """SELECT date, SUM(montant) m FROM revenus GROUP BY date
                UNION ALL SELECT date, -SUM(montant) FROM depenses GROUP BY date""").fetchall()]
-        actifs = [{"depuis": min(r["cree_le"].date(), r["maj_le"]), "valeur": float(r["valeur"]), "verse": float(r["verse"])}
-                  for r in c.execute("SELECT valeur, verse, maj_le, cree_le FROM actifs").fetchall()]
+        mvts_actifs = {i: [(m["date_operation"], m["montant"]) for m in liste]
+                       for i, liste in lire_mouvements_actifs(c).items()}
+        actifs = [{"depuis": min([r["cree_le"].date(), r["maj_le"]] + [j for j, _ in mvts_actifs.get(r["id"], [])]),
+                   "valeur": float(r["valeur"]), "verse": float(r["verse"]), "mouvements": mvts_actifs.get(r["id"], [])}
+                  for r in c.execute("SELECT id, valeur, verse, maj_le, cree_le FROM actifs").fetchall()]
         dettes = [{"sens": x["sens"], "date": x["date_operation"], "montant": float(x["montant"]),
                    "remboursements": [(r["date_operation"], float(r["montant"])) for r in x["remboursements"]]}
                   for x in lire_dettes(c)]
@@ -539,11 +550,60 @@ def _valeurs(a: ActifIn) -> tuple:
     return (a.nom, a.type.strip() or "Autre", a.valeur, a.verse, a.zakat, a.maj_le, a.note.strip())
 
 
+LIBELLE_OUVERTURE = "Versement à l'ouverture"
+
+
+def lire_mouvements_actifs(c) -> dict:
+    """{actif_id: [mouvement]} : versements (montant positif) et retraits (négatif), les plus récents d'abord."""
+    par_actif = {}
+    for r in c.execute("SELECT id, actif_id, date_operation, montant, libelle FROM actifs_mouvements "
+                       "ORDER BY date_operation DESC, id DESC").fetchall():
+        par_actif.setdefault(r.pop("actif_id"), []).append({**r, "montant": float(r["montant"])})
+    return par_actif
+
+
 @router.post("/actifs", status_code=201)
 def ajouter_actif(a: ActifIn):
+    """Un montant versé à la création entre dans l'historique comme premier versement."""
     with db() as c:
-        return c.execute(f"""INSERT INTO actifs (nom, type, valeur, verse, zakat, maj_le, note)
-                             VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING {ACTIF_COLONNES}""", _valeurs(a)).fetchone()
+        row = c.execute(f"""INSERT INTO actifs (nom, type, valeur, verse, zakat, maj_le, note)
+                            VALUES (%s,%s,%s,%s,%s,%s,%s) RETURNING {ACTIF_COLONNES}""", _valeurs(a)).fetchone()
+        if a.verse > 0:
+            c.execute("INSERT INTO actifs_mouvements (actif_id, date_operation, montant, libelle) VALUES (%s,%s,%s,%s)",
+                      (row["id"], a.maj_le, a.verse, LIBELLE_OUVERTURE))
+        return row
+
+
+@router.post("/actifs/{actif_id}/mouvements", status_code=201)
+def ajouter_mouvement_actif(actif_id: int, v: VersementIn):
+    """Verse de l'argent dans l'actif (montant positif) ou en retire (négatif) : la valeur et le
+    total versé bougent ensemble, les liquidités du montant inverse, le patrimoine ne change pas."""
+    if v.date_operation > aujourdhui():
+        raise HTTPException(400, "Choisis une date passée ou aujourd'hui")
+    montant = Decimal(str(v.montant))
+    with db() as c:
+        a = c.execute("SELECT valeur FROM actifs WHERE id=%s FOR UPDATE", (actif_id,)).fetchone()
+        if not a:
+            raise HTTPException(404, "Actif introuvable")
+        if a["valeur"] + montant < 0:
+            raise HTTPException(400, f"Tu ne peux pas retirer plus que la valeur de l'actif ({a['valeur']} DH)")
+        c.execute("INSERT INTO actifs_mouvements (actif_id, date_operation, montant, libelle) VALUES (%s,%s,%s,%s)",
+                  (actif_id, v.date_operation, montant, v.libelle))
+        return c.execute(f"""UPDATE actifs SET valeur = valeur + %s, verse = verse + %s, maj_le = GREATEST(maj_le, %s)
+                             WHERE id=%s RETURNING {ACTIF_COLONNES}""",
+                         (montant, montant, v.date_operation, actif_id)).fetchone()
+
+
+@router.delete("/actifs/mouvements/{mouvement_id}", status_code=204)
+def supprimer_mouvement_actif(mouvement_id: int):
+    """Annule un versement ou un retrait : la valeur et le total versé reprennent son montant
+    (la valeur ne descend pas sous 0, si elle a été baissée à la main entre-temps)."""
+    with db() as c:
+        m = c.execute("DELETE FROM actifs_mouvements WHERE id=%s RETURNING actif_id, montant", (mouvement_id,)).fetchone()
+        if not m:
+            raise HTTPException(404, "Mouvement introuvable")
+        c.execute("UPDATE actifs SET valeur = GREATEST(valeur - %s, 0), verse = verse - %s WHERE id=%s",
+                  (m["montant"], m["montant"], m["actif_id"]))
 
 
 @router.put("/actifs/{actif_id}")

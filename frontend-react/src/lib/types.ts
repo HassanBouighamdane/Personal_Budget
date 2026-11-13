@@ -374,7 +374,12 @@ export type CoursPasse = {
 };
 export type Reconstitution = { points: number; debut: string | null; fin: string | null };
 /** `verse` : argent sorti de l'épargne pour cet actif sans être saisi en dépense */
-export type Actif = { id: number; nom: string; type: string; valeur: number; verse: number; zakat: boolean; maj_le: string; note: string };
+/** Versement (montant positif) ou retrait (négatif) d'un actif */
+export type MouvementActif = { id: number; date_operation: string; montant: number; libelle: string };
+export type Actif = {
+  id: number; nom: string; type: string; valeur: number; verse: number; zakat: boolean; maj_le: string; note: string;
+  mouvements: MouvementActif[];
+};
 export type Patrimoine = {
   solde_depart: number; epargne_cumulee: number;
   liquidites: number; bourse: number; autres_actifs: number; creances: number; dettes: number; total: number;

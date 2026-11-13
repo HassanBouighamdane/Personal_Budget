@@ -233,7 +233,7 @@ TABLES_MODIFIE_LE = (
     "bourse_parametres", "bourse_transactions", "bourse_titres", "bourse_dividendes", "bourse_frais",
     "bourse_mouvements", "bourse_cibles_secteur", "bourse_cibles_titre",
     "lectures_livres", "lectures_genres", "lectures_a_lire", "lectures_notes", "lectures_prets",
-    "dettes", "dettes_remboursements", "echeances", "actifs", "objectifs", "objectifs_versements",
+    "dettes", "dettes_remboursements", "echeances", "actifs", "actifs_mouvements", "objectifs", "objectifs_versements",
     "bourse_cours_historique", "rapprochements", "recurrences",
 )
 
@@ -654,6 +654,20 @@ def init_db():
             note    TEXT NOT NULL DEFAULT '',
             cree_le TIMESTAMP NOT NULL DEFAULT now()
         );
+        -- Versements et retraits d'un actif (bouton « Verser / Retirer ») : chacun ajoute son montant
+        -- (négatif = retrait) à `valeur` ET à `verse` de l'actif, qui restent les totaux lus partout.
+        -- `verse` peut donc devenir négatif : retirer plus qu'on n'a mis (intérêts, plus-value)
+        -- fait revenir cet argent dans les liquidités.
+        ALTER TABLE actifs DROP CONSTRAINT IF EXISTS actifs_verse_check;
+        CREATE TABLE IF NOT EXISTS actifs_mouvements (
+            id             SERIAL PRIMARY KEY,
+            actif_id       INTEGER NOT NULL REFERENCES actifs(id) ON DELETE CASCADE,
+            date_operation DATE NOT NULL,
+            montant        NUMERIC(14,2) NOT NULL CHECK (montant <> 0),
+            libelle        VARCHAR(200) NOT NULL DEFAULT '',
+            cree_le        TIMESTAMP NOT NULL DEFAULT now()
+        );
+        CREATE INDEX IF NOT EXISTS idx_actifs_mouvements ON actifs_mouvements (actif_id);
 
         -- Objectifs d'épargne par projet (voyage, fonds d'urgence, voiture). Un versement met de
         -- l'argent de côté pour l'objectif : il reste dans les liquidités (ce n'est ni une dépense

@@ -659,7 +659,8 @@ class ActifIn(BaseModel):
     nom: str = Field(min_length=1, max_length=100)
     type: str = Field(default="Autre", max_length=30)
     valeur: MontantOuZero
-    verse: MontantOuZero = 0
+    # Négatif possible : plus retiré que versé (intérêts, plus-value revenus dans les liquidités)
+    verse: float = Field(default=0, ge=-MONTANT_MAX, le=MONTANT_MAX)
     zakat: bool = False
     maj_le: date
     note: str = Field(default="", max_length=1000)
