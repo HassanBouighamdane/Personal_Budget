@@ -67,5 +67,17 @@ def pytest_collection_modifyitems(config, items):
 def _base_de_test_a_jour():
     """Tables et colonnes du code testé, une fois par session (une base en retard sur le code
     échouerait sinon avec UndefinedColumn)."""
-    from database import init_db
-    init_db()
+    # Sous le verrou des migrations de l'application : un déploiement Vercel qui démarre sur la même
+    # base au même moment (push sur preview) lance lui aussi init_db, et deux init_db simultanés
+    # s'interbloquent (DeadlockDetected). Le verrou est tenu jusqu'au commit de `c`, après init_db.
+    from psycopg.errors import DeadlockDetected
+    from database import VERROU_MIGRATIONS, db, init_db
+    for essai in range(3):
+        try:
+            with db() as c:
+                c.execute("SELECT pg_advisory_xact_lock(%s)", (VERROU_MIGRATIONS,))
+                init_db()
+            return
+        except DeadlockDetected:
+            if essai == 2:
+                raise
