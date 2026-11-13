@@ -1,5 +1,5 @@
 # Tests à chaque push sur `preview` et sur chaque Pull Request vers `master` :
-# le frontend (types + build) et le backend (calculs sans base, puis tests sur la base de preview).
+# le frontend (types + build) et le backend (tous les tests ; ceux de base sur TEST_DATABASE_URL, cf. tests/conftest.py).
 # Le déploiement reste fait par Vercel ; ce workflow dit seulement si le code est bon.
 name: Tests
 
@@ -36,26 +36,15 @@ jobs:
     env:
       FUSEAU: Africa/Casablanca
       # Secret GitHub : l'URL de la branche Neon de preview (jamais celle de production)
-      DATABASE_URL_TESTS: ${{ secrets.DATABASE_URL_TESTS }}
+      TEST_DATABASE_URL: ${{ secrets.DATABASE_URL_TESTS }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: backend/requirements.txt
-      - run: pip install -r requirements.txt
-      - name: Tests sans base
-        run: pytest -m "not base" -q
-        env:
-          DATABASE_URL: postgresql://sans-base@localhost/sans-base
-      - name: Mise à jour de la base de preview (tables et colonnes du code testé)
-        if: env.DATABASE_URL_TESTS != ''
-        run: python -c "from database import init_db; init_db()"
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL_TESTS }}
-      - name: Tests sur la base de preview
-        if: env.DATABASE_URL_TESTS != ''
-        run: pytest -m base -q
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL_TESTS }}
+          cache-dependency-path: backend/requirements*.txt
+      - run: pip install -r requirements-tests.txt
+      # conftest.py lit TEST_DATABASE_URL : sans le secret, les tests de base sont sautés
+      - name: Tests
+        run: pytest -q -rs

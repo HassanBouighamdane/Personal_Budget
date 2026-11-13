@@ -17,6 +17,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest
+
+# Chaque test passe par la base (nettoyage automatique avant chaque test)
+pytestmark = pytest.mark.base
 from fastapi import HTTPException
 from pydantic import ValidationError
 

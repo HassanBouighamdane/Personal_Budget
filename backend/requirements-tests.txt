@@ -1,0 +1,5 @@
+# Dépendances des tests seulement (pas déployées) : pip install -r requirements-tests.txt
+-r requirements.txt
+pytest
+httpx2          # client de test de Starlette récent (fastapi.testclient)
+httpx           # client de test des versions plus anciennes de Starlette

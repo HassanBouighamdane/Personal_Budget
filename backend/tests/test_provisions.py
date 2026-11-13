@@ -15,6 +15,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest
+
+# Chaque test passe par la base (nettoyage automatique avant chaque test)
+pytestmark = pytest.mark.base
 from pydantic import ValidationError
 
 from config import aujourdhui

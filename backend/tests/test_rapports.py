@@ -18,6 +18,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest
 
+# Chaque test passe par la base (nettoyage automatique avant chaque test)
+pytestmark = pytest.mark.base
+
 from database import db
 from schemas import CategorieIn, DepenseIn, RevenuIn
 from routes.configuration import ajouter_categorie
