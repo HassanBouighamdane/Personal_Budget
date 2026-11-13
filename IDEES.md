@@ -57,7 +57,7 @@ Nothing left here: price history, out-of-date prices and the MASI comparison are
 
 **Built on 2026-11-13, tests and preview**
 - **Separate test database**: the database tests run on `TEST_DATABASE_URL` only (a Neon branch), never on `DATABASE_URL` (`tests/conftest.py`). Without it they are skipped, and any test that still opens a connection is skipped too; equal to `DATABASE_URL`, pytest refuses to start. The test database is brought up to the code (`init_db()`) once per session. Test dependencies in `backend/requirements-tests.txt` (`httpx2` for the test client of recent Starlette).
-- **CI**: `.github/workflows/tests.yml` runs on each push to `preview` and each Pull Request to `master`: frontend type-check and build, then `pytest` with the `DATABASE_URL_TESTS` secret. Vercel builds `preview` as a Preview deployment on its own Neon branch.
+- **CI**: `.github/workflows/tests.yml` runs on each push to `preview` and each Pull Request to `master`: frontend type-check and build, then `pytest` without a database (the database tests are skipped there and run by hand with `TEST_DATABASE_URL`). Vercel builds `preview` as a Preview deployment on its own Neon branch.
 - The first full run against a database found a real bug: choosing the category of a Telegram expense with the buttons lost the expense (`RETURNING` gave the new value, `NULL`). Fixed; the other failures were tests out of date with the code.
 
 **Built on 2026-11-12, sixth batch** (type-checked and built; the backend suite, new tests included, passed against a throwaway local PostgreSQL, except two older failures in `test_patrimoine` and `test_telegram`)

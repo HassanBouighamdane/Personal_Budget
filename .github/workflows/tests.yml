@@ -1,11 +1,11 @@
 # Tests à chaque push sur `preview` et sur chaque Pull Request vers `master` :
-# le frontend (types + build) et le backend (tous les tests ; ceux de base sur TEST_DATABASE_URL, cf. tests/conftest.py).
+# le frontend (types + build) et le backend (tests sans base ; ceux qui écrivent en base sont sautés).
 # Le déploiement reste fait par Vercel ; ce workflow dit seulement si le code est bon.
 name: Tests
 
 on:
   push:
-    branches: [preview, master]
+    branches: [preview]
   pull_request:
     branches: [master]
 
@@ -35,8 +35,8 @@ jobs:
         working-directory: backend
     env:
       FUSEAU: Africa/Casablanca
-      # Secret GitHub : l'URL de la branche Neon de preview (jamais celle de production)
-      TEST_DATABASE_URL: ${{ secrets.DATABASE_URL_TESTS }}
+      # Pas de TEST_DATABASE_URL : les tests de base sont sautés (cf. tests/conftest.py), seuls les
+      # calculs sans base tournent ici. Les tests de base se lancent à la main, sur une base de test.
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -45,6 +45,5 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements*.txt
       - run: pip install -r requirements-tests.txt
-      # conftest.py lit TEST_DATABASE_URL : sans le secret, les tests de base sont sautés
-      - name: Tests
+      - name: Tests (sans base)
         run: pytest -q -rs
