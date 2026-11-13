@@ -117,8 +117,8 @@ def test_rendement_vu_du_placement():
 @pytest.mark.base
 def test_les_deux_modes_coexistent():
     from routes import bourse
-    from routes.indices import comparer
-    compte, titres = comparer(mode="compte"), comparer(mode="titres")
+    from routes.indices import INDICE_DEFAUT, comparer
+    compte, titres = comparer(INDICE_DEFAUT, mode="compte"), comparer(INDICE_DEFAUT, mode="titres")
     assert compte["mode"] == "compte" and titres["mode"] == "titres"
     d = bourse.obtenir_dashboard()
     assert compte["toi"]["valeur"] == d.patrimoine_total

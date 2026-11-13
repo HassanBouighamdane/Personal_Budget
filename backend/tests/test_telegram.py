@@ -101,6 +101,7 @@ def _depenses():
                          (CAT,)).fetchall()
 
 
+@pytest.mark.base
 def test_categorie_devinee_par_son_nom_puis_annulee(envois):
     telegram.traiter(_message(1, "45 zqfood hier"), AUJ)
     d = _depenses()
@@ -114,6 +115,7 @@ def test_categorie_devinee_par_son_nom_puis_annulee(envois):
     assert envois[-1][0] == "editMessageText" and envois[-1][1]["text"].startswith("↩️ Annulé")
 
 
+@pytest.mark.base
 def test_categorie_inconnue_demandee_par_boutons(envois):
     telegram.traiter(_message(1, "30 xqzwv"), AUJ)
     assert not _depenses()
@@ -129,12 +131,14 @@ def test_categorie_inconnue_demandee_par_boutons(envois):
     assert len(_depenses()) == 1
 
 
+@pytest.mark.base
 def test_message_recu_deux_fois_traite_une_fois(envois):
     telegram.traiter(_message(1, "12 zqfood"), AUJ)
     telegram.traiter(_message(1, "12 zqfood"), AUJ)
     assert len(_depenses()) == 1 and len(envois) == 1
 
 
+@pytest.mark.base
 def test_autre_conversation_ignoree(envois):
     telegram.traiter(_message(1, "12 zqfood", chat="999"), AUJ)
     assert not _depenses() and not envois

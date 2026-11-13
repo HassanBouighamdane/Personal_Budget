@@ -6,6 +6,8 @@ import sys
 import tomllib
 from pathlib import Path
 
+import pytest
+
 RACINE = Path(__file__).resolve().parents[2]
 # Utile seulement en développement (tests)
 HORS_VERCEL = {"pytest"}
@@ -39,6 +41,7 @@ def test_le_frontend_est_construit_au_deploiement():
     assert "buildCommand" not in json.loads((RACINE / "vercel.json").read_text(encoding="utf-8"))
 
 
+@pytest.mark.base
 def test_demarrage_ne_consomme_pas_de_numeros_de_colonnes():
     """init_db tourne à chaque démarrage à froid : une colonne ajoutée puis supprimée à chaque
     passage garde son numéro, et la table finit bloquée à la limite PostgreSQL de 1600 colonnes."""

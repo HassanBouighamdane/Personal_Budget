@@ -35,6 +35,7 @@ def limiteur():
     nettoyer()
 
 
+@pytest.mark.base
 def test_le_limiteur_bloque_apres_trop_d_echecs(limiteur):
     for _ in range(3):
         limiteur.verifier(CLE)
@@ -44,6 +45,7 @@ def test_le_limiteur_bloque_apres_trop_d_echecs(limiteur):
     assert exc.value.status_code == 429 and "15 min" in exc.value.detail
 
 
+@pytest.mark.base
 def test_le_limiteur_est_partage_entre_instances(limiteur):
     """Deux instances (deux serveurs Vercel) voient les mêmes échecs : ils sont en base."""
     autre = LimiteurEchecs(max_echecs=3, fenetre_min=15)
@@ -53,6 +55,7 @@ def test_le_limiteur_est_partage_entre_instances(limiteur):
         autre.verifier(CLE)
 
 
+@pytest.mark.base
 def test_une_reussite_remet_le_compteur_a_zero(limiteur):
     for _ in range(3):
         limiteur.echec(CLE)
@@ -60,12 +63,14 @@ def test_une_reussite_remet_le_compteur_a_zero(limiteur):
     limiteur.verifier(CLE)   # ne lève plus
 
 
+@pytest.mark.base
 def test_les_echecs_d_une_cle_ne_bloquent_pas_les_autres(limiteur):
     for _ in range(3):
         limiteur.echec(CLE)
     limiteur.verifier(CLE + "-autre")
 
 
+@pytest.mark.base
 def test_les_echecs_hors_fenetre_ne_comptent_plus(limiteur):
     with db() as c:
         for _ in range(3):

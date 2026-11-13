@@ -15,6 +15,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest
+
+# Chaque test passe par la base (nettoyage automatique avant chaque test)
+pytestmark = pytest.mark.base
 from fastapi import HTTPException
 
 from config import aujourdhui
@@ -109,7 +112,7 @@ def test_zakat_assiette_nisab_et_montant():
     assert z["nisab"] == 85000 and z["atteint"]
     assert z["montant"] == round(z["assiette"] * 0.025, 2)
     # Un prix de l'or qui met le nisab hors d'atteinte : rien n'est dû
-    modifier_reglages(ReglagesPatrimoine(prix_or_gramme=10_000_000))
+    modifier_reglages(ReglagesPatrimoine(prix_or_gramme=100_000))      # nisab : 8,5 millions
     z = calculer_patrimoine(AUJ)["zakat"]
     assert not z["atteint"] and z["montant"] == 0
 

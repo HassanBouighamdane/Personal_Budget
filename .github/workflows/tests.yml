@@ -1,0 +1,50 @@
+# Tests à chaque push sur `preview` et sur chaque Pull Request vers `master` :
+# le frontend (types + build) et le backend (tous les tests ; ceux de base sur TEST_DATABASE_URL, cf. tests/conftest.py).
+# Le déploiement reste fait par Vercel ; ce workflow dit seulement si le code est bon.
+name: Tests
+
+on:
+  push:
+    branches: [preview, master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend-react
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend-react/package-lock.json
+      - run: npm ci
+      - name: Types
+        run: npx tsc --noEmit -p .
+      - name: Build
+        run: npx vite build
+
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      FUSEAU: Africa/Casablanca
+      # Secret GitHub : l'URL de la branche Neon de preview (jamais celle de production)
+      TEST_DATABASE_URL: ${{ secrets.DATABASE_URL_TESTS }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+      - run: pip install -r requirements-tests.txt
+      # conftest.py lit TEST_DATABASE_URL : sans le secret, les tests de base sont sautés
+      - name: Tests
+        run: pytest -q -rs

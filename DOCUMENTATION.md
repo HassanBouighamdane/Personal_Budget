@@ -168,10 +168,11 @@ npm run build        # vérifie les types (tsc) puis produit dist/
 
 ```bash
 cd backend
-pytest tests -v
+pip install -r requirements-tests.txt
+pytest -q
 ```
 
-⚠️ Les tests utilisent la base configurée dans `.env` : ils y créent puis suppriment des données préfixées `ZZTEST`. **Ne les lance jamais avec la configuration de production**, uniquement sur une base de développement.
+Les tests qui écrivent dans la base utilisent **`TEST_DATABASE_URL`** (variable d'environnement ou ligne de `backend/.env`), jamais `DATABASE_URL` : mets-y l'URL d'une base à part, par exemple la branche Neon de preview. Sans elle, ils sont sautés ; si elle est égale à `DATABASE_URL`, pytest refuse de démarrer.
 
 ---
 
@@ -668,7 +669,9 @@ Une migration toucherait toutes les requêtes de `rapports.py` et `transactions.
 La TPCVM saisie sur une vente est retirée du montant encaissé : l'application suppose que l'intermédiaire la retient à la source. Le prix de vente doit donc être saisi AVANT TPCVM, sinon elle est déduite deux fois et les espèces paraissent trop basses.
 
 **3. Couverture des tests**
-Les tests (`backend/tests/`, un fichier par module) couvrent les calculs Bourse et le TRI, les rapports du Budget (projection, charges fixes, comparaisons au mois précédent et à l'an dernier, statistiques annuelles), le Suivi, les objectifs d'épargne, le patrimoine, les rappels, les sauvegardes et le déploiement. La limitation des connexions, les en-têtes de sécurité et les limites des saisies sont testés (`test_securite.py`) ; l'authentification et la vue Globale n'ont pas de tests automatisés. Ils tournent sur la base de `backend/.env` (données préfixées `ZZTEST` ou datées de 1901).
+Les tests (`backend/tests/`, un fichier par module) couvrent les calculs Bourse et le TRI, les rapports du Budget (projection, charges fixes, comparaisons au mois précédent et à l'an dernier, statistiques annuelles), le Suivi, les objectifs d'épargne, le patrimoine, les rappels, les sauvegardes et le déploiement. La limitation des connexions, les en-têtes de sécurité et les limites des saisies sont testés (`test_securite.py`) ; l'authentification et la vue Globale n'ont pas de tests automatisés. Les tests qui écrivent dans la base (marqueur `base`) tournent sur **`TEST_DATABASE_URL`**, jamais sur la base réelle (`tests/conftest.py`) : une base à part, par exemple une branche Neon de la base principale, donnée en variable d'environnement ou en ligne de `backend/.env`. Sans elle, ces tests sont sautés ; égale au `DATABASE_URL`, pytest refuse de démarrer. La base de test est mise au niveau du code (`init_db()`) au début de chaque session. Les données de test restent préfixées `ZZTEST` ou datées de 1901. Dépendances des tests : `pip install -r backend/requirements-tests.txt`.
+
+**Intégration continue** (`.github/workflows/tests.yml`) : à chaque push sur `preview` et à chaque Pull Request vers `master`, GitHub Actions vérifie le frontend (`tsc`, `vite build`) et lance `pytest` ; les tests de base utilisent le secret `TEST_DATABASE_URL` du dépôt (la branche Neon de preview).
 
 **4. Limitation des connexions par nom d'utilisateur**
 Le blocage se fait par nom d'utilisateur (l'adresse IP n'est pas fiable derrière le proxy de l'hébergeur) : quelqu'un qui connaît le nom d'utilisateur peut bloquer la connexion pendant 15 minutes.
