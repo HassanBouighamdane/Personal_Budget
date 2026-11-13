@@ -43,6 +43,15 @@ def pytest_configure(config):
     config.addinivalue_line("markers", "base: test qui lit ou écrit dans la base de test (TEST_DATABASE_URL)")
     if _REFUS:
         pytest.exit(_REFUS, returncode=2)
+    if not _test:
+        # Filet : un test qui ouvre une connexion sans porter le marqueur `base` est sauté, lui aussi
+        # (pytest.skip lève une BaseException, que les `except Exception` du code laissent passer)
+        import database
+
+        def sans_base(*_, **__):
+            pytest.skip("TEST_DATABASE_URL absent : ce test passe par la base")
+        database._pool.close()
+        database._pool.connection = sans_base
 
 
 def pytest_collection_modifyitems(config, items):

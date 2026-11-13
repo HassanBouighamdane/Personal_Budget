@@ -17,6 +17,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import pytest
+
+# Les tests de ce fichier passent par la base
+pytestmark = pytest.mark.base
 from fastapi import HTTPException
 
 import sauvegarde

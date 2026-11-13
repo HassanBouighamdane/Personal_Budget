@@ -50,6 +50,11 @@ def isolation(monkeypatch):
     notes = []
     monkeypatch.setattr(rappels.patrimoine, "noter_patrimoine", lambda auj, p=None: notes.append(auj))
     monkeypatch.setattr(rappels.patrimoine, "a_des_estimations", lambda: False)
+    # Ni les rappels du lundi qui dépendent des données réelles de la base (copie de la base principale) :
+    # solde jamais pointé, cours en retard, dépenses inhabituelles (testés dans leurs propres fichiers)
+    monkeypatch.setattr(rappels.patrimoine, "dernier_pointage", lambda c, auj: {"jours": 0, "a_refaire": False})
+    monkeypatch.setattr(rappels.bourse, "cours_en_retard", lambda auj: [])
+    monkeypatch.setattr(rappels.alertes, "calculer_alertes", lambda auj: [])     # testées dans test_alertes.py
     _nettoyer()
     yield
     _nettoyer()
@@ -109,7 +114,7 @@ def test_une_section_en_erreur_n_empeche_pas_le_resume(monkeypatch):
         raise RuntimeError("panne")
     monkeypatch.setattr(rappels, "_donnees_bourse", casse)
     r = resume_hebdo(AUJ)
-    assert "💸 Budget" in r["texte"] and "Bourse" not in r["texte"] and r["patrimoine"] is None
+    assert "💸 Budget" in r["texte"] and "📈 Bourse" not in r["texte"] and r["patrimoine"] is None
 
 
 def test_tache_quotidienne_exige_le_secret(monkeypatch):

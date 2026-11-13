@@ -41,20 +41,24 @@ Nothing left here: price history, out-of-date prices and the MASI comparison are
 
 ## 6. Tests and tooling
 
-- ★ **Separate test database** (S): tests run against the `.env` database, which is the real data, and only rely on a `ZZTEST` prefix or dates in 1901. Read `TEST_DATABASE_URL` and refuse to run if it is missing or equals `DATABASE_URL`. A free Neon branch of the main database works well for this. Have `conftest.py` run `init_db()` once, so a database that is behind the code no longer fails with `UndefinedColumn`. Since 2026-11-11, several batches of database tests were written but never run. This is the step that lets them run safely.
 - **More tests** (S): the login limiter, security headers and input limits are now covered (`test_securite.py`). Still missing: the global view (`calculer_resume_global`), and the login and logout routes themselves.
 - **Pinned dependencies** (S): `requirements.txt` and `pyproject.toml` have no versions, so a deploy can pull a breaking FastAPI or psycopg release. Pin them (or use `uv` with a lock file). `package-lock.json` already covers the frontend.
-- **CI** (S): a GitHub Actions workflow running `pytest` against a Postgres service container, `npm run typecheck`, and `ruff check`.
+- **CI, next steps** (S): add `ruff check` to the workflow, and make the `master` branch refuse a merge when the tests fail (needs a public repository or a paid GitHub plan for a private one).
 - **Frontend tests** (S to start): Vitest for `lib/format.ts`, `lib/csv.ts` (date and amount parsing of bank statements), the budget alert of the expense form and `alerteTache` on the home page.
 
 ## Suggested order
 
-1. **Protect the data first** (two evenings): the separate test database (it lets the unrun tests from the last batches run, the fifth batch included), then the weekly backup (2).
+1. **Protect the data first** (one evening): the weekly backup (2). The separate test database and CI are done.
 2. **Capture**: import rules (5). With Telegram entry and recurring transactions, they remove most of the typing.
-3. **Foundations**: numbered migrations, then `DATE`/`NUMERIC`, then pinned dependencies and CI.
+3. **Foundations**: pinned dependencies (a new Starlette already broke the CI tests once), numbered migrations, then `DATE`/`NUMERIC`.
 4. Then the smaller extra: offline entries (6).
 
 ## Done
+
+**Built on 2026-11-13, tests and preview**
+- **Separate test database**: the database tests run on `TEST_DATABASE_URL` only (a Neon branch), never on `DATABASE_URL` (`tests/conftest.py`). Without it they are skipped, and any test that still opens a connection is skipped too; equal to `DATABASE_URL`, pytest refuses to start. The test database is brought up to the code (`init_db()`) once per session. Test dependencies in `backend/requirements-tests.txt` (`httpx2` for the test client of recent Starlette).
+- **CI**: `.github/workflows/tests.yml` runs on each push to `preview` and each Pull Request to `master`: frontend type-check and build, then `pytest` with the `DATABASE_URL_TESTS` secret. Vercel builds `preview` as a Preview deployment on its own Neon branch.
+- The first full run against a database found a real bug: choosing the category of a Telegram expense with the buttons lost the expense (`RETURNING` gave the new value, `NULL`). Fixed; the other failures were tests out of date with the code.
 
 **Built on 2026-11-12, sixth batch** (type-checked and built; the backend suite, new tests included, passed against a throwaway local PostgreSQL, except two older failures in `test_patrimoine` and `test_telegram`)
 - **Price history**: `bourse_prix_historique(titre, date, cours, manuel)` gets the closing price of each held stock once per trading day, from a second cron at 20:00 Morocco time (`/api/cron/cours-du-soir`); no row on weekends and public holidays (fixed ones in `FERIES_FIXES`, religious ones entered in Bourse → Paramètres). "Valeur du portefeuille" chart in Bourse → Positions (market value vs cost, or one stock's price). The month-end rebuild of the net-worth curve uses these prices before falling back to the last transaction price.

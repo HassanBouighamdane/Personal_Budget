@@ -290,8 +290,13 @@ def bouton(c, data: str, auj: date) -> tuple:
         texte, boutons = _confirmation_depense(c, d, auj)
         return texte, boutons, cat["nom"]
     if morceaux[0] == "c" and len(morceaux) == 3 and cat:
-        attente = c.execute("UPDATE telegram_messages SET attente=NULL WHERE update_id=%s AND attente IS NOT NULL "
-                            "RETURNING attente", (int(morceaux[1]),)).fetchone()
+        # RETURNING donne la valeur APRÈS la mise à jour (NULL) : l'ancienne est lue dans la sous-requête,
+        # verrouillée pour qu'un double clic ne l'enregistre pas deux fois
+        attente = c.execute("""UPDATE telegram_messages t SET attente = NULL
+                               FROM (SELECT update_id, attente FROM telegram_messages
+                                     WHERE update_id = %s AND attente IS NOT NULL FOR UPDATE) avant
+                               WHERE t.update_id = avant.update_id
+                               RETURNING avant.attente""", (int(morceaux[1]),)).fetchone()
         if not attente:
             return "Déjà enregistrée.", None, "Déjà enregistrée"
         op = attente["attente"] if isinstance(attente["attente"], dict) else json.loads(attente["attente"])
