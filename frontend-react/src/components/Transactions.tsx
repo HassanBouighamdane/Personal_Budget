@@ -8,9 +8,9 @@ import { modals } from '@mantine/modals';
 import { IconArrowDownLeft, IconArrowUpRight, IconClockHour4, IconCopy, IconPencil, IconReceipt, IconSearch } from '@tabler/icons-react';
 
 import { avertir, toast } from '../lib/api';
-import { auj, decalerDate, fmt, JOURS_FR, libelleMois, lireMontant, MOIS_FR, prixEnTravail } from '../lib/format';
+import { auj, dateFr, decalerDate, fmt, JOURS_FR, libelleMois, lireMontant, MOIS_FR, prixEnTravail } from '../lib/format';
 import { T } from '../lib/palette';
-import type { Depense, ResultatRecherche, Revenu } from '../lib/types';
+import type { Depense, Periode, ResultatRecherche, Revenu, RubriqueRecherche } from '../lib/types';
 import { useConfig, useEcriture, useRecherche, useResumeMois, useSuggestions, useTags, useTransactionsMois } from '../lib/queries';
 import { ChampDate, ChampMontant } from './champs';
 import { BoutonSuppr, Carte, Chargement, notifierAnnulable, Pastille, Vide } from './ui';
@@ -429,24 +429,57 @@ export function TransactionsDuMois({ mois, titre = 'Transactions du mois', vide 
 /* ---------- Recherche dans tout l'historique ---------- */
 const PAGE = 50;
 
-export function ResultatsRecherche({ q, onTag }: { q: string; onTag: (tag: string) => void }) {
+/** Répartition des opérations trouvées par catégorie (dépenses) et par source (revenus) */
+function Repartition({ rubriques, dep, rev }: { rubriques: RubriqueRecherche[]; dep: number; rev: number }) {
+  const blocs = [
+    { type: 'depenses' as const, titre: 'Dépenses par catégorie', total: dep, couleur: 'rose', vide: '' },
+    { type: 'revenus' as const, titre: 'Revenus par source', total: rev, couleur: 'bleu', vide: 'Sans source' },
+  ].map(b => ({ ...b, lignes: rubriques.filter(r => r.type === b.type) })).filter(b => b.lignes.length > 0);
+  if (!blocs.length) return null;
+  return (
+    <SimpleGrid cols={{ base: 1, sm: blocs.length }} spacing="lg">
+      {blocs.map(b => (
+        <Stack key={b.type} gap={8}>
+          <Text fz="xs" fw={600} c="dimmed" tt="uppercase">{b.titre}</Text>
+          {b.lignes.map(r => (
+            <Box key={r.nom}>
+              <Group justify="space-between" wrap="nowrap" gap="xs">
+                <Text fz="sm" truncate>{r.nom || b.vide} <Text span fz="xs" c="dimmed">· {r.nb}</Text></Text>
+                <Text fz="sm" fw={600} className="chiffre" style={{ whiteSpace: 'nowrap' }}>
+                  {fmt(r.montant)} <Text span fz="xs" c="dimmed">{b.total > 0 ? Math.round(r.montant / b.total * 100) : 0} %</Text>
+                </Text>
+              </Group>
+              <Progress value={b.total > 0 ? r.montant / b.total * 100 : 0} color={b.couleur} size={5} radius="xl" mt={4} />
+            </Box>
+          ))}
+        </Stack>
+      ))}
+    </SimpleGrid>
+  );
+}
+
+/** Résultats d'une recherche (texte, montant, #tag) et/ou d'une période : totaux, répartition, opérations */
+export function ResultatsRecherche({ q, periode = null, onTag }: { q: string; periode?: Periode | null; onTag: (tag: string) => void }) {
   const [page, setPage] = useState(0);
-  useEffect(() => setPage(0), [q]);
-  const { data, isPending, isFetching } = useRecherche(q, page * PAGE);
+  useEffect(() => setPage(0), [q, periode?.[0], periode?.[1]]);
+  const { data, isPending, isFetching } = useRecherche(q, page * PAGE, periode);
   const supprimer = useSuppression();
   const nbPages = data ? Math.ceil(data.nb / PAGE) : 0;
+  const ou = periode ? `du ${dateFr(periode[0])} au ${dateFr(periode[1])}` : "dans tout l'historique";
 
   return (
-    <Carte titre={`Recherche « ${q} »`}
-           description={data ? `${data.nb} opération${data.nb > 1 ? 's' : ''} dans tout l'historique` : undefined}>
+    <Carte titre={q ? `Recherche « ${q} »` : `Du ${dateFr(periode![0])} au ${dateFr(periode![1])}`}
+           description={data ? `${data.nb} opération${data.nb > 1 ? 's' : ''} ${q ? ou : ''}`.trim() : undefined}>
       {isPending ? <Chargement lignes={5} /> : !data?.nb ? (
         <Vide icone={IconSearch}>
-          Aucune opération trouvée. Cherche un mot de la description, une catégorie, un montant exact (ex : 250)
-          ou un tag (ex : #voyage).
+          {q ? <>Aucune opération trouvée {ou}. Cherche un mot de la description, une catégorie, un montant exact (ex : 250)
+                ou un tag (ex : #voyage).</>
+             : 'Aucune opération sur cette période.'}
         </Vide>
       ) : (
         <Stack gap="md" style={{ opacity: isFetching ? 0.6 : 1 }}>
           <Totaux dep={data.total_depenses} rev={data.total_revenus} />
+          <Repartition rubriques={data.par_rubrique} dep={data.total_depenses} rev={data.total_revenus} />
           <ParJour lignes={data.resultats.map(ligneRecherche)} supprimer={supprimer} onTag={onTag} avecAnnee />
           {nbPages > 1 && (
             <Group justify="space-between">

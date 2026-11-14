@@ -6,7 +6,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { api, apiSilencieux, toast } from './api';
 import type {
   Alerte, ALire, ApercuRappels, EtatTelegram, Rapprochements, BilanLecture, CalendrierDividendes, NoteDuJour, Patrimoine, PointPatrimoine, CoursPasse, PretLivre, Projet, SerieLecture, BudgetHistorique, CibleSecteur, CibleTitre, Config, CoursActualisation, DashboardBourse, Dette, Dividende, Echeance, EtatRappels, Fiscalite, FraisBourse, Gain, Genre,
-  Livre, ModeComparaison, Mouvement, NoteLecture, ObjectifsLecture, Position, Recherche, ResumeAnnee, ResumeGlobal, ResumeJour, ResumeMois, ResumeSemaine, ResumeTag,
+  Livre, ModeComparaison, Mouvement, NoteLecture, ObjectifsLecture, Periode, Position, Recherche, ResumeAnnee, ResumeGlobal, ResumeJour, ResumeMois, ResumeSemaine, ResumeTag,
   Suggestion, Titre, TransactionBourse, TransactionsMois, Recurrence, RecurrenceAGenerer, SuggestionRecurrence, Previsions,
   HistoriquePortefeuille, HistoriqueTitre, JoursFeries, CoursEnRetard, Indices, Comparaison, CouvertureTitre,
 } from './types';
@@ -26,11 +26,13 @@ export const useResumeJour = (date: string) => lire<ResumeJour>(['budget', 'jour
 export const useResumeSemaine = (date: string) => lire<ResumeSemaine>(['budget', 'semaine', date], '/api/resume_semaine?date=' + date);
 export const useResumeAnnee = (annee: number) => lire<ResumeAnnee>(['budget', 'annee', annee], '/api/resume_annuel?annee=' + annee);
 export const useResumeGlobal = () => lire<ResumeGlobal>(['budget', 'global'], '/api/resume_global');
-export const useRecherche = (q: string, decalage: number) => useQuery({
-  queryKey: ['budget', 'recherche', q, decalage],
-  queryFn: () => api<Recherche>(`/api/recherche?q=${encodeURIComponent(q)}&limite=50&decalage=${decalage}`),
+/** Recherche dans tout l'historique, ou seulement sur `periode` (une période seule suffit) */
+export const useRecherche = (q: string, decalage: number, periode: Periode | null = null) => useQuery({
+  queryKey: ['budget', 'recherche', q, decalage, periode],
+  queryFn: () => api<Recherche>(`/api/recherche?q=${encodeURIComponent(q)}&limite=50&decalage=${decalage}`
+                                + (periode ? `&du=${periode[0]}&au=${periode[1]}` : '')),
   placeholderData: keepPreviousData,
-  enabled: q.trim().length > 0,
+  enabled: q.trim().length > 0 || !!periode,
 });
 /** Dernières descriptions d'une catégorie / source (aucune requête sans nom choisi) */
 export const useSuggestions = (type: 'depenses' | 'revenus', nom: string | null) => useQuery({

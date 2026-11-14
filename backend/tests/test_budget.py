@@ -295,6 +295,24 @@ def test_recherche_par_texte_tag_et_montant():
     assert rechercher("")["nb"] == 0
 
 
+def test_recherche_sur_une_periode():
+    cat, src = _categorie(), PREFIXE + "Src"
+    ajouter_depense(DepenseIn(date="1902-03-01", categorie=cat, montant=40, description="zztest", tags=["zztest-periode"]))
+    ajouter_depense(DepenseIn(date="1902-03-31", categorie=cat, montant=60, description="zztest", tags=["zztest-periode"]))
+    ajouter_depense(DepenseIn(date="1902-04-01", categorie=cat, montant=999, description="zztest", tags=["zztest-periode"]))
+    ajouter_revenu(RevenuIn(date="1902-03-15", source=src, montant=500, tags=["zztest-periode"]))
+    # Datée de 1902 : seule dans sa période, la vraie base ne gêne pas. Bornes incluses.
+    r = rechercher(du=date(1902, 3, 1), au=date(1902, 3, 31))
+    assert (r["nb"], r["total_depenses"], r["total_revenus"]) == (3, 100, 500)
+    assert {(x["type"], x["nom"], x["nb"], x["montant"]) for x in r["par_rubrique"]} == {
+        ("depenses", cat, 2, 100), ("revenus", src, 1, 500)}
+    assert rechercher("#zztest-periode", du=date(1902, 3, 20))["total_depenses"] == 60 + 999   # texte + début seul
+    assert rechercher("#zztest-periode", au=date(1902, 3, 10))["total_depenses"] == 40         # texte + fin seule
+    with pytest.raises(HTTPException) as exc:
+        rechercher(du=date(1902, 4, 1), au=date(1902, 3, 1))
+    assert exc.value.status_code == 400
+
+
 def test_suggestions_par_categorie():
     cat = _categorie()
     for jour, desc, m in [("01", "Marjane", 300), ("05", "Épicerie", 40), ("09", "Marjane", 320)]:

@@ -4,7 +4,7 @@ annulation, liste), recherche dans tout l'historique, suggestions, tags, export 
 import csv
 import io
 import re
-from datetime import datetime
+from datetime import date, datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -151,13 +151,23 @@ def analyser_recherche(q: str) -> tuple:
     return tags, " ".join(mots), montant
 
 @router.get("/recherche")
-def rechercher(q: str = "", limite: int = 50, decalage: int = 0):
-    """Dépenses et revenus de tout l'historique, du plus récent au plus ancien, avec les
-    totaux de toutes les lignes trouvées (pas seulement de la page)."""
+def rechercher(q: str = "", limite: int = 50, decalage: int = 0,
+               du: Optional[date] = None, au: Optional[date] = None):
+    """Dépenses et revenus, du plus récent au plus ancien, avec les totaux de toutes les lignes
+    trouvées (pas seulement de la page) et leur répartition par catégorie / source. `du` et `au`
+    (inclus) limitent à une période ; sans texte, une période seule liste toutes ses opérations."""
+    if du and au and du > au:
+        raise HTTPException(400, "La date de début doit précéder la date de fin")
     tags, texte, montant = analyser_recherche(q)
-    if not (tags or texte or montant is not None):
-        return {"resultats": [], "nb": 0, "total_depenses": 0, "total_revenus": 0}
+    if not (tags or texte or montant is not None or du or au):
+        return {"resultats": [], "nb": 0, "total_depenses": 0, "total_revenus": 0, "par_rubrique": []}
     conditions, params = [], []
+    if du:
+        conditions.append("date >= %s")
+        params.append(du.isoformat())
+    if au:
+        conditions.append("date <= %s")
+        params.append(au.isoformat())
     if tags:
         conditions.append("tags @> %s::text[]")
         params.append(tags)
@@ -180,8 +190,11 @@ def rechercher(q: str = "", limite: int = 50, decalage: int = 0):
                                       COALESCE(SUM(montant) FILTER (WHERE type='depenses'),0) dep,
                                       COALESCE(SUM(montant) FILTER (WHERE type='revenus'),0) rev
                                FROM ({toutes}) t""", params).fetchone()
+        rubriques = c.execute(f"""SELECT type, nom, COUNT(*) nb, SUM(montant) montant FROM ({toutes}) t
+                                  GROUP BY type, nom ORDER BY type, SUM(montant) DESC, nom""", params).fetchall()
     return {"resultats": lignes, "nb": totaux["nb"],
-            "total_depenses": round(totaux["dep"], 2), "total_revenus": round(totaux["rev"], 2)}
+            "total_depenses": round(totaux["dep"], 2), "total_revenus": round(totaux["rev"], 2),
+            "par_rubrique": [{**r, "montant": round(r["montant"], 2)} for r in rubriques]}
 
 
 # ------------------------------------------------------------------ Suggestions et tags
