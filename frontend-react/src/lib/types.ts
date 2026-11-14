@@ -17,7 +17,13 @@ export type TransactionsMois = { depenses: Depense[]; revenus: Revenu[] };
 export type ResultatRecherche = {
   type: 'depenses' | 'revenus'; id: number; date: string; nom: string; description: string; montant: number; tags: string[];
 };
-export type Recherche = { resultats: ResultatRecherche[]; nb: number; total_depenses: number; total_revenus: number };
+/** Total d'une catégorie (dépenses) ou d'une source (revenus) parmi les opérations trouvées */
+export type RubriqueRecherche = { type: 'depenses' | 'revenus'; nom: string; nb: number; montant: number };
+export type Recherche = {
+  resultats: ResultatRecherche[]; nb: number; total_depenses: number; total_revenus: number; par_rubrique: RubriqueRecherche[];
+};
+/** Période choisie dans la Saisie : [début, fin] AAAA-MM-JJ, bornes incluses */
+export type Periode = [string, string];
 export type Suggestion = { description: string; montant: number };
 export type ResumeTag = { tag: string; nb: number; depenses: number; revenus: number; premier: string; dernier: string };
 /** Budget d'une catégorie à partir d'un mois (AAAA-MM ; 1900-01 = depuis toujours) */
