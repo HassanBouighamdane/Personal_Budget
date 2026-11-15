@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-Prévisions de trésorerie : les liquidités mois par mois, du mois en cours aux N prochains.
+Prévisions de trésorerie : l'argent disponible mois par mois, du mois en cours aux N prochains.
 
     solde(M) = solde(M−1) + revenus attendus − dépenses attendues − échéances − dettes à rembourser
 
-  - départ : les liquidités d'aujourd'hui (sans les opérations datées de demain ou après) ;
+  - départ : l'argent disponible d'aujourd'hui = les liquidités (sans les opérations datées de
+    demain ou après) + la valeur des actifs « Compte épargne », retirables à tout moment (comme
+    pour la réserve de sécurité). Virer de l'argent vers un compte épargne, ou l'en retirer, est
+    donc un simple déplacement : il ne change pas la prévision ;
   - revenus, par source : ses récurrences actives pas encore générées (ni passées) ce mois-là ;
     une source sans récurrence : la MÉDIANE de ses montants mensuels sur les 6 derniers mois
     terminés (une prime ou un remboursement isolé ne gonfle pas chaque mois à venir), moins ce qui
@@ -23,10 +26,15 @@ Les objectifs d'épargne ne sortent pas d'argent (il reste dans les liquidités,
 s'ajoutent à la réserve, de `par_mois` chaque mois jusqu'à leur date limite. Une échéance
 provisionnée par un objectif vide sa réserve le mois où elle est payée. « Libre » = solde − réservé.
 
+Alertes : argent disponible sous le plancher (ou sous 0) ; réserve de sécurité entamée (le
+disponible passe sous la valeur actuelle des comptes épargne : le compte courant seul ne suffit
+plus) ; objectifs qui réservent plus que l'argent disponible, ou qui demandent plus que l'épargne.
+
 Fourchette : l'écart-type des dépenses mensuelles passées, multiplié par √(nombre de mois) — plus
 on regarde loin, plus l'estimation est incertaine. Les opérations de pointage (tag `pointage`)
 sont des corrections, pas des habitudes : elles restent hors des moyennes. Les apports en Bourse
-et l'argent versé dans d'autres actifs sont des choix, pas des dépenses prévues : ils n'y sont pas.
+et l'argent versé dans les autres actifs (or, immobilier...) sont des choix, pas des dépenses
+prévues : ils n'y sont pas.
 """
 from datetime import date
 from math import sqrt
@@ -144,7 +152,8 @@ def projeter(d: dict, auj: date, horizon: int, plancher: float = 0.0) -> dict:
     # Réserve des objectifs, objectif par objectif
     reserve_objectif = {o["id"]: float(o["reserve"]) for o in d["objectifs"]}
 
-    solde = d["depart"]
+    epargne = d.get("epargne", 0.0)
+    solde = d["depart"] + epargne
     totaux_hist = [sum(d["hist_depenses"].get(c, {}).get(m, 0.0) for c in d["hist_depenses"]) for m in fenetre]
     ecart_type = pstdev(totaux_hist) if len(totaux_hist) >= 2 else 0.0
     points = []
@@ -191,7 +200,8 @@ def projeter(d: dict, auj: date, horizon: int, plancher: float = 0.0) -> dict:
         })
 
     point_bas = min(points, key=lambda p: p["solde"])
-    libre_bas = min(points, key=lambda p: p["libre"])
+    # Mois où des objectifs réservent de l'argent : sans réserve, un « libre » négatif n'est qu'un solde négatif
+    libre_bas = min((p for p in points if p["reserve"] > 0), key=lambda p: p["libre"], default=None)
     # Mois « type » : le premier mois entier (le mois en cours n'en est qu'un reste)
     type_ = points[1] if len(points) > 1 else points[0]
     epargne_prevue = _r(type_["revenus"] - type_["depenses"])
@@ -200,19 +210,28 @@ def projeter(d: dict, auj: date, horizon: int, plancher: float = 0.0) -> dict:
     alertes = []
     if point_bas["solde"] < plancher:
         alertes.append({"type": "plancher", "mois": point_bas["mois"],
-                        "titre": "Liquidités sous ton plancher" if plancher > 0 else "Liquidités dans le rouge",
+                        "titre": "Argent disponible sous ton plancher" if plancher > 0 else "Argent disponible dans le rouge",
                         "detail": f"{dh(point_bas['solde'])} prévus fin {_mois_fr(point_bas['mois'])}"
                                   + (f" (plancher : {dh(plancher)})" if plancher > 0 else "")})
-    if libre_bas["libre"] < 0 and libre_bas["solde"] >= plancher:
+    # Réserve entamée : l'argent disponible passe sous la valeur des comptes épargne, le compte
+    # courant seul ne suffit plus. Seulement au-dessus du plancher (sinon l'alerte plancher dit déjà plus).
+    entame = next((p for p in points if p["solde"] < epargne - 0.005), None)
+    if entame and point_bas["solde"] >= plancher:
+        alertes.append({"type": "reserve", "mois": entame["mois"], "titre": "Tu vas entamer ta réserve de sécurité",
+                        "detail": f"Ton compte courant seul ne suffira plus fin {_mois_fr(entame['mois'])} : "
+                                  f"jusqu'à {dh(epargne - point_bas['solde'])} pris sur tes comptes épargne "
+                                  f"(fin {_mois_fr(point_bas['mois'])})"})
+    if libre_bas and libre_bas["libre"] < 0 and libre_bas["solde"] >= plancher:
         alertes.append({"type": "objectifs", "mois": libre_bas["mois"],
-                        "titre": "Tes objectifs réservent plus que tes liquidités",
+                        "titre": "Tes objectifs réservent plus que ton argent disponible",
                         "detail": f"{dh(-libre_bas['libre'])} manquants fin {_mois_fr(libre_bas['mois'])}"})
     if rythme_objectifs > 0 and rythme_objectifs > epargne_prevue:
         alertes.append({"type": "rythme", "mois": type_["mois"],
                         "titre": "Tes objectifs demandent plus que ton épargne",
                         "detail": f"{dh(rythme_objectifs)} à mettre de côté par mois, {dh(epargne_prevue)} d'épargne prévue"})
 
-    return {"date": auj, "depart": _r(d["depart"]), "plancher": plancher, "nb_mois_historique": len(fenetre),
+    return {"date": auj, "depart": _r(d["depart"] + epargne), "depart_liquidites": _r(d["depart"]),
+            "depart_epargne": _r(epargne), "plancher": plancher, "nb_mois_historique": len(fenetre),
             "mois": points, "point_bas": {"mois": point_bas["mois"], "solde": point_bas["solde"]},
             "epargne_prevue": epargne_prevue, "rythme_objectifs": rythme_objectifs, "alertes": alertes}
 
@@ -274,7 +293,9 @@ def charger(auj: date) -> dict:
                       "par_mois": float(o["par_mois"]) if o["par_mois"] is not None else None}
                      for o in lire_objectifs(c, auj) if not o["archive"]]
         plancher = c.execute("SELECT valeur FROM params WHERE cle='prevision_plancher'").fetchone()
-    return {"depart": depart, "fenetre": fenetre, "hist_depenses": hist_dep, "hist_revenus": hist_rev,
+        epargne = c.execute("SELECT COALESCE(SUM(valeur),0) t FROM actifs WHERE type=%s",
+                            (patrimoine.TYPE_DISPONIBLE,)).fetchone()["t"]
+    return {"depart": depart, "epargne": float(epargne), "fenetre": fenetre, "hist_depenses": hist_dep, "hist_revenus": hist_rev,
             "deja_depenses": deja_dep, "deja_revenus": deja_rev, "futur_depenses": futur_dep, "futur_revenus": futur_rev,
             "categories": categories, "recurrences": recurrences, "echeances": echeances, "dettes": dettes,
             "objectifs": objectifs, "plancher": float(plancher["valeur"]) if plancher else 0.0}

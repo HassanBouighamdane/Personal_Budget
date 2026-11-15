@@ -1,6 +1,7 @@
-/* Suivi → Patrimoine — prévisions de trésorerie : les liquidités fin de mois, du mois en cours aux prochains, à partir des
- * récurrences, des moyennes passées, des échéances et des emprunts à rembourser. Les objectifs ne sortent pas d'argent :
- * ils en réservent (« libres » = liquidités − réservé). La zone autour de la courbe donne l'incertitude. */
+/* Suivi → Patrimoine — prévisions de trésorerie : l'argent disponible (liquidités + comptes épargne) fin de mois, du mois
+ * en cours aux prochains, à partir des récurrences, des moyennes passées, des échéances et des emprunts à rembourser.
+ * Les objectifs ne sortent pas d'argent : ils en réservent (« libres » = disponible − réservé). La zone autour de la
+ * courbe donne l'incertitude. */
 import { useState } from 'react';
 import { Alert, Badge, Box, Button, Collapse, Group, SegmentedControl, Stack, Table, Text, UnstyledButton } from '@mantine/core';
 import { IconAlertTriangle, IconChevronDown, IconChevronRight, IconTelescope } from '@tabler/icons-react';
@@ -39,9 +40,12 @@ function Courbe({ p }: { p: Previsions }) {
         // Fourchette : la courbe haute remplie jusqu'à la basse (préfixe « _ » : hors légende et infobulle)
         { label: '_haut', data: avecDepart(m => m.haut), borderWidth: 0, pointRadius: 0, fill: '+1', backgroundColor: 'rgba(16,185,129,.10)' },
         { label: '_bas', data: avecDepart(m => m.bas), borderWidth: 0, pointRadius: 0, fill: false },
-        { label: 'Liquidités prévues', data: avecDepart(m => m.solde), borderColor: C.ep, backgroundColor: C.ep, tension: .25, pointRadius: 3 },
+        { label: 'Argent disponible prévu', data: avecDepart(m => m.solde), borderColor: C.ep, backgroundColor: C.ep, tension: .25, pointRadius: 3 },
         ...(aReserve ? [{ label: 'dont libres', data: avecDepart(m => m.libre), borderColor: C.rev, backgroundColor: C.rev,
                           borderDash: [6, 4], borderWidth: 1.5, tension: .25, pointRadius: 0 }] : []),
+        // Seuil de la réserve : sous cette ligne, le compte courant seul ne suffit plus
+        ...(p.depart_epargne > 0 ? [{ label: 'Réserve (comptes épargne)', data: labels.map(() => p.depart_epargne), borderColor: C.budget,
+                                      borderWidth: 1, borderDash: [2, 4], pointRadius: 0 }] : []),
         ...(p.plancher > 0 ? [{ label: 'Plancher', data: labels.map(() => p.plancher), borderColor: C.dep, borderWidth: 1,
                                 borderDash: [3, 3], pointRadius: 0 }] : []),
       ],
@@ -141,7 +145,7 @@ export function CartePrevisions() {
   return (
     <Carte titre="Prévisions" icone={<Pastille icone={IconTelescope} couleur="bleu" />} droite={choix}
            description={p ? <>Point bas : <Text span inherit fw={600} c={p.point_bas.solde < p.plancher ? T.neg : undefined}>{fmt(p.point_bas.solde)}</Text> fin {libelleMois(p.point_bas.mois).toLowerCase()}</>
-             : 'Tes liquidités fin de mois, à partir de tes habitudes'}>
+             : 'Ton argent disponible fin de mois, à partir de tes habitudes'}>
       {isPending || !p ? <Chargement lignes={3} /> : (
         <Stack gap="md">
           {p.alertes.map(a => (
@@ -150,6 +154,12 @@ export function CartePrevisions() {
               <Text fz="xs">{a.detail}</Text>
             </Alert>
           ))}
+          {p.depart_epargne > 0 && (
+            <Text fz="xs" c="dimmed">
+              Aujourd'hui : {fmt(p.depart)} disponibles = compte courant {fmt(p.depart_liquidites)} + comptes épargne {fmt(p.depart_epargne)}.
+              Un virement vers un compte épargne ne change pas la prévision. Sous la ligne « Réserve », tu puises dans ton épargne.
+            </Text>
+          )}
           <Courbe p={p} />
           <TableMois p={p} />
           <Group justify="space-between" align="flex-end" gap="sm" wrap="wrap">

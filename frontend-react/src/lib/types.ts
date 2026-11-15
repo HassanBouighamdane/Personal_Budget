@@ -454,9 +454,10 @@ export type MoisPrevision = {
     dettes: { personne: string; date: string; montant: number; en_retard: boolean }[];
   };
 };
-export type AlertePrevision = { type: 'plancher' | 'objectifs' | 'rythme'; mois: string; titre: string; detail: string };
+export type AlertePrevision = { type: 'plancher' | 'reserve' | 'objectifs' | 'rythme'; mois: string; titre: string; detail: string };
 export type Previsions = {
-  date: string; depart: number; plancher: number; nb_mois_historique: number; mois: MoisPrevision[];
+  /** depart = depart_liquidites (compte courant calculé) + depart_epargne (actifs « Compte épargne ») */
+  date: string; depart: number; depart_liquidites: number; depart_epargne: number; plancher: number; nb_mois_historique: number; mois: MoisPrevision[];
   point_bas: { mois: string; solde: number }; epargne_prevue: number; rythme_objectifs: number; alertes: AlertePrevision[];
 };
 
