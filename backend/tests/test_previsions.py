@@ -126,6 +126,32 @@ def test_echeances_dettes_et_alerte_plancher():
     assert [a["type"] for a in p["alertes"]] == ["plancher"]
 
 
+def test_comptes_epargne_comptes_dans_l_argent_disponible():
+    """3000 virés vers le compte épargne : liquidités −178, mais 2822 disponibles. Pas dans le
+    rouge, mais le compte courant seul ne suffit pas : la réserve est entamée."""
+    p = projeter(_donnees(depart=-178.0, epargne=3000.0), AUJ, 1)
+    assert (p["depart"], p["depart_liquidites"], p["depart_epargne"]) == (2822, -178, 3000)
+    assert p["mois"][0]["solde"] == 2822 and [a["type"] for a in p["alertes"]] == ["reserve"]
+    # Un virement vers le compte épargne déplace l'argent : la prévision ne bouge pas
+    assert projeter(_donnees(depart=2822.0, epargne=0.0), AUJ, 1)["mois"] == p["mois"]
+
+
+def test_alerte_reserve_entamee():
+    """Compte courant 2000, épargne 3000, 1500 de plus dépensés que gagnés chaque mois."""
+    d = _donnees(depart=2000.0, epargne=3000.0, hist_depenses={"Loyer": {m: 1500.0 for m in FENETRE}})
+    p = projeter(d, AUJ, 3)
+    assert [m["solde"] for m in p["mois"]] == [3500, 2000, 500, -1000]
+    # Plancher à −2000 : jamais dans le rouge « réglé », mais la réserve est entamée dès décembre
+    p = projeter(d, AUJ, 3, plancher=-2000)
+    (a,) = p["alertes"]
+    assert a["type"] == "reserve" and a["mois"] == "2026-12"
+    assert "4 000" in a["detail"].replace(" ", " ").replace("\xa0", " ")          # 3000 − (−1000)
+    # Sous le plancher : seule l'alerte plancher, plus grave
+    assert [a["type"] for a in projeter(d, AUJ, 3)["alertes"]] == ["plancher"]
+    # Compte courant qui tient seul : pas d'alerte
+    assert projeter(_donnees(depart=5000.0, epargne=3000.0), AUJ, 3)["alertes"] == []
+
+
 def test_objectifs_reserve_et_provision():
     d = _donnees(depart=5000.0,
                  objectifs=[{"id": 1, "nom": "Assurance", "reserve": 1000.0, "par_mois": 500.0, "date_limite": date(2026, 12, 20)},
